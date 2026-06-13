@@ -8,6 +8,11 @@ module.exports = {
       name: "agent-api",
       script: "apps/api/dist/main.js",
       cwd: __dirname,
+      // Single-instance fork (matches arzonic/ranky). NOT cluster: the service
+      // holds per-run state in memory (RunsService event subjects), so it must
+      // stay one process. Setting `instances` at all flips PM2 into cluster
+      // mode, so we pin exec_mode explicitly instead.
+      exec_mode: "fork",
       instances: 1,
       autorestart: true,
       max_memory_restart: "512M",
