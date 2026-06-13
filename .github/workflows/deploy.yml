@@ -6,8 +6,7 @@ name: Deploy to VPS
 #
 # The job operates on the live deploy directory /opt/agent-engine (where PM2
 # runs from), NOT the runner's _work checkout — so PM2 always serves the same
-# path. DEPLOY_PATH can be overridden with a repo variable (Settings → Secrets
-# and variables → Actions → Variables) if the path ever changes.
+# path.
 
 on:
   push:
@@ -23,7 +22,7 @@ jobs:
     # Matches the labels you give the runner at registration time.
     runs-on: [self-hosted, agent-engine]
     env:
-      DEPLOY_PATH: ${{ vars.DEPLOY_PATH || '/opt/agent-engine' }}
+      DEPLOY_PATH: /opt/agent-engine
     steps:
       - name: Pull, build and reload
         run: |
