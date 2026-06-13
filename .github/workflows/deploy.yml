@@ -34,5 +34,10 @@ jobs:
           corepack enable
           pnpm install --frozen-lockfile
           pnpm build
-          pm2 reload ecosystem.config.cjs --update-env || pm2 start ecosystem.config.cjs
+          # delete+start (not reload): guarantees ecosystem.config.cjs changes —
+          # incl. exec_mode — always take effect. A ~1s restart is fine for an
+          # internal API, and in-memory run state resets on any restart anyway
+          # until the Supabase checkpointer is wired in.
+          pm2 delete agent-api 2>/dev/null || true
+          pm2 start ecosystem.config.cjs --update-env
           pm2 save
