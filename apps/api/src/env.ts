@@ -1,4 +1,4 @@
-import { loadEnv, type Env } from "@arzonic/agent-shared";
+import { cleanEnv, loadEnv, type Env } from "@arzonic/agent-shared";
 import { z } from "zod";
 
 const ApiEnvSchema = z.object({
@@ -21,7 +21,7 @@ export type ApiEnv = Env & z.infer<typeof ApiEnvSchema>;
 
 export function loadApiEnv(): ApiEnv {
   const base = loadEnv();
-  const parsed = ApiEnvSchema.safeParse(process.env);
+  const parsed = ApiEnvSchema.safeParse(cleanEnv());
   if (!parsed.success) {
     const details = parsed.error.issues
       .map((i) => `  - ${i.path.join(".")}: ${i.message}`)

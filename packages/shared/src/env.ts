@@ -59,11 +59,25 @@ function findEnvFile(startDir: string): string | undefined {
   }
 }
 
+/**
+ * Treat empty-string env vars as unset. A blank line in .env (e.g. `LLM_MODEL=`)
+ * loads as "", which would otherwise fail `.min(1)`/`.url()` on optional fields.
+ */
+export function cleanEnv(
+  source: NodeJS.ProcessEnv = process.env,
+): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [key, value] of Object.entries(source)) {
+    if (value !== undefined && value !== "") out[key] = value;
+  }
+  return out;
+}
+
 export function loadEnv(): Env {
   const envFile = findEnvFile(process.cwd());
   if (envFile) loadDotenv({ path: envFile, quiet: true });
 
-  const parsed = EnvSchema.safeParse(process.env);
+  const parsed = EnvSchema.safeParse(cleanEnv());
   if (!parsed.success) {
     const details = parsed.error.issues
       .map((i) => `  - ${i.path.join(".")}: ${i.message}`)
