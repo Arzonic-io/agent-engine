@@ -1,0 +1,40 @@
+name: Deploy to VPS
+
+# SSH-deploy: on push to main, connect to the VPS, pull, build and reload PM2.
+# The build runs ON the VPS (matches ecosystem.config.cjs). Secrets are configured
+# in GitHub → Settings → Secrets and variables → Actions:
+#   VPS_HOST     - VPS IP or hostname
+#   VPS_USER     - SSH user (has access to ~/agent-engine and pm2)
+#   VPS_SSH_KEY  - private SSH key (the matching public key is in the VPS user's authorized_keys)
+#   VPS_PORT     - SSH port (optional, defaults to 22)
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+concurrency:
+  group: deploy-vps
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy over SSH
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_PORT || 22 }}
+          script: |
+            set -euo pipefail
+            cd ~/agent-engine
+            git fetch --all
+            git reset --hard origin/main
+            corepack enable
+            pnpm install --frozen-lockfile
+            pnpm build
+            pm2 reload ecosystem.config.cjs --update-env || pm2 start ecosystem.config.cjs
+            pm2 save
