@@ -1,0 +1,32 @@
+{
+  "name": "@arzonic/agent-api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "start": "node dist/main.js",
+    "smoke": "tsc -p tsconfig.json && tsx smoke.ts"
+  },
+  "dependencies": {
+    "@arzonic/agent-client": "workspace:*",
+    "@arzonic/agent-core": "workspace:*",
+    "@arzonic/agent-shared": "workspace:*",
+    "@langchain/core": "1.1.49",
+    "@langchain/langgraph": "1.4.2",
+    "@langchain/langgraph-checkpoint-postgres": "1.0.3",
+    "@nestjs/common": "11.1.26",
+    "@nestjs/core": "11.1.26",
+    "@nestjs/platform-express": "11.1.26",
+    "reflect-metadata": "0.2.2",
+    "rxjs": "7.8.2",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@types/express": "5.0.6",
+    "@types/node": "25.9.3",
+    "tsx": "4.22.4",
+    "typescript": "5.9.3"
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "name": "@arzonic/agent-cli",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "agent": "tsx src/index.ts"
+  },
+  "dependencies": {
+    "@arzonic/agent-core": "workspace:*",
+    "@arzonic/agent-shared": "workspace:*",
+    "@langchain/langgraph": "1.4.2",
+    "@langchain/langgraph-checkpoint-postgres": "1.0.3"
+  },
+  "devDependencies": {
+    "@types/node": "25.9.3",
+    "tsx": "4.22.4",
+    "typescript": "5.9.3"
+  }
+}
