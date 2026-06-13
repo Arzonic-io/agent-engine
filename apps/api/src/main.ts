@@ -3,6 +3,9 @@ import { NestFactory } from "@nestjs/core";
 import { AppModule } from "./app.module.js";
 import { loadApiEnv } from "./env.js";
 
+// Bump on each deploy you want to verify went live — it prints in the boot log.
+const APP_VERSION = "0.1.0";
+
 async function bootstrap(): Promise<void> {
   const env = loadApiEnv();
   const app = await NestFactory.create(AppModule);
@@ -16,7 +19,7 @@ async function bootstrap(): Promise<void> {
 
   await app.listen(env.API_PORT, "0.0.0.0");
   console.log(
-    `[agent-api] listening on :${env.API_PORT} | provider: ${env.LLM_PROVIDER} | ` +
+    `[agent-api] v${APP_VERSION} listening on :${env.API_PORT} | provider: ${env.LLM_PROVIDER} | ` +
       `checkpointer: ${env.SUPABASE_DB_URL ? "supabase/postgres" : "memory (dev only)"}`,
   );
 }
