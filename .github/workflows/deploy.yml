@@ -7,6 +7,8 @@ name: Deploy to VPS
 #   VPS_USER     - SSH user (has access to ~/agent-engine and pm2)
 #   VPS_SSH_KEY  - private SSH key (the matching public key is in the VPS user's authorized_keys)
 #   VPS_PORT     - SSH port (optional, defaults to 22)
+#   DEPLOY_PATH  - absolute path to the checkout on the VPS
+#                  (e.g. /home/agents-arzonic/htdocs/agents.arzonic.com)
 
 on:
   push:
@@ -30,7 +32,7 @@ jobs:
           port: ${{ secrets.VPS_PORT || 22 }}
           script: |
             set -euo pipefail
-            cd ~/agent-engine
+            cd "${{ secrets.DEPLOY_PATH }}"
             git fetch --all
             git reset --hard origin/main
             corepack enable
