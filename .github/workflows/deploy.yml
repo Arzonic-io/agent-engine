@@ -1,14 +1,13 @@
 name: Deploy to VPS
 
-# SSH-deploy: on push to main, connect to the VPS, pull, build and reload PM2.
-# The build runs ON the VPS (matches ecosystem.config.cjs). Secrets are configured
-# in GitHub → Settings → Secrets and variables → Actions:
-#   VPS_HOST     - VPS IP or hostname
-#   VPS_USER     - SSH user (has access to ~/agent-engine and pm2)
-#   VPS_SSH_KEY  - private SSH key (the matching public key is in the VPS user's authorized_keys)
-#   VPS_PORT     - SSH port (optional, defaults to 22)
-#   DEPLOY_PATH  - absolute path to the checkout on the VPS
-#                  (e.g. /home/agents-arzonic/htdocs/agents.arzonic.com)
+# Self-hosted runner deploy: the runner lives ON the VPS (registered as the
+# `agents-arzonic` site-user), so it builds locally and reloads PM2 directly —
+# no SSH keys or deploy secrets needed.
+#
+# The job operates on the live deploy directory (where PM2 runs from), NOT the
+# runner's _work checkout — so PM2 always serves the same path. DEPLOY_PATH can
+# be overridden with a repo variable (Settings → Secrets and variables →
+# Actions → Variables) if the site path ever changes.
 
 on:
   push:
@@ -21,22 +20,19 @@ concurrency:
 
 jobs:
   deploy:
-    runs-on: ubuntu-latest
+    # Matches the labels you give the runner at registration time.
+    runs-on: [self-hosted, agent-engine]
+    env:
+      DEPLOY_PATH: ${{ vars.DEPLOY_PATH || '/home/agents-arzonic/htdocs/agents.arzonic.com' }}
     steps:
-      - name: Deploy over SSH
-        uses: appleboy/ssh-action@v1.2.0
-        with:
-          host: ${{ secrets.VPS_HOST }}
-          username: ${{ secrets.VPS_USER }}
-          key: ${{ secrets.VPS_SSH_KEY }}
-          port: ${{ secrets.VPS_PORT || 22 }}
-          script: |
-            set -euo pipefail
-            cd "${{ secrets.DEPLOY_PATH }}"
-            git fetch --all
-            git reset --hard origin/main
-            corepack enable
-            pnpm install --frozen-lockfile
-            pnpm build
-            pm2 reload ecosystem.config.cjs --update-env || pm2 start ecosystem.config.cjs
-            pm2 save
+      - name: Pull, build and reload
+        run: |
+          set -euo pipefail
+          cd "$DEPLOY_PATH"
+          git fetch --all
+          git reset --hard origin/main
+          corepack enable
+          pnpm install --frozen-lockfile
+          pnpm build
+          pm2 reload ecosystem.config.cjs --update-env || pm2 start ecosystem.config.cjs
+          pm2 save
