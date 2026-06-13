@@ -1,0 +1,33 @@
+# Local-dev Postgres for the agent-engine checkpointer.
+#
+# This is for LOCAL development only — it mirrors the native Postgres that runs
+# on the VPS, so persistence behaves identically in dev and prod. Do NOT run
+# this on the VPS (it already has a native Postgres on 5432).
+#
+# Usage (on your laptop):
+#   docker compose up -d
+# then set in your local .env:
+#   SUPABASE_DB_URL=postgresql://agent_engine:devpassword@127.0.0.1:5432/agent_engine
+#
+# Leave SUPABASE_DB_URL empty instead if you just want the in-memory saver.
+services:
+  postgres:
+    image: postgres:16
+    container_name: agent-engine-pg
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: agent_engine
+      POSTGRES_PASSWORD: devpassword
+      POSTGRES_DB: agent_engine
+    ports:
+      - "5432:5432"
+    volumes:
+      - agent-engine-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U agent_engine -d agent_engine"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  agent-engine-pgdata:
