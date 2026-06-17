@@ -140,6 +140,11 @@ export class AgentClient {
     return this.request(`/missions/${encodeURIComponent(id)}/stop`, { method: "POST" });
   }
 
+  /** Delete a mission and its backlog items. */
+  deleteMission(id: string): Promise<{ ok: true }> {
+    return this.request(`/missions/${encodeURIComponent(id)}`, { method: "DELETE" });
+  }
+
   /** Approve or reject a parked item, making it actionable again (or failing it). */
   decideMissionItem(
     missionId: string,

@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import { Shell } from "./components/Shell";
+import { ToastProvider } from "./components/Toast";
 
 export const metadata: Metadata = {
   title: "Agent Engine · Control Room",
@@ -23,7 +24,9 @@ export default function RootLayout({
         />
       </head>
       <body className="h-screen overflow-hidden">
-        <Shell>{children}</Shell>
+        <ToastProvider>
+          <Shell>{children}</Shell>
+        </ToastProvider>
       </body>
     </html>
   );

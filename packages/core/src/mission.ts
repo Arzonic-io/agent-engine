@@ -125,6 +125,8 @@ export interface BacklogStore {
   getMission(id: string): Promise<Mission | null>;
   listMissions(): Promise<Mission[]>;
   updateMission(id: string, patch: MissionPatch): Promise<Mission | null>;
+  /** Delete a mission and (via cascade) its backlog items. */
+  deleteMission(id: string): Promise<void>;
 
   // ── backlog items ──
   createItem(input: CreateBacklogItemInput): Promise<BacklogItem>;

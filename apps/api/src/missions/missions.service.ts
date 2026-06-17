@@ -97,6 +97,13 @@ export class MissionsService {
     return { missionId: id, status: (updated ?? mission).status };
   }
 
+  async remove(id: string): Promise<void> {
+    const backlog = this.require();
+    const mission = await backlog.getMission(id);
+    if (!mission) throw new NotFoundException(`No mission ${id}`);
+    await backlog.deleteMission(id); // backlog_items cascade via the FK
+  }
+
   async decideItem(
     missionId: string,
     itemId: string,

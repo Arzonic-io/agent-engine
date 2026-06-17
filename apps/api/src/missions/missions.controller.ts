@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Inject,
   Param,
@@ -53,6 +54,12 @@ export class MissionsController {
   @Post(":id/stop")
   stop(@Param("id") id: string): Promise<StopMissionResponse> {
     return this.missions.stop(id);
+  }
+
+  @Delete(":id")
+  async remove(@Param("id") id: string): Promise<{ ok: true }> {
+    await this.missions.remove(id);
+    return { ok: true };
   }
 
   @Post(":id/items/:itemId/decision")

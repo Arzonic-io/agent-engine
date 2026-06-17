@@ -189,6 +189,11 @@ export class BacklogService {
     return rows[0] ? this.mapMission(rows[0]) : null;
   }
 
+  /** Delete a mission; backlog_items cascade via the FK. */
+  async deleteMission(id: string): Promise<void> {
+    await this.pool.query(`DELETE FROM missions WHERE id=$1`, [id]);
+  }
+
   // ── backlog items ──
   async createItem(input: CreateBacklogItemInput): Promise<BacklogItem> {
     const { rows } = await this.pool.query(

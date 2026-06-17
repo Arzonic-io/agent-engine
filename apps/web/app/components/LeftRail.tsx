@@ -13,6 +13,9 @@ import {
   useActiveProject,
 } from "../lib/activeProject";
 import { MISSION_DOT, relShort, STATUS_DOT } from "../lib/format";
+import { useToast } from "./Toast";
+
+type MenuTarget = { x: number; y: number; kind: "task" | "mission"; id: string; label: string };
 
 type Filter = "all" | "running" | "awaiting_human" | "done";
 
@@ -35,8 +38,9 @@ export function LeftRail({ onNavigate }: { onNavigate?: () => void } = {}) {
   const [tasks, setTasks] = useState<RecentTask[]>([]);
   const [missions, setMissions] = useState<MissionSummary[]>([]);
   const [filter, setFilter] = useState<Filter>("all");
-  const [menu, setMenu] = useState<{ x: number; y: number; task: RecentTask } | null>(null);
+  const [menu, setMenu] = useState<MenuTarget | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
+  const toast = useToast();
 
   const activeId = pathname.startsWith("/runs/") ? pathname.split("/")[2] : null;
   const activeMissionId = pathname.startsWith("/missions/") ? pathname.split("/")[2] : null;
@@ -120,17 +124,25 @@ export function LeftRail({ onNavigate }: { onNavigate?: () => void } = {}) {
     [tasks],
   );
 
-  const deleteTask = async (task: RecentTask) => {
+  const removeEntry = async (target: MenuTarget) => {
     setMenu(null);
-    setDeleting(task.id);
-    setTasks((prev) => prev.filter((t) => t.id !== task.id)); // optimistic
+    setDeleting(target.id);
+    // optimistic removal from the relevant feed
+    if (target.kind === "task") setTasks((prev) => prev.filter((t) => t.id !== target.id));
+    else setMissions((prev) => prev.filter((m) => m.id !== target.id));
     try {
-      await fetch(`/api/runs/${task.id}`, { method: "DELETE" });
+      const path = target.kind === "task" ? `/api/runs/${target.id}` : `/api/missions/${target.id}`;
+      const res = await fetch(path, { method: "DELETE" });
+      if (!res.ok) throw new Error(await res.text());
+      toast(target.kind === "task" ? "Opgave slettet" : "Mission slettet");
     } catch {
-      /* ignore — list refreshes on next poll */
+      toast(target.kind === "task" ? "Kunne ikke slette opgaven" : "Kunne ikke slette missionen", "error");
     } finally {
       setDeleting(null);
-      if (activeId === task.id) router.push("/");
+      const wasActive =
+        (target.kind === "task" && activeId === target.id) ||
+        (target.kind === "mission" && activeMissionId === target.id);
+      if (wasActive) router.push("/");
     }
   };
 
@@ -267,7 +279,7 @@ export function LeftRail({ onNavigate }: { onNavigate?: () => void } = {}) {
                     onClick={onNavigate}
                     onContextMenu={(e) => {
                       e.preventDefault();
-                      setMenu({ x: e.clientX, y: e.clientY, task: t });
+                      setMenu({ x: e.clientX, y: e.clientY, kind: "task", id: t.id, label: t.task });
                     }}
                     className={`block rounded-field px-3 py-2.5 transition ${
                       active ? "bg-elev" : "hover:bg-elev/60"
@@ -314,9 +326,13 @@ export function LeftRail({ onNavigate }: { onNavigate?: () => void } = {}) {
                     <Link
                       href={`/missions/${m.id}`}
                       onClick={onNavigate}
+                      onContextMenu={(e) => {
+                        e.preventDefault();
+                        setMenu({ x: e.clientX, y: e.clientY, kind: "mission", id: m.id, label: m.goal });
+                      }}
                       className={`block rounded-field px-3 py-2.5 transition ${
                         active ? "bg-elev" : "hover:bg-elev/60"
-                      }`}
+                      } ${deleting === m.id ? "pointer-events-none opacity-40" : ""}`}
                     >
                       <div className="flex items-center gap-2">
                         <span
@@ -367,12 +383,12 @@ export function LeftRail({ onNavigate }: { onNavigate?: () => void } = {}) {
           }}
           onClick={(e) => e.stopPropagation()}
         >
-          <p className="truncate px-3 py-1.5 text-[11px] text-dim">{menu.task.task}</p>
+          <p className="truncate px-3 py-1.5 text-[11px] text-dim">{menu.label}</p>
           <button
-            onClick={() => void deleteTask(menu.task)}
+            onClick={() => void removeEntry(menu)}
             className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-error transition hover:bg-error/10"
           >
-            <LuTrash2 className="h-4 w-4" /> Slet opgave
+            <LuTrash2 className="h-4 w-4" /> {menu.kind === "task" ? "Slet opgave" : "Slet mission"}
           </button>
         </div>
       )}
