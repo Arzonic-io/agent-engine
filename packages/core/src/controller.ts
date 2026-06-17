@@ -87,6 +87,12 @@ export interface MissionGovernors {
   noProgressLimit?: number;
   /** ISO wall-clock stop; falls back to `mission.deadline`. Needs an injected Clock. */
   deadline?: string | null;
+  /**
+   * Times one item may fail (not reach done) before it is parked as
+   * `blocked_needs_human` instead of retried again. Parks the item, NOT the
+   * mission — the loop moves on to other work. Default 3.
+   */
+  thrashLimit?: number;
 }
 
 export interface MissionDeps {
@@ -137,6 +143,9 @@ export async function runMission(
   const replanner = deps.replanner ?? defaultReplanner;
   const checks = deps.checks ?? ["typecheck", "test"];
   const noProgressLimit = deps.governors?.noProgressLimit ?? 3;
+  const thrashLimit = deps.governors?.thrashLimit ?? 3;
+  /** Per-item failure count for this run — drives the thrash guard. */
+  const attempts = new Map<string, number>();
 
   let mission = await backlog.getMission(missionId);
   if (!mission) {
@@ -207,9 +216,18 @@ export async function runMission(
     const report = await verifier.run(checks);
     const decision = await replanner.replan({ mission, item, result, verification: report });
 
+    // Thrash guard: an item that keeps failing is parked for a human, not
+    // retried forever. Parking it (not the mission) lets the loop move on.
+    let effectiveStatus = decision.itemStatus;
+    if (effectiveStatus !== "done") {
+      const fails = (attempts.get(item.id) ?? 0) + 1;
+      attempts.set(item.id, fails);
+      if (fails >= thrashLimit) effectiveStatus = "blocked_needs_human";
+    }
+
     const finished =
       (await backlog.updateItem(item.id, {
-        status: decision.itemStatus,
+        status: effectiveStatus,
         verification: summarizeVerification(checks, report),
       })) ?? item;
     for (const f of decision.followUps ?? []) {
@@ -221,9 +239,11 @@ export async function runMission(
         spentTokens: mission.spentTokens + result.tokensUsed + (decision.tokensUsed ?? 0),
       })) ?? mission;
 
-    if (decision.itemStatus === "done") {
+    if (effectiveStatus === "done") {
       itemsDone++;
       noProgress = 0;
+    } else if (effectiveStatus === "blocked_needs_human") {
+      noProgress = 0; // parking an item resolves it out of the retry pool — that's progress
     } else {
       noProgress++;
     }
@@ -231,7 +251,7 @@ export async function runMission(
       type: "item_finished",
       missionId,
       item: finished,
-      status: decision.itemStatus,
+      status: effectiveStatus,
     });
   }
 }

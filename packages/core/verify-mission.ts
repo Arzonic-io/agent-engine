@@ -7,7 +7,7 @@
  * (a crashed in_progress item is requeued).
  * Run: pnpm --filter @arzonic/agent-core exec tsx verify-mission.ts
  */
-import { runMission, type MissionDeps } from "./src/controller.js";
+import { runMission, type MissionDeps, type Replanner } from "./src/controller.js";
 import type {
   BacklogItem,
   BacklogStore,
@@ -134,6 +134,13 @@ const runner: WorkRunner = {
     return { runId: it.id, status: "accepted", draft: `built ${it.id}`, verdict: null, tokensUsed: 100 };
   },
 };
+// Unlike defaultReplanner (which fails an item outright), this one retries on a
+// failed check — the behaviour the thrash guard is there to bound.
+const retryReplanner: Replanner = {
+  async replan({ verification }) {
+    return { itemStatus: verification.passed ? "done" : "todo" };
+  },
+};
 
 // ── 1. Happy path: priority + dependsOn order, ends done ──
 {
@@ -207,6 +214,50 @@ const runner: WorkRunner = {
   const store = makeStore({ ...baseMission, status: "stopped" }, [item("a", 1)]);
   const out = await runMission({ backlog: store, verifier: passingVerifier, runner }, "m1");
   ok(out.iterations === 0 && out.status === "stopped", "non-running mission halts before any work");
+}
+
+// ── 8. thrash guard: a repeatedly-failing item is PARKED, not retried forever ──
+{
+  const store = makeStore({ ...baseMission }, [item("stuck", 5), item("ok", 1)]);
+  const out = await runMission(
+    {
+      backlog: store,
+      // Everything fails; the retry replanner keeps re-queuing, so the guard
+      // (not the replanner) is what eventually parks the item.
+      verifier: failingVerifier,
+      runner,
+      replanner: retryReplanner,
+      governors: { thrashLimit: 2, noProgressLimit: 99 }, // isolate thrash from no-progress
+    },
+    "m1",
+  );
+  const stuck = (await store.listItems("m1")).find((i) => i.id === "stuck")!;
+  ok(stuck.status === "blocked_needs_human", "item that fails thrashLimit times is parked for a human");
+  ok(out.status === "blocked", "with everything parked, the mission ends blocked (not an infinite loop)");
+}
+
+// ── 9. thrash parks only the stuck item; other work still completes ──
+{
+  // 'stuck' (higher priority) runs first and fails its only verification, so
+  // with thrashLimit 1 it parks immediately; 'good' then verifies and completes.
+  const store = makeStore({ ...baseMission }, [item("stuck", 5), item("good", 1)]);
+  let firstRun = true;
+  const flip: Verifier = {
+    async run(checks): Promise<VerifierReport> {
+      const passed = !firstRun; // only the first verification (the 'stuck' run) fails
+      firstRun = false;
+      return { passed, results: checks.map((c) => ({ passed, check: c, output: passed ? "" : "x" })) };
+    },
+  };
+  const out = await runMission(
+    { backlog: store, verifier: flip, runner, governors: { thrashLimit: 1 } },
+    "m1",
+  );
+  const items = await store.listItems("m1");
+  const parked = items.filter((i) => i.status === "blocked_needs_human").length;
+  const done = items.filter((i) => i.status === "done").length;
+  ok(parked === 1 && done === 1, "stuck item parked on first failure, the other still completed");
+  ok(out.status === "blocked", "mission ends blocked because a parked item remains");
 }
 
 console.log("\nrunMission controller loop verified ✓");

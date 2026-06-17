@@ -32,6 +32,15 @@ Missions-køreplanen står under **Epics**.
 
 ## ✅ Senest leveret
 
+### 2026-06-17 — Missioner Trin 6: Governors-hardening (thrash-guard)
+- [x] Thrash-guard i controller-loopet ([packages/core/src/controller.ts](../packages/core/src/controller.ts)):
+      et item der fejler `thrashLimit` gange (default 3) **parkes** som `blocked_needs_human` —
+      ikke retried i det uendelige, og missionen stopper ikke; den går videre til andet arbejde.
+- [x] Parkering tæller som fremskridt (nulstiller no-progress) → en mission med kun parkerede items
+      ender rent i `blocked`, ikke `stopped`. (Budget/deadline/iterations/no-progress/kill switch kom i Trin 4.)
+- [x] Bevist ([packages/core/verify-mission.ts](../packages/core/verify-mission.ts), nu 14 checks):
+      thrash parker det stukne item, andet arbejde fuldføres stadig, ingen uendelig loop. `turbo build` grøn.
+
 ### 2026-06-17 — Missioner Trin 5: Replan-agent (lead)
 - [x] `makeReplanner(model)` i core ([packages/core/src/nodes/replan.ts](../packages/core/src/nodes/replan.ts)):
       ud fra mål + deliverable + verifikation beslutter den item-status (done/todo/failed/blocked_needs_human)
@@ -119,8 +128,16 @@ Vigtigt for en god oplevelse — næste runde.
 
 - [ ] **Router-override efter submit.** Vis valgt topology + grund på run-siden med en
       "Override"-kontrol (item 5 fra UI-brief). Kræver backend: tving topology + re-run.
-- [ ] **Per-projekt rubric.** I dag bruges global `defaultRubric`. Lad hvert projekt
-      have egne kvalitetskrav, og rediger dem i UI.
+- [ ] **Udvid rubric / Definition of Done (trinvis).** Basis altid på som gulv;
+      adaptivitet + per-projekt ovenpå. De 3 påkrævede (korrekt/komplet/rammer-opgaven)
+      er universelle og bør aldrig kunne vælges fra.
+  - [ ] a. **Per-projekt rubric** — hvert projekt har egne kvalitetskrav (override af
+        global `defaultRubric`), redigerbare i UI. Forudsigeligt, mennesket styrer.
+  - [ ] b. **Adaptive ekstra-krav** — router/arkitekt *foreslår* opgave-relevante
+        kriterier oven på basen (kode → "fejl-tilfælde håndteret", API → "ingen breaking
+        changes"). Tilføjer kun, fjerner aldrig basen; mennesket kan se/justere forslag.
+  - [ ] c. **Hård verifikation binder rubric (missioner)** — for kode er "done" = rigtige
+        checks (test/lint/build) via Verifier-laget + rubric, ikke kun LLM-score.
 - [ ] **Oversæt rubric-kriterier.** Kriterie-teksterne er engelske i et ellers dansk UI
       (de er det kritikeren scorer på — hold en engelsk kopi til modellen).
 - [ ] **Per-projekt team-config.** Team-roster er statisk/display-only. Lad et projekt
