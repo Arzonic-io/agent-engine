@@ -32,6 +32,14 @@ Missions-køreplanen står under **Epics**.
 
 ## ✅ Senest leveret
 
+### 2026-06-17 — Missioner Trin 3: WorkRunner (ét backlog-item gennem grafen)
+- [x] `WorkRunner`-interface + `WorkItem`/`WorkResult` i core ([packages/core/src/runner.ts](../packages/core/src/runner.ts)).
+- [x] Ren adapter `createGraphWorkRunner(graph)`: kører item under `thread_id = item.id`
+      (checkpointet pr. item), bygger task af context+title+detail, **auto-passerer
+      human-gaten** (missioner blokerer aldrig — Verifier afgør "done"), læser deliverable fra checkpoint.
+- [x] Bevist ([packages/core/verify-runner.ts](../packages/core/verify-runner.ts)) med fake-graf:
+      thread_id-wiring, gate-resume, ingen busy-loop, resultat-udtræk. `turbo build` grøn.
+
 ### 2026-06-17 — Missioner Trin 2: Verifier (pass/fail = sandheden for "done")
 - [x] `Verifier`-interface + `VerifierReport` i core ([packages/core/src/verifier.ts](../packages/core/src/verifier.ts)).
 - [x] `createVerifier(repoPath)` i shared ([packages/shared/src/verifier.ts](../packages/shared/src/verifier.ts)):
