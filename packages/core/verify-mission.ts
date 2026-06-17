@@ -1,0 +1,212 @@
+/**
+ * Throwaway proof of the runMission controller loop (build-order Trin 4) with
+ * in-memory fakes — no DB, no LLM. Proves the loop: respects priority +
+ * dependsOn, closes verified items as done, ends "done" when all resolve, parks
+ * to "blocked" on a dependency deadlock, and that every governor provably stops
+ * it (max-iterations, budget, no-progress) with a recorded reason — plus resume
+ * (a crashed in_progress item is requeued).
+ * Run: pnpm --filter @arzonic/agent-core exec tsx verify-mission.ts
+ */
+import { runMission, type MissionDeps } from "./src/controller.js";
+import type {
+  BacklogItem,
+  BacklogStore,
+  CreateBacklogItemInput,
+  Mission,
+} from "./src/mission.js";
+import type { WorkRunner } from "./src/runner.js";
+import type { Verifier, VerifierReport } from "./src/verifier.js";
+
+const ok = (c: boolean, m: string) => {
+  if (!c) throw new Error(`FAIL: ${m}`);
+  console.log(`ok: ${m}`);
+};
+
+let seq = 0;
+const iso = () => new Date(1_700_000_000_000 + seq++ * 1000).toISOString();
+
+/** Minimal in-memory BacklogStore matching the core interface. */
+function makeStore(mission: Mission, items: BacklogItem[]): BacklogStore {
+  const missions = new Map([[mission.id, { ...mission }]]);
+  const map = new Map(items.map((i) => [i.id, { ...i }]));
+  return {
+    async createMission() {
+      throw new Error("unused");
+    },
+    async getMission(id) {
+      const m = missions.get(id);
+      return m ? { ...m } : null;
+    },
+    async listMissions() {
+      return [...missions.values()];
+    },
+    async updateMission(id, patch) {
+      const m = missions.get(id);
+      if (!m) return null;
+      Object.assign(m, patch);
+      return { ...m };
+    },
+    async createItem(input: CreateBacklogItemInput) {
+      const it: BacklogItem = {
+        id: `gen-${seq++}`,
+        missionId: input.missionId,
+        title: input.title,
+        detail: input.detail ?? "",
+        status: "todo",
+        priority: input.priority ?? 0,
+        dependsOn: input.dependsOn ?? [],
+        risk: input.risk ?? "low",
+        runId: null,
+        verification: null,
+        createdAt: iso(),
+        updatedAt: iso(),
+      };
+      map.set(it.id, it);
+      return { ...it };
+    },
+    async getItem(id) {
+      const i = map.get(id);
+      return i ? { ...i } : null;
+    },
+    async listItems() {
+      return [...map.values()].sort(
+        (a, b) => b.priority - a.priority || a.createdAt.localeCompare(b.createdAt),
+      );
+    },
+    async updateItem(id, patch) {
+      const i = map.get(id);
+      if (!i) return null;
+      Object.assign(i, patch, { updatedAt: iso() });
+      return { ...i };
+    },
+    async nextActionable(missionId) {
+      const candidates = [...map.values()]
+        .filter((i) => i.missionId === missionId && i.status === "todo")
+        .filter((i) => i.dependsOn.every((d) => map.get(d)?.status === "done"))
+        .sort((a, b) => b.priority - a.priority || a.createdAt.localeCompare(b.createdAt));
+      return candidates[0] ? { ...candidates[0]! } : null;
+    },
+  };
+}
+
+const baseMission: Mission = {
+  id: "m1",
+  projectId: "p1",
+  goal: "Ship the thing",
+  acceptanceCriteria: ["builds", "tests pass"],
+  repoPath: "/tmp/repo",
+  status: "running",
+  budget: null,
+  spentTokens: 0,
+  deadline: null,
+  createdAt: iso(),
+};
+
+function item(id: string, priority: number, dependsOn: string[] = []): BacklogItem {
+  return {
+    id,
+    missionId: "m1",
+    title: `do ${id}`,
+    detail: "",
+    status: "todo",
+    priority,
+    dependsOn,
+    risk: "low",
+    runId: null,
+    verification: null,
+    createdAt: iso(),
+    updatedAt: iso(),
+  };
+}
+
+const passingVerifier: Verifier = {
+  async run(checks): Promise<VerifierReport> {
+    return { passed: true, results: checks.map((c) => ({ passed: true, check: c, output: "" })) };
+  },
+};
+const failingVerifier: Verifier = {
+  async run(checks): Promise<VerifierReport> {
+    return { passed: false, results: checks.map((c) => ({ passed: false, check: c, output: "boom" })) };
+  },
+};
+const runner: WorkRunner = {
+  async run(it) {
+    return { runId: it.id, status: "accepted", draft: `built ${it.id}`, verdict: null, tokensUsed: 100 };
+  },
+};
+
+// ── 1. Happy path: priority + dependsOn order, ends done ──
+{
+  const order: string[] = [];
+  const tracking: WorkRunner = {
+    async run(it) {
+      order.push(it.id);
+      return runner.run(it);
+    },
+  };
+  const store = makeStore({ ...baseMission }, [
+    item("a", 10),
+    item("b", 5, ["a"]), // depends on a
+    item("c", 8), // higher priority than b, no deps
+  ]);
+  const deps: MissionDeps = { backlog: store, verifier: passingVerifier, runner: tracking };
+  const out = await runMission(deps, "m1");
+  ok(out.status === "done" && out.reason === "done", "all verified ⇒ mission done");
+  ok(out.itemsDone === 3, "every item closed as done");
+  ok(order.join(",") === "a,c,b", `order respects priority then dependsOn (got ${order.join(",")})`);
+  ok((await store.getMission("m1"))!.spentTokens === 300, "spentTokens accumulated (3×100)");
+}
+
+// ── 2. Dependency deadlock ⇒ blocked ──
+{
+  const store = makeStore({ ...baseMission }, [item("x", 1, ["missing"])]);
+  const out = await runMission({ backlog: store, verifier: passingVerifier, runner }, "m1");
+  ok(out.status === "blocked", "item depending on an unsatisfiable id ⇒ blocked, not infinite loop");
+}
+
+// ── 3. no-progress governor (failing verifier never closes anything) ──
+{
+  const store = makeStore({ ...baseMission }, [item("a", 3), item("b", 2), item("c", 1)]);
+  const out = await runMission(
+    { backlog: store, verifier: failingVerifier, runner, governors: { noProgressLimit: 2 } },
+    "m1",
+  );
+  ok(out.status === "stopped" && out.reason === "no-progress", "failing items trip the no-progress governor");
+  ok(out.iterations === 2, "stopped after exactly noProgressLimit iterations");
+}
+
+// ── 4. max-iterations governor ──
+{
+  const store = makeStore({ ...baseMission }, [item("a", 3), item("b", 2), item("c", 1)]);
+  const out = await runMission(
+    { backlog: store, verifier: passingVerifier, runner, governors: { maxIterations: 2 } },
+    "m1",
+  );
+  ok(out.reason === "max-iterations" && out.iterations === 2, "max-iterations stops the loop");
+}
+
+// ── 5. budget governor ──
+{
+  const store = makeStore({ ...baseMission, budget: 50 }, [item("a", 2), item("b", 1)]);
+  const out = await runMission({ backlog: store, verifier: passingVerifier, runner }, "m1");
+  ok(out.reason === "budget", "token budget stops the loop");
+  ok(out.itemsDone === 1, "stopped once spend (100) crossed the 50 budget — one item ran");
+}
+
+// ── 6. resume: a crashed in_progress item is requeued and completed ──
+{
+  const stuck = item("a", 1);
+  stuck.status = "in_progress"; // simulate a crash mid-run
+  const store = makeStore({ ...baseMission }, [stuck]);
+  const out = await runMission({ backlog: store, verifier: passingVerifier, runner }, "m1");
+  ok(out.status === "done" && out.itemsDone === 1, "in_progress item requeued on resume and finished");
+}
+
+// ── 7. kill switch: mission already stopped ⇒ loop halts immediately ──
+{
+  const store = makeStore({ ...baseMission, status: "stopped" }, [item("a", 1)]);
+  const out = await runMission({ backlog: store, verifier: passingVerifier, runner }, "m1");
+  ok(out.iterations === 0 && out.status === "stopped", "non-running mission halts before any work");
+}
+
+console.log("\nrunMission controller loop verified ✓");

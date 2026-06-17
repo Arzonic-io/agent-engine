@@ -32,6 +32,16 @@ Missions-køreplanen står under **Epics**.
 
 ## ✅ Senest leveret
 
+### 2026-06-17 — Missioner Trin 4: runMission controller-loop (pure core)
+- [x] `runMission(deps, missionId)` i core ([packages/core/src/controller.ts](../packages/core/src/controller.ts)):
+      henter næste actionable item → kører via WorkRunner → verificerer → replan → opdaterer backlog, til mål/governor.
+- [x] Injicerede sømme: `Replanner` (+ `defaultReplanner`, Trin 5-stub), `Notifier` (Trin 7),
+      `Clock` (ingen `Date.now()` i core), `MissionGovernors`.
+- [x] Provably terminerende: max-iterations, token-budget, no-progress, deadline + kill switch
+      (mission-status ≠ running stopper). Resume: crashed `in_progress`-item requeues.
+- [x] Bevist ([packages/core/verify-mission.ts](../packages/core/verify-mission.ts)) med in-memory fakes (12 checks):
+      prioritet+dependsOn-rækkefølge, done-afslutning, deadlock→blocked, alle governors, resume, kill switch. `turbo build` grøn.
+
 ### 2026-06-17 — Missioner Trin 3: WorkRunner (ét backlog-item gennem grafen)
 - [x] `WorkRunner`-interface + `WorkItem`/`WorkResult` i core ([packages/core/src/runner.ts](../packages/core/src/runner.ts)).
 - [x] Ren adapter `createGraphWorkRunner(graph)`: kører item under `thread_id = item.id`

@@ -53,6 +53,19 @@ export {
   type GraphWorkRunnerOptions,
 } from "./runner.js";
 export {
+  runMission,
+  defaultReplanner,
+  type MissionDeps,
+  type MissionOutcome,
+  type MissionGovernors,
+  type Replanner,
+  type ReplanInput,
+  type ReplanDecision,
+  type Notifier,
+  type MissionEvent,
+  type Clock,
+} from "./controller.js";
+export {
   defaultRubric,
   renderRubric,
   type Rubric,
