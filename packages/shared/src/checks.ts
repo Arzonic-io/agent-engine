@@ -90,6 +90,49 @@ export function runCheckProcess(
   });
 }
 
+export const INSTALL_TIMEOUT_MS = 600_000;
+
+/**
+ * Install dependencies in a fresh worktree so checks (`pnpm run …`) can run
+ * (M2 build-order Trin 4). Uses pnpm, whose global content-addressable store is
+ * shared across worktrees (hardlinks) — so per-worktree installs are cheap on
+ * disk after the first. Returns the same shape as a check run; `passed=false`
+ * means deps aren't ready and the item should not be treated as verifiable.
+ */
+export function installWorktreeDeps(
+  cwd: string,
+  timeoutMs: number = INSTALL_TIMEOUT_MS,
+): Promise<CheckRun> {
+  return new Promise((resolve) => {
+    const child = spawn("pnpm", ["install", "--prefer-offline"], {
+      cwd,
+      env: process.env,
+      stdio: ["ignore", "pipe", "pipe"],
+      shell: false,
+    });
+    let output = "";
+    let killed = false;
+    const timer = setTimeout(() => {
+      killed = true;
+      child.kill("SIGKILL");
+    }, timeoutMs);
+    const collect = (d: Buffer) => {
+      output += d.toString();
+    };
+    child.stdout.on("data", collect);
+    child.stderr.on("data", collect);
+    child.on("error", (e) => {
+      clearTimeout(timer);
+      resolve({ allowed: true, passed: false, status: "spawn error", output: `${output}\n${e.message}` });
+    });
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      const status = killed ? `timed out after ${timeoutMs}ms` : `exit code ${code}`;
+      resolve({ allowed: true, passed: !killed && code === 0, status, output });
+    });
+  });
+}
+
 export interface CommandRun {
   /** false when the executable wasn't on the allowlist — nothing was spawned. */
   allowed: boolean;

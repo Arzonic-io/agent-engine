@@ -1,13 +1,19 @@
 import {
-  createGraphWorkRunner,
-  createProjectGraph,
-  createTeamGraph,
+  createImplementerGraph,
+  createWorktreeWorkRunner,
   makeReplanner,
   runMission,
   type MissionGovernors,
   type RunnableMissionGraph,
 } from "@arzonic/agent-core";
-import { createConsoleNotifier, createVerifier, getModel } from "@arzonic/agent-shared";
+import {
+  createConsoleNotifier,
+  createVerifier,
+  createWritableRepoTools,
+  createWorktreeManager,
+  getModel,
+  installWorktreeDeps,
+} from "@arzonic/agent-shared";
 import { createBacklog } from "./backlog.provider.js";
 import { createCheckpointer } from "./checkpointer.js";
 import { loadApiEnv } from "./env.js";
@@ -20,11 +26,9 @@ import { createMemory } from "./memory.provider.js";
  * on a repo are serialized — §7). The API owns intake, the kill switch, and the
  * parked-item decisions; this process does the work.
  *
- * NOTE: work items run through the project/team graph, which produces planned
- * deliverables and runs the real Verifier against the repo. Write-capable
- * execution (agents that actually mutate the repo, in worktrees) is the next
- * milestone (M2) — until then a mission plans + verifies but does not yet author
- * code on disk.
+ * Work items run write-capably (M2): each item gets its own git worktree, the
+ * implementer graph authors real code there, deps are installed, and the Verifier
+ * runs the checks against the AUTHORED code in that worktree.
  */
 
 const APP_VERSION = "0.1.0";
@@ -78,13 +82,28 @@ async function main(): Promise<void> {
     const running = (await backlog.listMissions()).filter((m) => m.status === "running");
     for (const mission of running) {
       if (stopping) break;
-      // Per-mission compiled graph: project graph when memory is on (retrieve +
-      // persist), else the plain team graph. Item context carries the goal.
-      const graph: RunnableMissionGraph = memory
-        ? (createProjectGraph({ model, memory, checkpointer: checkpointer.saver }) as RunnableMissionGraph)
-        : (createTeamGraph({ model, checkpointer: checkpointer.saver }) as RunnableMissionGraph);
-      const runner = createGraphWorkRunner(graph, {
-        baseInput: memory ? { projectId: mission.projectId } : {},
+      // Write-capable execution: one isolated worktree per item, the implementer
+      // graph authoring real code in it (rooted via WritableRepoTools), deps
+      // installed before checks. The Verifier runs in the item's worktree.
+      const worktrees = createWorktreeManager(mission.repoPath);
+      const runner = createWorktreeWorkRunner({
+        worktrees,
+        branch: (item) => `mission/${mission.id}/item/${item.id}`,
+        prepare: async (wt) => {
+          const install = await installWorktreeDeps(wt.path);
+          if (!install.passed) {
+            console.warn(`[mission-worker] deps install in ${wt.path} (${install.status}) — checks may fail.`);
+          }
+        },
+        buildGraph: (wt) =>
+          createImplementerGraph({
+            model,
+            checkpointer: checkpointer.saver,
+            repo: createWritableRepoTools(wt.path, {
+              allowedChecks: env.REPO_ALLOWED_CHECKS,
+              allowedCommands: env.REPO_ALLOWED_COMMANDS,
+            }),
+          }) as RunnableMissionGraph,
       });
       const verifier = createVerifier(mission.repoPath, {
         allowedChecks: env.REPO_ALLOWED_CHECKS,

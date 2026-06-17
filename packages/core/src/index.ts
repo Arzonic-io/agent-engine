@@ -3,14 +3,17 @@ export {
   createRepoAnalysisGraph,
   createTeamGraph,
   createProjectGraph,
+  createImplementerGraph,
   type AgentGraph,
   type CreateAgentGraphOptions,
   type CreateRepoAnalysisGraphOptions,
   type CreateTeamGraphOptions,
   type CreateProjectGraphOptions,
+  type CreateImplementerGraphOptions,
   type RepoAnalysisGraph,
   type TeamGraph,
   type ProjectGraph,
+  type ImplementerGraph,
 } from "./graph.js";
 export type { RepoTools, WritableRepoTools } from "./tools.js";
 export type {
@@ -52,11 +55,13 @@ export {
 export type { Verifier, VerifierReport } from "./verifier.js";
 export {
   createGraphWorkRunner,
+  createWorktreeWorkRunner,
   type WorkRunner,
   type WorkItem,
   type WorkResult,
   type RunnableMissionGraph,
   type GraphWorkRunnerOptions,
+  type WorktreeWorkRunnerOptions,
 } from "./runner.js";
 export {
   runMission,

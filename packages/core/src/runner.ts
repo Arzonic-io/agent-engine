@@ -1,5 +1,6 @@
 import { Command } from "@langchain/langgraph";
 import type { GraphStateType, RunStatus, Verdict } from "./state.js";
+import type { Worktree, WorktreeManager } from "./worktree.js";
 
 /**
  * The "run one unit of work" capability the mission controller loop (§5.3) needs,
@@ -26,6 +27,12 @@ export interface WorkResult {
   draft: string;
   verdict: Verdict | null;
   tokensUsed: number;
+  /**
+   * Absolute path to the worktree the item ran in, when it ran write-capably in
+   * isolation (M2 Trin 4). The controller verifies the authored code HERE rather
+   * than in the main repo. Undefined for the read-only planning runner.
+   */
+  worktree?: string;
 }
 
 export interface WorkRunner {
@@ -104,6 +111,53 @@ export function createGraphWorkRunner(
         verdict: state.verdict ?? null,
         tokensUsed: state.tokensUsed ?? 0,
       };
+    },
+  };
+}
+
+export interface WorktreeWorkRunnerOptions extends GraphWorkRunnerOptions {
+  /** Provisions one isolated worktree per item (Trin 2). */
+  worktrees: WorktreeManager;
+  /**
+   * Compile a graph rooted at the given worktree — typically
+   * `createImplementerGraph` with `WritableRepoTools` pointed at `worktree.path`.
+   * Called once per item so each runs against its own working tree.
+   */
+  buildGraph: (worktree: Worktree) => RunnableMissionGraph;
+  /**
+   * Deterministic branch name for an item. Caller-supplied so core never invents
+   * names or reads the clock — e.g. `mission/<id>/item/<itemId>`.
+   */
+  branch: (item: WorkItem) => string;
+  /** Ref the item branch is based on when first created. Default "HEAD". */
+  baseRef?: string;
+  /**
+   * Optional setup run in the fresh worktree before the graph (e.g. install
+   * dependencies so checks can run). The runtime supplies it — core stays pure.
+   */
+  prepare?: (worktree: Worktree) => Promise<void>;
+}
+
+/**
+ * Write-capable WorkRunner (M2 build-order Trin 4): for each item it provisions
+ * an isolated worktree, optionally prepares it (deps), runs the per-worktree
+ * graph (the implementer authoring real code), and returns the deliverable plus
+ * the worktree path — so the controller verifies the AUTHORED code in that
+ * worktree, not the untouched main repo. Reuses `createGraphWorkRunner` for the
+ * actual graph drive + gate handling. The worktree is left in place for the
+ * integration/merge step (Trin 5) to consume and clean up.
+ */
+export function createWorktreeWorkRunner(
+  options: WorktreeWorkRunnerOptions,
+): WorkRunner {
+  const { worktrees, buildGraph, branch, baseRef, prepare, ...graphOptions } = options;
+  return {
+    async run(item, signal): Promise<WorkResult> {
+      const wt = await worktrees.create({ id: item.id, branch: branch(item), baseRef });
+      if (prepare) await prepare(wt);
+      const inner = createGraphWorkRunner(buildGraph(wt), graphOptions);
+      const res = await inner.run(item, signal);
+      return { ...res, worktree: wt.path };
     },
   };
 }

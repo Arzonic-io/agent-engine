@@ -45,6 +45,7 @@ export {
 export {
   runCheckProcess,
   runAllowedCommand,
+  installWorktreeDeps,
   truncateTail,
   DEFAULT_ALLOWED_CHECKS,
   DEFAULT_ALLOWED_COMMANDS,

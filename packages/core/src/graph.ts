@@ -14,6 +14,7 @@ import { makeAnalystNode } from "./nodes/analyst.js";
 import { makeArchitectNode } from "./nodes/architect.js";
 import { makeBuilderNode } from "./nodes/builder.js";
 import { makeCriticNode } from "./nodes/critic.js";
+import { makeImplementerNode } from "./nodes/implementer.js";
 import { humanGateNode, markAwaitingHuman } from "./nodes/humanGate.js";
 import { makeLeadNode } from "./nodes/lead.js";
 import { makePersistMemoryNode } from "./nodes/persistMemory.js";
@@ -23,7 +24,7 @@ import { makeWorkerNode } from "./nodes/worker.js";
 import type { ProjectMemory } from "./memory.js";
 import { defaultRubric, type Rubric } from "./rubric.js";
 import { GraphState, type GraphStateType } from "./state.js";
-import type { RepoTools } from "./tools.js";
+import type { RepoTools, WritableRepoTools } from "./tools.js";
 
 export interface CreateAgentGraphOptions {
   model: BaseChatModel;
@@ -90,6 +91,30 @@ function afterGate(state: GraphStateType): "builder" | typeof END {
 }
 
 export type AgentGraph = ReturnType<typeof createAgentGraph>;
+
+export interface CreateImplementerGraphOptions {
+  model: BaseChatModel;
+  /** Write-capable repo tools rooted at the item's worktree, injected by the runtime. */
+  repo: WritableRepoTools;
+  checkpointer: BaseCheckpointSaver;
+}
+
+/**
+ * Mission execution graph (M2 build-order Trin 4): a single write-capable
+ * implementer node that authors real code in a worktree. No human gate —
+ * missions never block; the Verifier (real checks) decides "done". One graph is
+ * compiled per item, rooted at that item's worktree via the injected
+ * `WritableRepoTools`.
+ */
+export function createImplementerGraph(options: CreateImplementerGraphOptions) {
+  return new StateGraph(GraphState)
+    .addNode("implementer", makeImplementerNode(options.model, options.repo))
+    .addEdge(START, "implementer")
+    .addEdge("implementer", END)
+    .compile({ checkpointer: options.checkpointer });
+}
+
+export type ImplementerGraph = ReturnType<typeof createImplementerGraph>;
 
 export interface CreateRepoAnalysisGraphOptions {
   model: BaseChatModel;

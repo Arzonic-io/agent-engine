@@ -27,11 +27,12 @@ export function createVerifier(repoPath: string, options: VerifierOptions = {}):
       : DEFAULT_ALLOWED_CHECKS;
 
   return {
-    async run(checks): Promise<VerifierReport> {
+    async run(checks, cwd): Promise<VerifierReport> {
+      const where = cwd ? resolve(cwd) : root;
       const results = [];
       for (const name of checks) {
         const clean = name.trim();
-        const run = await runCheckProcess(root, clean, allowedChecks);
+        const run = await runCheckProcess(where, clean, allowedChecks);
         results.push({
           passed: run.passed,
           check: clean,

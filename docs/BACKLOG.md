@@ -48,6 +48,22 @@ Det store perspektiv — fra nu til Nordstjernen. Detaljerne lever i tiers + epi
 
 ## ✅ Senest leveret
 
+### 2026-06-18 — M2 Trin 4: WorkRunner i worktree (motoren forfatter nu kode)
+- [x] `createWorktreeWorkRunner` i core ([packages/core/src/runner.ts](../packages/core/src/runner.ts)):
+      pr. item → provisioner worktree (Trin 2) → valgfri `prepare` (deps) → kører en per-worktree graf
+      (genbruger `createGraphWorkRunner` til drift + gate) → returnerer `WorkResult.worktree`.
+- [x] `createImplementerGraph` ([packages/core/src/graph.ts](../packages/core/src/graph.ts)): minimal
+      mission-eksekverings-graf (implementer-node → END, ingen human-gate) rodfæstet i worktree'et via `WritableRepoTools`.
+- [x] **Verifier dømmer den forfattede kode:** `Verifier.run(checks, cwd?)` — controlleren sender
+      `result.worktree` som cwd, så checks kører i worktree'et, ikke det urørte hoved-repo. Bagudkompatibelt.
+- [x] `installWorktreeDeps()` ([packages/shared/src/checks.ts](../packages/shared/src/checks.ts)):
+      `pnpm install` pr. worktree (delt content-addressable store → billigt på disk efter første). Lang timeout.
+- [x] **Mission-worker wired** ([apps/api/src/mission-worker.ts](../apps/api/src/mission-worker.ts)): worktree-runner +
+      implementer-graf + deps-install + worktree-verifikation pr. item. Branch `mission/<id>/item/<itemId>`.
+- [x] Bevist ([packages/core/verify-worktree-runner.ts](../packages/core/verify-worktree-runner.ts), 8 checks mod et rigtigt git-repo):
+      koden forfattes isoleret i worktree'et, hoved-repo urørt, og Verifier **passer i worktree** men **fejler i hoved-repo** →
+      bevis for at den dømmer det rigtige sted. `turbo build` grøn (6/6).
+
 ### 2026-06-18 — M2 Trin 3: Implementer-node (ReAct-loop der skriver kode)
 - [x] Dedikeret `implementer`-node i core ([packages/core/src/nodes/implementer.ts](../packages/core/src/nodes/implementer.ts))
       bygget på prebuilt `createReactAgent` (mindre kode, lavere risiko end håndrullet loop) —
@@ -312,8 +328,10 @@ Build-order (shippet + bevist pr. trin, som M1):
       prebuilt `createReactAgent` (ReAct-loop, `recursionLimit`-termineret). Tager
       `WritableRepoTools` → write-tools kan **ikke** lække ind i builders tekst-opgaver
       (read-only nodes får aldrig et objekt med write-metoder). ([implementer.ts](../packages/core/src/nodes/implementer.ts))
-- [ ] **4. WorkRunner i worktree** — `createGraphWorkRunner` peger repo-tools mod item'ets
-      worktree → Verifier checker den forfattede kode dér. (`runner.ts`)
+- [x] **4. WorkRunner i worktree** — `createWorktreeWorkRunner` (+ `createImplementerGraph`)
+      provisioner worktree pr. item, kører implementeren rodfæstet dér, og `Verifier.run(checks, cwd)`
+      checker den forfattede kode i worktree'et. Deps via `installWorktreeDeps` (pnpm, delt store).
+      Mission-worker wired. (`runner.ts` + `graph.ts` + `verifier.ts`)
 - [ ] **5. Integration + verificér-efter-merge** — verify i worktree → merge mission-branch
       → **re-verify på mission-branch** (to grønne items kan summe til rød main). Konflikt →
       park `blocked_needs_human`.

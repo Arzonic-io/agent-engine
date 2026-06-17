@@ -17,9 +17,14 @@ export interface VerifierReport {
 
 export interface Verifier {
   /**
-   * Run the named checks (e.g. ["typecheck", "test"]) against the mission repo
-   * and report pass/fail. Every check runs even if an earlier one fails, so the
-   * replan step sees the full picture. `passed` is the AND of all results.
+   * Run the named checks (e.g. ["typecheck", "test"]) and report pass/fail.
+   * Every check runs even if an earlier one fails, so the replan step sees the
+   * full picture. `passed` is the AND of all results.
+   *
+   * `cwd` overrides where the checks run for this call — the mission controller
+   * passes the item's worktree (M2 Trin 4) so verification judges the AUTHORED
+   * code, not the untouched main repo. Defaults to the repo the Verifier was
+   * created for.
    */
-  run(checks: string[]): Promise<VerifierReport>;
+  run(checks: string[], cwd?: string): Promise<VerifierReport>;
 }

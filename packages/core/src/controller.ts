@@ -234,7 +234,9 @@ export async function runMission(
     );
     await backlog.updateItem(item.id, { runId: result.runId });
 
-    const report = await verifier.run(checks);
+    // Verify the AUTHORED code where it was written: the item's worktree when the
+    // runner ran write-capably (Trin 4), else the mission repo (planning runner).
+    const report = await verifier.run(checks, result.worktree);
     const decision = await replanner.replan({ mission, item, result, verification: report });
 
     // Thrash guard: an item that keeps failing is parked for a human, not
