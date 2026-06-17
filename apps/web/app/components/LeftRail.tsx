@@ -4,15 +4,15 @@ import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
-import { LuFolderGit2, LuFolderPlus, LuTrash2 } from "react-icons/lu";
-import type { Project, RecentTask } from "@arzonic/agent-client";
+import { LuFolderGit2, LuFolderPlus, LuRocket, LuTrash2 } from "react-icons/lu";
+import type { MissionSummary, Project, RecentTask } from "@arzonic/agent-client";
 import {
   getActiveProject,
   requestNewProject,
   setActiveProject,
   useActiveProject,
 } from "../lib/activeProject";
-import { relShort, STATUS_DOT } from "../lib/format";
+import { MISSION_DOT, relShort, STATUS_DOT } from "../lib/format";
 
 type Filter = "all" | "running" | "awaiting_human" | "done";
 
@@ -33,11 +33,19 @@ export function LeftRail({ onNavigate }: { onNavigate?: () => void } = {}) {
   const [activeProject] = useActiveProject();
   const [projects, setProjects] = useState<Project[]>([]);
   const [tasks, setTasks] = useState<RecentTask[]>([]);
+  const [missions, setMissions] = useState<MissionSummary[]>([]);
   const [filter, setFilter] = useState<Filter>("all");
   const [menu, setMenu] = useState<{ x: number; y: number; task: RecentTask } | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
 
   const activeId = pathname.startsWith("/runs/") ? pathname.split("/")[2] : null;
+  const activeMissionId = pathname.startsWith("/missions/") ? pathname.split("/")[2] : null;
+
+  /** projectId → project name, for labelling missions (which carry only the id). */
+  const projectName = useMemo(() => {
+    const map = new Map(projects.map((p) => [p.id, p.name]));
+    return (id: string) => map.get(id) ?? "Projekt";
+  }, [projects]);
 
   // ── poll projects; keep an active project selected (for the composer) ──
   useEffect(() => {
@@ -75,6 +83,25 @@ export function LeftRail({ onNavigate }: { onNavigate?: () => void } = {}) {
     };
     void load();
     const t = setInterval(load, 4000);
+    return () => {
+      alive = false;
+      clearInterval(t);
+    };
+  }, []);
+
+  // ── poll ALL missions across every project ──
+  useEffect(() => {
+    let alive = true;
+    const load = async () => {
+      try {
+        const res = await fetch("/api/missions");
+        if (res.ok && alive) setMissions((await res.json()) as MissionSummary[]);
+      } catch {
+        /* best-effort */
+      }
+    };
+    void load();
+    const t = setInterval(load, 5000);
     return () => {
       alive = false;
       clearInterval(t);
@@ -270,6 +297,50 @@ export function LeftRail({ onNavigate }: { onNavigate?: () => void } = {}) {
           </ul>
         )}
       </div>
+
+      {/* ── Recent missions (all projects) ── */}
+      {missions.length > 0 && (
+        <>
+          <div className="flex items-center gap-1.5 border-t border-line px-4 pb-1.5 pt-3">
+            <LuRocket className="h-3.5 w-3.5 text-dim" />
+            <span className="text-[11px] uppercase tracking-[0.28em] text-dim">Seneste missioner</span>
+          </div>
+          <div className="max-h-[26%] overflow-y-auto px-2 pb-1">
+            <ul className="space-y-0.5">
+              {missions.slice(0, 12).map((m) => {
+                const active = m.id === activeMissionId;
+                return (
+                  <li key={m.id}>
+                    <Link
+                      href={`/missions/${m.id}`}
+                      onClick={onNavigate}
+                      className={`block rounded-field px-3 py-2.5 transition ${
+                        active ? "bg-elev" : "hover:bg-elev/60"
+                      }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <span
+                          className={`h-1.5 w-1.5 shrink-0 rounded-full ${MISSION_DOT[m.status] ?? "bg-dim"} ${
+                            m.status === "running" ? "pulse-dot" : ""
+                          }`}
+                        />
+                        <span className="truncate text-sm text-fg/90">{m.goal}</span>
+                      </div>
+                      <div className="mt-1 flex items-center gap-1.5 pl-3.5 text-[11px] text-dim">
+                        <span className="truncate text-fg/55">{projectName(m.projectId)}</span>
+                        <span>·</span>
+                        <span className="shrink-0 uppercase tracking-wide">{m.status}</span>
+                        <span>·</span>
+                        <span className="shrink-0">{relShort(m.createdAt)}</span>
+                      </div>
+                    </Link>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        </>
+      )}
 
       <div className="border-t border-line px-4 py-3">
         <button
