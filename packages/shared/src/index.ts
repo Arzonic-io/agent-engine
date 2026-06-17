@@ -15,3 +15,17 @@ export {
   type MemoryHit,
   type RetrievedContext,
 } from "./memory.js";
+export {
+  BacklogService,
+  type BacklogServiceOptions,
+  type Mission,
+  type MissionStatus,
+  type MissionPatch,
+  type CreateMissionInput,
+  type BacklogItem,
+  type BacklogItemStatus,
+  type BacklogItemPatch,
+  type CreateBacklogItemInput,
+  type Risk,
+  type Verification,
+} from "./backlog.js";

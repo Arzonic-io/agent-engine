@@ -32,6 +32,15 @@ Missions-køreplanen står under **Epics**.
 
 ## ✅ Senest leveret
 
+### 2026-06-17 — Missioner Trin 1: schema + BacklogStore (fundament for Nordstjernen)
+- [x] `BacklogStore`-interface + `Mission`/`BacklogItem`-typer (zod) i core
+      ([packages/core/src/mission.ts](../packages/core/src/mission.ts)) — framework-fri,
+      injiceret ligesom `ProjectMemory`/`RepoTools`.
+- [x] Postgres-impl `BacklogService` i shared ([packages/shared/src/backlog.ts](../packages/shared/src/backlog.ts)):
+      `missions` + `backlog_items`-tabeller (§5.2), idempotent `setup()`,
+      CRUD + `nextActionable()` (højeste prioritet med opfyldte `dependsOn`).
+- [x] Eksporteret fra begge pakkers `index.ts`; `turbo build` grøn (6/6).
+
 ### 2026-06-16 — Web-app: projekt-først composer + sidebar
 - [x] Projekt-først composer: fjernet "Scratch", default til senest brugte projekt.
 - [x] "Opret dit første projekt" + "Nyt projekt" som fuldskærms-flow (ikke stablet på opgaveformen).
@@ -125,9 +134,9 @@ Forbedringer og fremtid.
 
 Inkrementel køreplan, hvert trin skal kunne shippes for sig:
 
-- [ ] **1. Backlog som data.** Gør `tasks` til en førsteklasses backlog: `type`
-      (feature/fix/test/research/chore), `priority`, `status`
-      (todo/doing/blocked/done/failed), dependencies, mission-link. UI til at se/redigere.
+- 🚧 **1. Backlog som data.** Schema + store leveret (2026-06-17): `missions` +
+      `backlog_items` med `priority`, `status`, `dependsOn`, `risk`, `verification`,
+      mission-link; `BacklogStore` injiceret i core. **Mangler:** API-endpoints + UI til at se/redigere.
 - [ ] **2. Self-challenge-node.** Efter en accepteret leverance foreslår en
       planner/kritiker næste backlog-punkter (menneske-reviewet først).
 - [ ] **3. Mission-entitet + manuel-tick runner.** En `mission` med et mål; en runner
