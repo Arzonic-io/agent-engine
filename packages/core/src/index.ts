@@ -72,6 +72,14 @@ export {
   type MakeReplannerOptions,
 } from "./nodes/replan.js";
 export {
+  classifyRisk,
+  approveParkedItem,
+  rejectParkedItem,
+  buildDigest,
+  DEFAULT_HIGH_RISK_PATTERNS,
+  type MissionDigest,
+} from "./humanPolicy.js";
+export {
   defaultRubric,
   renderRubric,
   type Rubric,

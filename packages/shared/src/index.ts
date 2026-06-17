@@ -31,6 +31,10 @@ export {
 } from "./backlog.js";
 export { createVerifier, type VerifierOptions } from "./verifier.js";
 export {
+  createConsoleNotifier,
+  type ConsoleNotifierOptions,
+} from "./notifier.js";
+export {
   runCheckProcess,
   truncateTail,
   DEFAULT_ALLOWED_CHECKS,

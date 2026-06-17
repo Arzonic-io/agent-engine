@@ -32,6 +32,16 @@ Missions-køreplanen står under **Epics**.
 
 ## ✅ Senest leveret
 
+### 2026-06-17 — Missioner Trin 7: Human-policy (park-risk, kør resten, blokér aldrig)
+- [x] `classifyRisk()` i core ([packages/core/src/humanPolicy.ts](../packages/core/src/humanPolicy.ts)):
+      statiske high-risk-mønstre (deploy/delete/payment/secrets…) + planner-flag + host-mønstre.
+- [x] Controller-loopet **parker high-risk items før kørsel** som `blocked_needs_human` og går videre —
+      intet irreversibelt kører uovervåget; mennesket blokerer aldrig loopet.
+- [x] `approveParkedItem` (rydder risk + re-queue) / `rejectParkedItem` (→ failed) til async-beslutning.
+- [x] `buildDigest()`: done/parked/failed/next/spend-rollup (§5.5 morgendigest).
+- [x] Log-først `createConsoleNotifier()` i shared ([packages/shared/src/notifier.ts](../packages/shared/src/notifier.ts))
+      + `item_parked`-event. Bevist ([verify-human-policy.ts](../packages/core/verify-human-policy.ts) + loop-test): `turbo build` grøn.
+
 ### 2026-06-17 — Missioner Trin 6: Governors-hardening (thrash-guard)
 - [x] Thrash-guard i controller-loopet ([packages/core/src/controller.ts](../packages/core/src/controller.ts)):
       et item der fejler `thrashLimit` gange (default 3) **parkes** som `blocked_needs_human` —

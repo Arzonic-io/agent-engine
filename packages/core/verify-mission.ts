@@ -260,4 +260,25 @@ const retryReplanner: Replanner = {
   ok(out.status === "blocked", "mission ends blocked because a parked item remains");
 }
 
+// ── 10. human policy: a high-risk item is parked BEFORE it ever runs ──
+{
+  const ran: string[] = [];
+  const tracking: WorkRunner = {
+    async run(it) {
+      ran.push(it.id);
+      return runner.run(it);
+    },
+  };
+  const store = makeStore({ ...baseMission }, [
+    item("safe", 1),
+    { ...item("danger", 5), title: "Deploy to production" }, // high-risk, higher priority
+  ]);
+  const out = await runMission({ backlog: store, verifier: passingVerifier, runner: tracking }, "m1");
+  const danger = (await store.listItems("m1")).find((i) => i.id === "danger")!;
+  ok(danger.status === "blocked_needs_human", "high-risk item parked for a human");
+  ok(!ran.includes("danger"), "the high-risk item NEVER ran (parked before execution)");
+  ok(ran.includes("safe"), "the low-risk item still ran — the loop didn't block");
+  ok(out.status === "blocked", "mission ends blocked with the parked item awaiting a decision");
+}
+
 console.log("\nrunMission controller loop verified ✓");

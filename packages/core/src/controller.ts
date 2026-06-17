@@ -6,6 +6,7 @@ import type {
   Mission,
   MissionStatus,
 } from "./mission.js";
+import { classifyRisk } from "./humanPolicy.js";
 import type { WorkResult, WorkRunner } from "./runner.js";
 import type { Verifier, VerifierReport } from "./verifier.js";
 
@@ -63,6 +64,7 @@ export const defaultReplanner: Replanner = {
 export type MissionEvent =
   | { type: "item_started"; missionId: string; item: BacklogItem }
   | { type: "item_finished"; missionId: string; item: BacklogItem; status: BacklogItemStatus }
+  | { type: "item_parked"; missionId: string; item: BacklogItem; reason: string }
   | { type: "mission_stopped"; missionId: string; status: MissionStatus; reason: string };
 
 export interface Notifier {
@@ -105,6 +107,8 @@ export interface MissionDeps {
   governors?: MissionGovernors;
   /** Checks the Verifier runs per item. Default ["typecheck", "test"]. */
   checks?: string[];
+  /** Extra patterns that force an item to high-risk (from MISSION_HIGH_RISK_PATTERNS). */
+  highRiskPatterns?: string[];
   /** Abort signal forwarded to each work item run. */
   signal?: AbortSignal;
 }
@@ -200,6 +204,23 @@ export async function runMission(
       if (pending) return stop("blocked", "remaining items blocked on unmet dependencies");
       if (parked) return stop("blocked", "all remaining items need a human");
       return stop("done", "done");
+    }
+
+    // Human policy (§5.5): park high-risk work for an async decision and move
+    // on — the human never blocks the loop. Approval (approveParkedItem) clears
+    // the risk and re-queues it. Done before any execution so nothing
+    // irreversible runs unattended.
+    if (classifyRisk(item, deps.highRiskPatterns) === "high") {
+      const parked =
+        (await backlog.updateItem(item.id, { status: "blocked_needs_human", risk: "high" })) ??
+        item;
+      await deps.notifier?.notify({
+        type: "item_parked",
+        missionId,
+        item: parked,
+        reason: "high-risk",
+      });
+      continue;
     }
 
     iterations++;
