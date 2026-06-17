@@ -66,6 +66,12 @@ export {
   type Clock,
 } from "./controller.js";
 export {
+  makeReplanner,
+  applyReplanGuards,
+  type ReplanOutput,
+  type MakeReplannerOptions,
+} from "./nodes/replan.js";
+export {
   defaultRubric,
   renderRubric,
   type Rubric,

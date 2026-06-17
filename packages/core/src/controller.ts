@@ -39,6 +39,8 @@ export interface ReplanDecision {
   followUps?: Omit<CreateBacklogItemInput, "missionId">[];
   /** One-line note for the journal/digest. */
   note?: string;
+  /** Tokens the replan step itself spent, folded into the mission budget. */
+  tokensUsed?: number;
 }
 
 export interface Replanner {
@@ -216,7 +218,7 @@ export async function runMission(
 
     mission =
       (await backlog.updateMission(missionId, {
-        spentTokens: mission.spentTokens + result.tokensUsed,
+        spentTokens: mission.spentTokens + result.tokensUsed + (decision.tokensUsed ?? 0),
       })) ?? mission;
 
     if (decision.itemStatus === "done") {

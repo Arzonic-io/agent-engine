@@ -32,6 +32,16 @@ Missions-køreplanen står under **Epics**.
 
 ## ✅ Senest leveret
 
+### 2026-06-17 — Missioner Trin 5: Replan-agent (lead)
+- [x] `makeReplanner(model)` i core ([packages/core/src/nodes/replan.ts](../packages/core/src/nodes/replan.ts)):
+      ud fra mål + deliverable + verifikation beslutter den item-status (done/todo/failed/blocked_needs_human)
+      + foreslår follow-ups (med risk), erstatter `defaultReplanner`.
+- [x] **Sandhedsregel i kode** (`applyReplanGuards`): et item kan kun blive "done" hvis Verifier bestod —
+      ellers tvunget tilbage til `todo`. Modellen kan aldrig wave en fejlende build igennem (jf. critic's pass-regel).
+- [x] Replan-tokens foldes ind i mission-budgettet (`ReplanDecision.tokensUsed`).
+- [x] Bevist ([packages/core/verify-replan.ts](../packages/core/verify-replan.ts)): done kræver pass, high-risk-parking
+      og follow-ups bevares. `turbo build` grøn.
+
 ### 2026-06-17 — Missioner Trin 4: runMission controller-loop (pure core)
 - [x] `runMission(deps, missionId)` i core ([packages/core/src/controller.ts](../packages/core/src/controller.ts)):
       henter næste actionable item → kører via WorkRunner → verificerer → replan → opdaterer backlog, til mål/governor.
