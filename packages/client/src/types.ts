@@ -140,6 +140,117 @@ export interface DecisionResponse {
   status: ApiRunStatus;
 }
 
+// ── autonomous missions (§5) ──
+
+export type MissionStatus =
+  | "running"
+  | "paused"
+  | "blocked"
+  | "done"
+  | "failed"
+  | "stopped";
+
+export type BacklogItemStatus =
+  | "todo"
+  | "in_progress"
+  | "done"
+  | "blocked_needs_human"
+  | "failed";
+
+export type Risk = "low" | "high";
+
+export interface ApiVerification {
+  passed: boolean;
+  check: string;
+  output: string;
+}
+
+export interface ApiBacklogItem {
+  id: string;
+  missionId: string;
+  title: string;
+  detail: string;
+  status: BacklogItemStatus;
+  priority: number;
+  dependsOn: string[];
+  risk: Risk;
+  runId: string | null;
+  verification: ApiVerification | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface MissionSummary {
+  id: string;
+  projectId: string;
+  goal: string;
+  acceptanceCriteria: string[];
+  repoPath: string;
+  status: MissionStatus;
+  budget: number | null;
+  spentTokens: number;
+  deadline: string | null;
+  createdAt: string;
+}
+
+/** Done/parked/failed/next rollup — the morning digest (§5.5). */
+export interface MissionDigest {
+  missionId: string;
+  goal: string;
+  status: MissionStatus;
+  spentTokens: number;
+  done: string[];
+  parked: string[];
+  failed: string[];
+  pending: number;
+  next: string[];
+}
+
+export interface MissionDetail extends MissionSummary {
+  items: ApiBacklogItem[];
+  digest: MissionDigest;
+}
+
+export interface NewBacklogItem {
+  title: string;
+  detail?: string;
+  priority?: number;
+  dependsOn?: string[];
+  risk?: Risk;
+}
+
+export interface CreateMissionRequest {
+  projectId: string;
+  goal: string;
+  repoPath: string;
+  acceptanceCriteria?: string[];
+  budget?: number | null;
+  /** ISO wall-clock deadline. */
+  deadline?: string | null;
+  /** Optional initial backlog to seed the mission with. */
+  items?: NewBacklogItem[];
+}
+
+/** Async approve/reject of a parked (high-risk or thrashing) item (§5.5). */
+export interface MissionItemDecisionRequest {
+  decision: "approve" | "reject";
+}
+
+export interface MissionItemDecisionResponse {
+  itemId: string;
+  status: BacklogItemStatus;
+}
+
+export interface StopMissionResponse {
+  missionId: string;
+  status: MissionStatus;
+}
+
+/** SSE frame from `GET /missions/:id/stream` — a periodic state snapshot. */
+export type MissionStreamEvent =
+  | { type: "snapshot"; mission: MissionSummary; items: ApiBacklogItem[]; digest: MissionDigest }
+  | { type: "error"; message: string };
+
 export type RunEvent =
   | { type: "token"; node: "builder" | "analyst"; content: string }
   | {

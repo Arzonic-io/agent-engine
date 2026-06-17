@@ -20,5 +20,20 @@ module.exports = {
         NODE_ENV: "production",
       },
     },
+    {
+      // The autonomous-mission worker (§5.7). Separate process from the API,
+      // sharing the same Postgres (checkpointer + backlog). Drives runMission for
+      // every `running` mission. Single fork — concurrent missions are serialized.
+      name: "agent-mission-worker",
+      script: "apps/api/dist/mission-worker.js",
+      cwd: __dirname,
+      exec_mode: "fork",
+      instances: 1,
+      autorestart: true,
+      max_memory_restart: "512M",
+      env: {
+        NODE_ENV: "production",
+      },
+    },
   ],
 };

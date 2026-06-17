@@ -1,0 +1,25 @@
+import { z } from "zod";
+
+const NewBacklogItemSchema = z.object({
+  title: z.string().min(1).max(500),
+  detail: z.string().max(20_000).optional(),
+  priority: z.number().int().optional(),
+  dependsOn: z.array(z.string()).optional(),
+  risk: z.enum(["low", "high"]).optional(),
+});
+
+export const CreateMissionSchema = z.object({
+  projectId: z.string().min(1),
+  goal: z.string().min(1).max(20_000),
+  repoPath: z.string().min(1),
+  acceptanceCriteria: z.array(z.string().min(1)).max(50).optional(),
+  budget: z.number().int().min(1).nullable().optional(),
+  deadline: z.iso.datetime().nullable().optional(),
+  items: z.array(NewBacklogItemSchema).max(200).optional(),
+});
+export type CreateMissionDto = z.infer<typeof CreateMissionSchema>;
+
+export const MissionItemDecisionSchema = z.object({
+  decision: z.enum(["approve", "reject"]),
+});
+export type MissionItemDecisionDto = z.infer<typeof MissionItemDecisionSchema>;

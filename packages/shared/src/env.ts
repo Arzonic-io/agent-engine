@@ -30,6 +30,23 @@ const EnvSchema = z
       .default("false")
       .transform((v) => v === "true"),
     LANGSMITH_API_KEY: z.string().min(1).optional(),
+    // ── autonomous missions (§5 / §10) ──
+    MISSION_TOKEN_BUDGET: z.coerce.number().int().min(1).optional(),
+    MISSION_MAX_ITERATIONS: z.coerce.number().int().min(1).optional(),
+    MISSION_NOPROGRESS_LIMIT: z.coerce.number().int().min(1).default(3),
+    MISSION_THRASH_LIMIT: z.coerce.number().int().min(1).default(3),
+    // Checks the mission Verifier runs per item — the truth source for "done".
+    MISSION_CHECKS: z
+      .string()
+      .default("typecheck,test")
+      .transform((s) => s.split(",").map((x) => x.trim()).filter(Boolean)),
+    // Extra patterns that force an item to high-risk (parked for a human).
+    MISSION_HIGH_RISK_PATTERNS: z
+      .string()
+      .default("")
+      .transform((s) => s.split(",").map((x) => x.trim()).filter(Boolean)),
+    // How often the mission-worker scans for running missions to drive.
+    MISSION_WORKER_POLL_MS: z.coerce.number().int().min(1000).default(5000),
   })
   .superRefine((env, ctx) => {
     if (env.LLM_PROVIDER === "mistral" && !env.MISTRAL_API_KEY) {

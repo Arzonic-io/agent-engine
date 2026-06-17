@@ -1,6 +1,12 @@
 import type {
+  CreateMissionRequest,
   DecisionRequest,
   DecisionResponse,
+  MissionDetail,
+  MissionItemDecisionRequest,
+  MissionItemDecisionResponse,
+  MissionStreamEvent,
+  MissionSummary,
   Project,
   ProjectTask,
   RepoInfo,
@@ -10,6 +16,7 @@ import type {
   RunSummary,
   StartRunRequest,
   StartRunResponse,
+  StopMissionResponse,
 } from "./types.js";
 
 export * from "./types.js";
@@ -109,6 +116,77 @@ export class AgentClient {
       method: "POST",
       body: JSON.stringify(decision),
     });
+  }
+
+  // ── missions (§5) ──
+
+  createMission(request: CreateMissionRequest): Promise<MissionDetail> {
+    return this.request("/missions", {
+      method: "POST",
+      body: JSON.stringify(request),
+    });
+  }
+
+  listMissions(): Promise<MissionSummary[]> {
+    return this.request("/missions");
+  }
+
+  getMission(id: string): Promise<MissionDetail> {
+    return this.request(`/missions/${encodeURIComponent(id)}`);
+  }
+
+  /** Kill switch — the worker halts the mission at its next checkpoint. */
+  stopMission(id: string): Promise<StopMissionResponse> {
+    return this.request(`/missions/${encodeURIComponent(id)}/stop`, { method: "POST" });
+  }
+
+  /** Approve or reject a parked item, making it actionable again (or failing it). */
+  decideMissionItem(
+    missionId: string,
+    itemId: string,
+    decision: MissionItemDecisionRequest,
+  ): Promise<MissionItemDecisionResponse> {
+    return this.request(
+      `/missions/${encodeURIComponent(missionId)}/items/${encodeURIComponent(itemId)}/decision`,
+      { method: "POST", body: JSON.stringify(decision) },
+    );
+  }
+
+  /** Live mission snapshots (backlog board + budget burn) via SSE. */
+  async *streamMission(
+    id: string,
+    options?: { signal?: AbortSignal },
+  ): AsyncGenerator<MissionStreamEvent> {
+    const res = await this.fetchImpl(
+      `${this.baseUrl}/missions/${encodeURIComponent(id)}/stream`,
+      { headers: { Authorization: `Bearer ${this.apiKey}` }, signal: options?.signal },
+    );
+    if (!res.ok || !res.body) {
+      throw new AgentApiError(res.status, await res.text());
+    }
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    try {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        let sep: number;
+        while ((sep = buffer.indexOf("\n\n")) !== -1) {
+          const frame = buffer.slice(0, sep);
+          buffer = buffer.slice(sep + 2);
+          const data = frame
+            .split("\n")
+            .filter((l) => l.startsWith("data:"))
+            .map((l) => l.slice(5).trim())
+            .join("\n");
+          if (data) yield JSON.parse(data) as MissionStreamEvent;
+        }
+      }
+    } finally {
+      reader.releaseLock();
+    }
   }
 
   /**

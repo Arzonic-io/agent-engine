@@ -20,6 +20,22 @@ To kørsels-modes: **Opgave** (afgrænset, ≤ ~15 min, som i dag) og **Mission*
 [design-brief.md](design-brief.md) — det er pejlemærket alt nedenfor sigter efter.
 Missions-køreplanen står under **Epics**.
 
+## 🗺️ Store milepæle (overblik)
+
+Det store perspektiv — fra nu til Nordstjernen. Detaljerne lever i tiers + epics nedenfor.
+
+- [x] **M0 — Fundament & web.** Multi-agent team (4 grafer), projekt-hukommelse,
+      projekt-først web-app. *(leveret)*
+- 🚧 **M1 — Missions-motoren.** Autonom loop der planlægger, kører, verificerer,
+      genplanlægger, parkerer risiko, stopper sikkert og kan overvåges. = design-brief §6,
+      Trin 1–8. *(i gang — på Trin 8)*
+- [ ] **M2 — Fra motor til byg.** Skrive-capable eksekvering i worktrees + parallelisme —
+      springet fra "laver en plan" til "laver kørende kode". *(Phase 5)*
+- [ ] **M3 — Kvalitet & tillid.** Dybere verifikation/tests, konvergens-tuning, drift over
+      mange timer (cost/retries), tillids-UX (diffs, digest, kurskorrektion). *(Phase 5)*
+- [ ] **M4 — Produktisering.** Løft core ind i Ranky/Bravy, multi-tenant, deploy af
+      web-appen. *(se Øvrige temaer)*
+
 ## Sådan bruger du den
 
 - `- [ ]` = ikke startet · `- [x]` = færdig · `🚧` = i gang · `🔒` = blokeret.
@@ -31,6 +47,20 @@ Missions-køreplanen står under **Epics**.
 ---
 
 ## ✅ Senest leveret
+
+### 2026-06-17 — Missioner Trin 8a: Mission-API + PM2-worker (rygrad)
+- [x] NestJS `MissionsController` ([apps/api/src/missions/](../apps/api/src/missions/)): `POST /missions`,
+      `GET /missions`, `GET /missions/:id`, `SSE /missions/:id/stream`, `POST /missions/:id/stop`,
+      `POST /missions/:id/items/:itemId/decision` — bag bearer-guarden.
+- [x] `MissionsService` wirer `BacklogService` + `classifyRisk`/`buildDigest`/approve-reject; SSE streamer
+      periodiske snapshots (backlog-board + budget-burn). DI bekræftet via boot-test.
+- [x] `BACKLOG`-provider (degraderer pænt uden `SUPABASE_DB_URL`); mission-env i shared + `.env.example`.
+- [x] **PM2 mission-worker** ([apps/api/src/mission-worker.ts](../apps/api/src/mission-worker.ts)): separat proces,
+      deler Postgres, driver `runMission` for kørende missioner serielt. Tilføjet til `ecosystem.config.cjs`.
+- [x] Client-wire-typer + metoder (`createMission`/`list`/`get`/`stop`/`decideMissionItem`/`streamMission`). `turbo build` grøn (6/6).
+- [ ] **Mangler (Trin 8b):** mission-dashboard i web-appen (backlog-board, live-aktivitet, budget, parkerede items, digest).
+- [ ] **Note:** work-items kører i dag gennem project/team-grafen (planlægning + verifikation). Skrive-capable
+      eksekvering i repoet (rigtige kodeændringer) er M2 — missionen planlægger + verificerer, men forfatter endnu ikke kode på disk.
 
 ### 2026-06-17 — Missioner Trin 7: Human-policy (park-risk, kør resten, blokér aldrig)
 - [x] `classifyRisk()` i core ([packages/core/src/humanPolicy.ts](../packages/core/src/humanPolicy.ts)):
@@ -194,26 +224,38 @@ Forbedringer og fremtid.
 
 ## 🧭 Epics / større temaer
 
-### 🌙 Autonome missioner (se §5 i [design-brief.md](design-brief.md))
+### 🌙 M1 — Missions-motoren (design-brief §6, 8 trin)
 
-Inkrementel køreplan, hvert trin skal kunne shippes for sig:
+Build-order, hvert trin shippes + bevises for sig:
 
-- 🚧 **1. Backlog som data.** Schema + store leveret (2026-06-17): `missions` +
-      `backlog_items` med `priority`, `status`, `dependsOn`, `risk`, `verification`,
-      mission-link; `BacklogStore` injiceret i core. **Mangler:** API-endpoints + UI til at se/redigere.
-- [ ] **2. Self-challenge-node.** Efter en accepteret leverance foreslår en
-      planner/kritiker næste backlog-punkter (menneske-reviewet først).
-- [ ] **3. Mission-entitet + manuel-tick runner.** En `mission` med et mål; en runner
-      der på tryk tager ét punkt, kører det, gemmer, foreslår næste — menneske i loopet.
-- [ ] **4. Auto-loop + guardrails.** Runner looper under budget/tid/konvergens med
-      kill switch; menneske-checkpoints bliver asynkrone.
-- [ ] **5. Tester/QA-agent + git-worktrees.** Rigtig verifikation (build/test) og
-      isoleret parallel eksekvering.
-- [ ] **6. Overnight-scheduling + tempo-kontrol** (arbejdsvinduer, max parallelle
-      agenter, genoptag-ved-boot).
-- [ ] **7. Async review-kø-UI.** Milepæle, blockers, kill switch, live mission-dashboard.
+- [x] **1. Schema + BacklogStore** — `missions` + `backlog_items`, injiceret i core.
+- [x] **2. Verifier** — pass/fail fra rigtige checks (ikke LLM) er sandheden for "done".
+- [x] **3. WorkRunner** — kør ét item gennem project/team-grafen, checkpointet pr. item.
+- [x] **4. Controller-loop** (`runMission`) — pick → run → verify → replan → loop, med resume.
+- [x] **5. Replan-agent** (lead) — mål + resultat + verifikation → opdater backlog.
+- [ ] **6. Governors + kill switch** — budget/deadline/iterationer/no-progress/thrash +
+      stop-endpoint. *(næste)*
+- [ ] **7. Human-policy** — risk-parking (blokér aldrig loopet) + async decision + `Notifier`.
+- [ ] **8. Mission-API + PM2-worker + dashboard** — `POST /missions` m.fl., baggrunds-worker,
+      backlog-board / live aktivitet / digest. *(i gang)*
 
-### Øvrige temaer
+### 🛠️ M2/M3 — Fra motor til byg + kvalitet & tillid (Phase 5, efter Trin 8)
+
+Når motoren kører autonomt, er det her der afgør om output faktisk *virker* og kan stoles på:
+
+- [ ] **Skrive-capable eksekvering (den store).** Agenter skal kunne skrive filer, køre
+      kommandoer og scaffolde i isolerede git-worktrees — i dag er repo-værktøjerne læse-only.
+      Springet fra "laver en plan" til "laver kørende kode".
+- [ ] **Parallelisme.** Flere workers i hver sin worktree + integration/merge ("sæt folk i gang").
+- [ ] **Dybere verifikation.** Agent-genererede tests / e2e, så "grøn build" er en stærk
+      sandhed — ikke kun lint/build.
+- [ ] **Konvergens-kvalitet.** Bedre dekomponering, undgå thrash, vide hvornår "godt nok" på
+      åbne mål — tuning + evals.
+- [ ] **Drift over mange timer.** Cost/budget i skala, model-valg, caching, rate-limit-retries,
+      fejl-recovery.
+- [ ] **Tillids-UX.** Diffs man kan godkende/afvise, morning digest, kurskorrektion undervejs.
+
+### Øvrige temaer (M4 — produktisering)
 
 - [ ] **Løft `@arzonic/agent-core` ind i Ranky/Bravy** (eller publicér pakken) — "run once,
       serve everywhere" via `@arzonic/agent-client`.
