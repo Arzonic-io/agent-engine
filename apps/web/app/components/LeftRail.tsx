@@ -4,7 +4,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
-import { LuFolderGit2, LuFolderPlus, LuTrash2 } from "react-icons/lu";
+import { LuFolderGit2, LuFolderPlus, LuRocket, LuTrash2 } from "react-icons/lu";
 import type { Project, RecentTask } from "@arzonic/agent-client";
 import {
   getActiveProject,
@@ -154,6 +154,21 @@ export function LeftRail({ onNavigate }: { onNavigate?: () => void } = {}) {
       <div className="flex items-center gap-2.5 px-5 py-4">
         <span className="pulse-dot inline-block h-2.5 w-2.5 rounded-full bg-builder" />
         <span className="font-display text-base font-extrabold tracking-tight">Multi Agent Team</span>
+      </div>
+
+      {/* ── Missions ── */}
+      <div className="px-2 pb-2">
+        <Link
+          href="/missions"
+          onClick={onNavigate}
+          className={`flex items-center gap-2 rounded-field px-3 py-2 text-sm transition ${
+            pathname.startsWith("/missions") ? "bg-elev text-fg" : "text-dim hover:bg-elev/60 hover:text-fg"
+          }`}
+        >
+          <LuRocket className="h-4 w-4" />
+          <span className="font-medium">Missioner</span>
+          <span className="ml-auto text-[10px] uppercase tracking-wide text-dim">autonom</span>
+        </Link>
       </div>
 
       {/* ── Projects ── */}

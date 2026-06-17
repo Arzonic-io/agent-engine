@@ -26,9 +26,9 @@ Det store perspektiv — fra nu til Nordstjernen. Detaljerne lever i tiers + epi
 
 - [x] **M0 — Fundament & web.** Multi-agent team (4 grafer), projekt-hukommelse,
       projekt-først web-app. *(leveret)*
-- 🚧 **M1 — Missions-motoren.** Autonom loop der planlægger, kører, verificerer,
+- [x] **M1 — Missions-motoren.** Autonom loop der planlægger, kører, verificerer,
       genplanlægger, parkerer risiko, stopper sikkert og kan overvåges. = design-brief §6,
-      Trin 1–8. *(i gang — på Trin 8)*
+      Trin 1–8. *(leveret — API + worker + dashboard)*
 - [ ] **M2 — Fra motor til byg.** Skrive-capable eksekvering i worktrees + parallelisme —
       springet fra "laver en plan" til "laver kørende kode". *(Phase 5)*
 - [ ] **M3 — Kvalitet & tillid.** Dybere verifikation/tests, konvergens-tuning, drift over
@@ -47,6 +47,14 @@ Det store perspektiv — fra nu til Nordstjernen. Detaljerne lever i tiers + epi
 ---
 
 ## ✅ Senest leveret
+
+### 2026-06-17 — Missioner Trin 8b: Mission-dashboard (M1 i mål 🎉)
+- [x] `/missions`: liste + opret-mission (projekt, repo, mål, acceptkriterier, start-backlog, budget).
+- [x] `/missions/:id` dashboard ([apps/web/app/missions/](../apps/web/app/missions/)): live via SSE-snapshots
+      (`EventSource`), status + budget-burn-bar, digest-tællere, backlog-board grupperet pr. status.
+- [x] Parkerede items vises øverst ("Afventer dig") med **Godkend/Afvis** (async decision-endpoint) + høj-risiko-badge.
+- [x] Kill switch (Stop) på kørende missioner; "Missioner"-link i venstre-railen.
+- [x] 5 server-proxy-ruter (`/api/missions/*`) holder bearer-key server-side. `turbo build` grøn (6/6).
 
 ### 2026-06-17 — Missioner Trin 8a: Mission-API + PM2-worker (rygrad)
 - [x] NestJS `MissionsController` ([apps/api/src/missions/](../apps/api/src/missions/)): `POST /missions`,

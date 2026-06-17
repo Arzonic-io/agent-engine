@@ -9,6 +9,25 @@ export const STATUS_DOT: Record<string, string> = {
   failed: "bg-error",
 };
 
+/** Dot colour per mission status. */
+export const MISSION_DOT: Record<string, string> = {
+  running: "bg-builder",
+  paused: "bg-warning",
+  blocked: "bg-warning",
+  done: "bg-success",
+  failed: "bg-error",
+  stopped: "bg-dim",
+};
+
+/** Dot colour + Danish label per backlog-item status. */
+export const ITEM_STATUS: Record<string, { dot: string; label: string }> = {
+  todo: { dot: "bg-dim", label: "Kø" },
+  in_progress: { dot: "bg-builder", label: "I gang" },
+  done: { dot: "bg-success", label: "Færdig" },
+  blocked_needs_human: { dot: "bg-warning", label: "Afventer dig" },
+  failed: { dot: "bg-error", label: "Fejlet" },
+};
+
 /** The standing team a project hands work to. Core runs always; the rest join on team-mode tasks. */
 export const TEAM_CORE = [
   { label: "Builder", dot: "bg-builder" },
