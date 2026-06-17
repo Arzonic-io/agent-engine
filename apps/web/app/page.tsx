@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { LuBrain, LuFolderPlus, LuListTodo, LuRocket } from "react-icons/lu";
+import { LuBrain, LuListTodo, LuRocket } from "react-icons/lu";
 import type { MissionSummary, Project, ProjectTask, RepoInfo, Rubric } from "@arzonic/agent-client";
 import {
   ACTIVE_PROJECT_EVENT,
@@ -213,37 +213,14 @@ export default function Composer() {
       <div className="w-full max-w-2xl pb-20 pt-[7vh]">
         {/* project header */}
         <div className="rise mb-6">
-          <div className="flex items-start justify-between gap-4">
-            <div className="min-w-0">
-              <p className="mb-2 text-xs uppercase tracking-[0.35em] text-dim">Arbejder i projekt</p>
-              <h1 className="display truncate text-4xl font-extrabold leading-[1.08] tracking-tight">
-                {selected?.name}
-              </h1>
-              {selected?.brief?.trim() && (
-                <p className="mt-2 line-clamp-2 text-sm leading-relaxed text-dim">{selected.brief}</p>
-              )}
-            </div>
-            <div className="flex shrink-0 items-center gap-2">
-              <select
-                value={projectId}
-                onChange={(e) => setProjectId(e.target.value)}
-                className="select select-sm max-w-[10rem] border-line bg-elev"
-                aria-label="Skift projekt"
-              >
-                {projects.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name}
-                  </option>
-                ))}
-              </select>
-              <button
-                type="button"
-                onClick={() => setNewOpen(true)}
-                className="btn btn-ghost btn-sm gap-1 text-dim hover:text-fg"
-              >
-                <LuFolderPlus className="h-4 w-4" /> Nyt
-              </button>
-            </div>
+          <div className="min-w-0">
+            <p className="mb-2 text-xs uppercase tracking-[0.35em] text-dim">Arbejder i projekt</p>
+            <h1 className="display truncate text-4xl font-extrabold leading-[1.08] tracking-tight">
+              {selected?.name}
+            </h1>
+            {selected?.brief?.trim() && (
+              <p className="mt-2 line-clamp-2 text-sm leading-relaxed text-dim">{selected.brief}</p>
+            )}
           </div>
 
           {/* memory + team */}
