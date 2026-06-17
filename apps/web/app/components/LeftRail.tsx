@@ -183,6 +183,16 @@ export function LeftRail({ onNavigate }: { onNavigate?: () => void } = {}) {
         <span className="font-display text-base font-extrabold tracking-tight">Multi Agent Team</span>
       </div>
 
+      {/* New project — pinned at the top */}
+      <div className="px-2 pb-2">
+        <button
+          onClick={newProject}
+          className="btn btn-primary w-full gap-1.5 font-bold normal-case"
+        >
+          <LuFolderPlus className="h-4 w-4" /> Nyt projekt
+        </button>
+      </div>
+
       {/* ── Projects ── */}
       <div className="px-4 pb-1.5">
         <span className="text-[11px] uppercase tracking-[0.28em] text-dim">Projekter</span>
@@ -253,7 +263,7 @@ export function LeftRail({ onNavigate }: { onNavigate?: () => void } = {}) {
         ))}
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-2 py-1">
+      <div className="max-h-60 overflow-y-auto px-2 py-1">
         {filtered.length === 0 ? (
           <p className="px-3 py-8 text-center text-xs text-dim">Ingen opgaver endnu.</p>
         ) : (
@@ -305,9 +315,9 @@ export function LeftRail({ onNavigate }: { onNavigate?: () => void } = {}) {
             <LuRocket className="h-3.5 w-3.5 text-dim" />
             <span className="text-[11px] uppercase tracking-[0.28em] text-dim">Seneste missioner</span>
           </div>
-          <div className="max-h-[26%] overflow-y-auto px-2 pb-1">
+          <div className="max-h-60 overflow-y-auto px-2 pb-1">
             <ul className="space-y-0.5">
-              {missions.slice(0, 12).map((m) => {
+              {missions.map((m) => {
                 const active = m.id === activeMissionId;
                 return (
                   <li key={m.id}>
@@ -342,14 +352,7 @@ export function LeftRail({ onNavigate }: { onNavigate?: () => void } = {}) {
         </>
       )}
 
-      <div className="border-t border-line px-4 py-3">
-        <button
-          onClick={newProject}
-          className="btn btn-primary w-full gap-1.5 font-bold normal-case"
-        >
-          <LuFolderPlus className="h-4 w-4" /> Nyt projekt
-        </button>
-      </div>
+      <div className="min-h-4 flex-1" />
 
       <div className="flex items-center gap-2.5 border-t border-line px-5 py-3.5 text-sm text-dim">
         <Image src="/image.png" alt="Arzonic" width={24} height={24} className="rounded-sm opacity-80" />
