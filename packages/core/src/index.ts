@@ -25,6 +25,34 @@ export {
   type GuardrailConfig,
 } from "./guardrails.js";
 export {
+  MissionSchema,
+  MissionStatusSchema,
+  BacklogItemSchema,
+  BacklogItemStatusSchema,
+  RiskSchema,
+  VerificationSchema,
+  type Mission,
+  type MissionStatus,
+  type BacklogItem,
+  type BacklogItemStatus,
+  type Risk,
+  type Verification,
+  type BacklogStore,
+  type CreateMissionInput,
+  type MissionPatch,
+  type CreateBacklogItemInput,
+  type BacklogItemPatch,
+} from "./mission.js";
+export type { Verifier, VerifierReport } from "./verifier.js";
+export {
+  createGraphWorkRunner,
+  type WorkRunner,
+  type WorkItem,
+  type WorkResult,
+  type RunnableMissionGraph,
+  type GraphWorkRunnerOptions,
+} from "./runner.js";
+export {
   defaultRubric,
   renderRubric,
   type Rubric,

@@ -15,3 +15,24 @@ export {
   type MemoryHit,
   type RetrievedContext,
 } from "./memory.js";
+export {
+  BacklogService,
+  type BacklogServiceOptions,
+  type Mission,
+  type MissionStatus,
+  type MissionPatch,
+  type CreateMissionInput,
+  type BacklogItem,
+  type BacklogItemStatus,
+  type BacklogItemPatch,
+  type CreateBacklogItemInput,
+  type Risk,
+  type Verification,
+} from "./backlog.js";
+export { createVerifier, type VerifierOptions } from "./verifier.js";
+export {
+  runCheckProcess,
+  truncateTail,
+  DEFAULT_ALLOWED_CHECKS,
+  type CheckRun,
+} from "./checks.js";

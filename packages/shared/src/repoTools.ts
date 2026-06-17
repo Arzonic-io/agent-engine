@@ -1,7 +1,12 @@
-import { spawn } from "node:child_process";
 import { readdir, readFile as fsReadFile, stat } from "node:fs/promises";
 import { relative, resolve, sep } from "node:path";
 import type { RepoTools } from "@arzonic/agent-core";
+import {
+  DEFAULT_ALLOWED_CHECKS,
+  MAX_CHECK_OUTPUT,
+  runCheckProcess,
+  truncateTail,
+} from "./checks.js";
 
 /** Directories never worth reading — noise + huge. */
 const IGNORE_DIRS = new Set([
@@ -18,55 +23,12 @@ const IGNORE_DIRS = new Set([
 const MAX_FILE_BYTES = 60_000;
 const MAX_SEARCH_HITS = 60;
 const MAX_SEARCH_FILE_BYTES = 400_000;
-const CHECK_TIMEOUT_MS = 120_000;
-const MAX_CHECK_OUTPUT = 10_000;
-const DEFAULT_ALLOWED_CHECKS = ["test", "lint", "typecheck", "build"];
 
 export interface RepoToolsOptions {
   /** Command names runCheck may run via `pnpm run <name>`. Defaults to test/lint/typecheck/build. */
   allowedChecks?: string[];
 }
 
-/** Run `pnpm run <name>` in a repo, capturing combined output with a timeout. No shell. */
-function runProcess(
-  cwd: string,
-  name: string,
-): Promise<{ status: string; output: string }> {
-  return new Promise((resolve) => {
-    const child = spawn("pnpm", ["run", name], {
-      cwd,
-      env: process.env,
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-    let output = "";
-    let killed = false;
-    const timer = setTimeout(() => {
-      killed = true;
-      child.kill("SIGKILL");
-    }, CHECK_TIMEOUT_MS);
-    const collect = (d: Buffer) => {
-      output += d.toString();
-    };
-    child.stdout.on("data", collect);
-    child.stderr.on("data", collect);
-    child.on("error", (e) => {
-      clearTimeout(timer);
-      resolve({ status: "spawn error", output: `${output}\n${e.message}` });
-    });
-    child.on("close", (code) => {
-      clearTimeout(timer);
-      const status = killed
-        ? `timed out after ${CHECK_TIMEOUT_MS}ms`
-        : `exit code ${code}`;
-      resolve({ status, output });
-    });
-  });
-}
-
-function truncateTail(s: string, max: number): string {
-  if (s.length <= max) return s;
-  return `…(${s.length - max} chars of head truncated)\n${s.slice(-max)}`;
-}
 const TEXT_EXT =
   /\.(ts|tsx|js|jsx|mjs|cjs|json|md|mdx|yml|yaml|sql|env|sh|css|scss|html|txt|toml|prisma|graphql)$/i;
 
@@ -167,10 +129,8 @@ export function createRepoTools(
 
     async runCheck(name) {
       const clean = name.trim();
-      if (!allowedChecks.includes(clean)) {
-        return `Check "${clean}" is not allowed. Allowed checks: ${allowedChecks.join(", ")}.`;
-      }
-      const { status, output } = await runProcess(root, clean);
+      const { allowed, status, output } = await runCheckProcess(root, clean, allowedChecks);
+      if (!allowed) return output;
       return `$ pnpm run ${clean}\n(${status})\n\n${truncateTail(output.trim() || "(no output)", MAX_CHECK_OUTPUT)}`;
     },
   };
