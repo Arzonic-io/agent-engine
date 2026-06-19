@@ -1,4 +1,5 @@
 import type {
+  AppSettings,
   CreateMissionRequest,
   DecisionRequest,
   DecisionResponse,
@@ -17,6 +18,7 @@ import type {
   StartRunRequest,
   StartRunResponse,
   StopMissionResponse,
+  UpdateRoleModelsRequest,
 } from "./types.js";
 
 export * from "./types.js";
@@ -115,6 +117,21 @@ export class AgentClient {
     return this.request(`/runs/${encodeURIComponent(runId)}/decision`, {
       method: "POST",
       body: JSON.stringify(decision),
+    });
+  }
+
+  // ── settings ──
+
+  /** The app-wide settings, incl. the global default team config. */
+  getSettings(): Promise<AppSettings> {
+    return this.request("/settings");
+  }
+
+  /** Update the global default team config (which provider/model each role uses by default). */
+  updateRoleModels(request: UpdateRoleModelsRequest): Promise<AppSettings> {
+    return this.request("/settings/role-models", {
+      method: "PUT",
+      body: JSON.stringify(request),
     });
   }
 

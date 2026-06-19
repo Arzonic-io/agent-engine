@@ -50,6 +50,10 @@ export {
   type Risk,
   type Verification,
 } from "./backlog.js";
+export {
+  AppSettingsService,
+  type AppSettingsServiceOptions,
+} from "./settings.js";
 export { createVerifier, type VerifierOptions } from "./verifier.js";
 export {
   createConsoleNotifier,

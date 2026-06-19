@@ -4,8 +4,9 @@ import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
-import { LuFolderGit2, LuFolderPlus, LuRocket, LuTrash2 } from "react-icons/lu";
+import { LuFolderGit2, LuFolderPlus, LuRocket, LuSettings, LuTrash2 } from "react-icons/lu";
 import type { MissionSummary, Project, RecentTask } from "@arzonic/agent-client";
+import { SettingsModal } from "./SettingsModal";
 import {
   getActiveProject,
   requestNewProject,
@@ -47,6 +48,7 @@ export function LeftRail({ onNavigate }: { onNavigate?: () => void } = {}) {
   const [menu, setMenu] = useState<MenuTarget | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
   const [confirmProject, setConfirmProject] = useState<{ id: string; name: string } | null>(null);
+  const [showSettings, setShowSettings] = useState(false);
   const toast = useToast();
 
   const activeId = pathname.startsWith("/runs/") ? pathname.split("/")[2] : null;
@@ -414,7 +416,17 @@ export function LeftRail({ onNavigate }: { onNavigate?: () => void } = {}) {
       <div className="flex items-center gap-2.5 border-t border-line px-5 py-3.5 text-sm text-dim">
         <Image src="/image.png" alt="Arzonic" width={24} height={24} className="rounded-sm opacity-80" />
         <span className="opacity-70">Arzonic · internt værktøj</span>
+        <button
+          onClick={() => setShowSettings(true)}
+          aria-label="Indstillinger"
+          title="Indstillinger"
+          className="ml-auto rounded-field p-1.5 text-dim transition hover:bg-elev hover:text-fg"
+        >
+          <LuSettings className="h-4 w-4" />
+        </button>
       </div>
+
+      {showSettings && <SettingsModal onClose={() => setShowSettings(false)} />}
 
       {menu && (
         <div

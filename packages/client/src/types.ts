@@ -191,6 +191,23 @@ export interface ModelSpec {
 /** Per-role model choices: role name → spec. Roles: architect, worker, lead, critic, builder, implementer, analyst, router, replan, decompose. */
 export type RoleModelsConfig = Record<string, ModelSpec>;
 
+/** App-wide settings (GET /settings). */
+export interface AppSettings {
+  /** The DB-stored global default team config (UI-editable). */
+  roleModels: RoleModelsConfig;
+  /** The env `LLM_ROLE_MODELS` baseline — informational/read-only. */
+  envRoleModels: RoleModelsConfig;
+  /** Providers with an API key configured server-side — the UI offers only these. */
+  availableProviders: ModelProvider[];
+  /** Whether settings can be saved (false = no database, env-only/read-only). */
+  persisted: boolean;
+}
+
+/** Body of PUT /settings/role-models. */
+export interface UpdateRoleModelsRequest {
+  roleModels: RoleModelsConfig;
+}
+
 export interface MissionSummary {
   id: string;
   projectId: string;

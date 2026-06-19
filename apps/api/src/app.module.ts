@@ -6,6 +6,7 @@ import { createBacklog } from "./backlog.provider.js";
 import { createCheckpointer } from "./checkpointer.js";
 import { loadApiEnv, type ApiEnv } from "./env.js";
 import { createMemory } from "./memory.provider.js";
+import { createSettings } from "./settings.provider.js";
 import { MissionsController } from "./missions/missions.controller.js";
 import { MissionsService } from "./missions/missions.service.js";
 import { ProjectsController } from "./projects/projects.controller.js";
@@ -15,7 +16,9 @@ import { RubricController } from "./runs/rubric.controller.js";
 import { RunsController } from "./runs/runs.controller.js";
 import { TasksController } from "./runs/tasks.controller.js";
 import { RunsService } from "./runs/runs.service.js";
-import { BACKLOG, CHECKPOINTER, ENV, MEMORY, MODEL, ROLE_MODELS } from "./tokens.js";
+import { SettingsController } from "./settings/settings.controller.js";
+import { SettingsService } from "./settings/settings.service.js";
+import { BACKLOG, CHECKPOINTER, ENV, MEMORY, MODEL, ROLE_MODELS, SETTINGS } from "./tokens.js";
 
 @Module({
   controllers: [
@@ -25,6 +28,7 @@ import { BACKLOG, CHECKPOINTER, ENV, MEMORY, MODEL, ROLE_MODELS } from "./tokens
     RubricController,
     TasksController,
     MissionsController,
+    SettingsController,
   ],
   providers: [
     { provide: ENV, useFactory: loadApiEnv },
@@ -53,9 +57,15 @@ import { BACKLOG, CHECKPOINTER, ENV, MEMORY, MODEL, ROLE_MODELS } from "./tokens
       useFactory: (env: ApiEnv) => createBacklog(env),
       inject: [ENV],
     },
+    {
+      provide: SETTINGS,
+      useFactory: (env: ApiEnv) => createSettings(env),
+      inject: [ENV],
+    },
     RunsService,
     ProjectsService,
     MissionsService,
+    SettingsService,
     { provide: APP_GUARD, useClass: ApiKeyGuard },
   ],
 })

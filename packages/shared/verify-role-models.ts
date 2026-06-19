@@ -111,4 +111,21 @@ ok(missionModels.worker === undefined, "a role in neither env nor mission has no
 const envOnly = buildRoleModels(env3);
 ok(envOnly.critic instanceof ChatGoogleGenerativeAI && envOnly.implementer === undefined, "no mission override → exactly the global env config");
 
-console.log("\nPer-role + per-mission model configuration verified ✓");
+// 6. Three-level precedence the worker uses: env baseline → global default (DB) →
+//    mission. Simulated by passing `{ ...globalDefault, ...missionRoleModels }`.
+setEnv({
+  LLM_PROVIDER: "mistral",
+  MISTRAL_API_KEY: "dummy-mistral",
+  ANTHROPIC_API_KEY: "dummy-anthropic",
+  GOOGLE_API_KEY: "dummy-google",
+  LLM_ROLE_MODELS: JSON.stringify({ replan: { provider: "mistral" } }), // env-only role
+});
+const env4 = loadEnv();
+const globalDefault = { architect: { provider: "google" as const }, critic: { provider: "google" as const } };
+const mission = { critic: { provider: "anthropic" as const } };
+const resolved = buildRoleModels(env4, { ...globalDefault, ...mission });
+ok(resolved.critic instanceof ChatAnthropic, "precedence: mission wins over global default (critic → Claude)");
+ok(resolved.architect instanceof ChatGoogleGenerativeAI, "precedence: global default applies where the mission is silent (architect → Gemini)");
+ok(resolved.replan instanceof ChatMistralAI, "precedence: env baseline survives where neither global nor mission set it (replan → Mistral)");
+
+console.log("\nPer-role + per-mission + settings precedence verified ✓");

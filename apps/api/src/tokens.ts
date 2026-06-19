@@ -6,3 +6,5 @@ export const ROLE_MODELS = "ROLE_MODELS" as const;
 export const CHECKPOINTER = "CHECKPOINTER" as const;
 export const MEMORY = "MEMORY" as const;
 export const BACKLOG = "BACKLOG" as const;
+/** App-wide settings store (e.g. the global default team config). */
+export const SETTINGS = "SETTINGS" as const;

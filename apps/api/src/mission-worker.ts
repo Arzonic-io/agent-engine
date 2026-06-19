@@ -9,6 +9,7 @@ import {
   type RunnableMissionGraph,
 } from "@arzonic/agent-core";
 import {
+  AppSettingsService,
   buildRoleModels,
   createConsoleNotifier,
   createGitIntegrator,
@@ -50,6 +51,10 @@ async function main(): Promise<void> {
   const backlog = await createBacklog(env);
   const memory = await createMemory(env);
   const notifier = createConsoleNotifier();
+  // Global default team config, editable at runtime from the settings UI. Read
+  // fresh each scan so a change is picked up within a poll cycle.
+  const settings = new AppSettingsService({ connectionString: env.SUPABASE_DB_URL });
+  await settings.setup();
 
   if (!backlog) {
     console.error("[mission-worker] backlog unavailable — exiting.");
@@ -84,6 +89,9 @@ async function main(): Promise<void> {
 
   while (!stopping) {
     const running = (await backlog.listMissions()).filter((m) => m.status === "running");
+    // The UI-editable global default team config — re-read each scan so a change
+    // in settings takes effect on the next mission iteration.
+    const globalDefault = await settings.getRoleModels();
     for (const mission of running) {
       if (stopping) break;
       // Write-capable execution: one isolated worktree per item, the implementer
@@ -104,10 +112,12 @@ async function main(): Promise<void> {
       }
       const worktrees = createWorktreeManager(mission.repoPath);
       // This mission's team config: its stored role→model choices merged over the
-      // global default. Active mission roles are implementer (writes code), replan
-      // (done + follow-ups) and decompose (plans backlog); unassigned roles fall
-      // back to the default model. Built per mission so each can use its own team.
-      const missionModels = buildRoleModels(env, mission.roleModels);
+      // global default (which is itself merged over the env baseline inside
+      // buildRoleModels). Precedence: mission > global default (DB) > env. Active
+      // mission roles are implementer (writes code), replan (done + follow-ups)
+      // and decompose (plans backlog); unassigned roles fall back to the default
+      // model. Built per mission so each can use its own team.
+      const missionModels = buildRoleModels(env, { ...globalDefault, ...mission.roleModels });
       // The replan agent sees the current backlog titles so it avoids duplicates.
       const replanner = makeReplanner(pickModel(model, "replan", missionModels), {
         backlogTitles: async ({ mission: m }) =>
@@ -175,6 +185,7 @@ async function main(): Promise<void> {
 
   await checkpointer.close();
   await backlog.end();
+  await settings.end();
   if (memory) await memory.end();
   console.log("[mission-worker] stopped.");
   process.exit(0);
