@@ -49,6 +49,25 @@ Det store perspektiv — fra nu til Nordstjernen. Detaljerne lever i tiers + epi
 
 ## ✅ Senest leveret
 
+### 2026-06-20 — ★ Team i missioner: kritikeren udfordrer hvert item (grønt-men-forkert fanges)
+- [x] `createMissionTeamGraph` ([graph.ts](../packages/core/src/graph.ts)): **implementer → kritiker → revider**,
+      bounded af `MISSION_REVIEW_ROUNDS` (default 1; 0 = gammel solo-implementer). Loop-tilbage giver implementeren
+      kritikerens issues (`state.verdict.issues`, læses allerede).
+- [x] `makeMissionCriticNode` ([missionCritic.ts](../packages/core/src/nodes/missionCritic.ts)): **grounded** review —
+      kører `git diff` i worktree'et (i kode via `repo.runCommand`, ikke et LLM-tool → ingen write-lækage) og dømmer
+      ændringen mod acceptkriterierne med struktureret verdict (`pass` + `issues`). Egen konfigurerbar **critic-model**.
+- [x] **Invariant bevaret:** Verifier (rigtige checks) afgør stadig "done"; kritikeren er en *ekstra* gate, ikke sandheden.
+- [x] Wired i [mission-worker.ts](../apps/api/src/mission-worker.ts) (team-graf når review>0, ellers solo-implementer);
+      `MISSION_REVIEW_ROUNDS` i env. Per-mission/global team-config'ens critic-valg er nu **aktivt** i missionen.
+- [x] Bevist: [verify-mission-team.ts](../packages/core/verify-mission-team.ts) — fail→revider→pass mod et rigtigt
+      git-repo (implementeren retter efter kritik) + always-fail terminerer bounded (ingen uendelig loop). `turbo build` grøn (6/6).
+
+### 2026-06-20 — Settings-modal: redigér standard team-modeller (persisteret, runtime)
+- [x] Indstillingsknap i railen → modal på 75% af skærmen med menubar (Team-modeller / Providers / Generelt / Om).
+      Team-sektionen redigerer den **globale default** team-config; gemt i DB (`app_settings`) så den kan ændres i runtime.
+- [x] `AppSettingsService` (shared) + `GET /settings` / `PUT /settings/role-models` (api, validerer provider-nøgler
+      server-side). Worker fletter: **mission > global default (DB) > env**. Delt `TeamModelPicker` mellem composer + settings.
+
 ### 2026-06-20 — Per-mission team-config (gemt i DB): vælg agent-modeller i mission-opsætningen
 - [x] Hver **mission gemmer sit eget team-setup** — hvilken provider/model hver rolle bruger — på
       `missions.role_models` (jsonb). Datatypen er ren config i core ([models.ts](../packages/core/src/models.ts):
@@ -485,15 +504,14 @@ Build-order (shippet + bevist pr. trin, som M1/M2). Foundation → tillid:
       titler. Wired i mission-worker. *Bevist:* [verify-decompose.ts](../packages/core/verify-decompose.ts)
       (19 checks, fakes) + [verify-decompose-live.ts](../packages/core/verify-decompose-live.ts)
       (live Mistral → 8-punkts plan med korrekt afhængigheds-DAG). `turbo build` grøn (6/6).
-- [ ] 🚧 **★ Team i missions-eksekvering (det største spring mod visionen).** I dag kører hvert
-      mission-item gennem **én implementer-node** (`createImplementerGraph`) — team-grafen
-      (architect→workers→lead→critic, som *udfordrer* sig selv) er kun wired ind i opgave-stien.
-      Det fanger *røde* builds, men ikke *grønt-men-forkert* arbejde. **Næste udvikling:** wir
-      `createTeamGraph` (eller minimum et critic/lead-review-pass) ind i mission-`WorkRunner`,
-      så hvert item får adversarisk review oven på Verifier. **Nu fri af blokeringen:** per-rolle-modeller
-      (leveret 2026-06-19) gør at mission-kritikeren kan være en billig Gemini mens implementeren er Claude.
-      *Bevis:* et grønt-men-forkert item fanges af critic/lead i missionen (ikke kun af checks); per-rolle-modeller
-      flyder uændret igennem. Se design-brief §5.4-noten + [[missions-skip-the-team-graph]].
+- [x] **★ Team i missions-eksekvering (det største spring mod visionen)** *(leveret 2026-06-20).*
+      Hvert mission-item kører nu `createMissionTeamGraph`: **implementer → kritiker → revider**, bounded af
+      `MISSION_REVIEW_ROUNDS` (default 1). Kritikeren ([missionCritic.ts](../packages/core/src/nodes/missionCritic.ts))
+      udfordrer den **rigtige `git diff`** (fanget i kode, ikke via et LLM-tool → ingen write-evne lækker) mod
+      acceptkriterierne og looper tilbage med konkrete issues ved fail — fanger **grønt-men-forkert**. Kritikeren
+      bruger sin **egen konfigurerede model** (fx billig Gemini over Claude-implementer). Verifier (rigtige checks)
+      afgør stadig "done"; review er en ekstra gate. *Bevist:* [verify-mission-team.ts](../packages/core/verify-mission-team.ts)
+      (fail→revider→pass mod rigtigt git-repo + always-fail terminerer bounded). `turbo build` grøn (6/6).
 - [ ] **2. Agent-genererede tests (grøn = stærk sandhed).** Når et item mangler en check der
       faktisk udøver koden, lader vi en agent **forfatte testen** (i worktree'et, via
       write-tools) og kører den som en rigtig check — Verifier-pass forbliver sandheden

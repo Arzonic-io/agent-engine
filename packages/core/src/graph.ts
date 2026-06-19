@@ -15,6 +15,7 @@ import { makeArchitectNode } from "./nodes/architect.js";
 import { makeBuilderNode } from "./nodes/builder.js";
 import { makeCriticNode } from "./nodes/critic.js";
 import { makeImplementerNode } from "./nodes/implementer.js";
+import { makeMissionCriticNode } from "./nodes/missionCritic.js";
 import { humanGateNode, markAwaitingHuman } from "./nodes/humanGate.js";
 import { makeLeadNode } from "./nodes/lead.js";
 import { makePersistMemoryNode } from "./nodes/persistMemory.js";
@@ -124,6 +125,58 @@ export function createImplementerGraph(options: CreateImplementerGraphOptions) {
 }
 
 export type ImplementerGraph = ReturnType<typeof createImplementerGraph>;
+
+export interface CreateMissionTeamGraphOptions {
+  /** Fallback model — used for any role not overridden in `models`. */
+  model: BaseChatModel;
+  /** Optional per-role overrides; here the `implementer` and `critic` roles. */
+  models?: RoleModels;
+  /** Write-capable repo tools rooted at the item's worktree, injected by the runtime. */
+  repo: WritableRepoTools;
+  checkpointer: BaseCheckpointSaver;
+  /**
+   * Max implementer→critic revision cycles. With 1 (default), the implementer runs
+   * once, the critic reviews, and on a fail the implementer gets exactly one
+   * revision before the graph ends. Bounds the loop so it always terminates.
+   */
+  reviewRounds?: number;
+}
+
+/**
+ * Mission execution WITH an adversarial review pass (M3 ★ — the team challenges
+ * each item):
+ *   implementer (writes code) → critic (reviews the real diff)
+ *     → [pass | rounds exhausted → END ; else → implementer (revise)].
+ *
+ * Unlike `createImplementerGraph` (a lone implementer), the critic challenges the
+ * work with its OWN configurable model — so green-but-wrong code (passes checks
+ * but misimplements intent) is caught before the Verifier even runs. The Verifier
+ * (real checks) still independently decides "done"; this only adds a gate. The
+ * loop is bounded by `reviewRounds` (and the implementer's own recursion limit).
+ */
+export function createMissionTeamGraph(options: CreateMissionTeamGraphOptions) {
+  const implementerModel = options.models?.implementer ?? options.model;
+  const criticModel = options.models?.critic ?? options.model;
+  const reviewRounds = options.reviewRounds ?? 1;
+
+  // `round` counts implementer runs (the implementer increments it). After the
+  // first run round=1; allow a revision while round <= reviewRounds, else stop.
+  const afterCritic = (state: GraphStateType): "implementer" | typeof END => {
+    if (state.verdict?.pass) return END;
+    if (state.round > reviewRounds) return END;
+    return "implementer";
+  };
+
+  return new StateGraph(GraphState)
+    .addNode("implementer", makeImplementerNode(implementerModel, options.repo))
+    .addNode("critic", makeMissionCriticNode(criticModel, options.repo))
+    .addEdge(START, "implementer")
+    .addEdge("implementer", "critic")
+    .addConditionalEdges("critic", afterCritic, ["implementer", END])
+    .compile({ checkpointer: options.checkpointer });
+}
+
+export type MissionTeamGraph = ReturnType<typeof createMissionTeamGraph>;
 
 export interface CreateRepoAnalysisGraphOptions {
   /** Fallback model — used for any role not overridden in `models`. */

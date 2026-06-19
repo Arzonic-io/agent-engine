@@ -78,6 +78,10 @@ const EnvSchema = z
     // Items run concurrently per mission (each in its own worktree). Default 1
     // (serial). Integration/merge stays sequential regardless.
     MISSION_CONCURRENCY: z.coerce.number().int().min(1).default(1),
+    // Adversarial review cycles per item (M3 ★): the critic challenges the
+    // implementer's diff, looping back for revision on a fail. 0 = no review
+    // (lone implementer, pre-★ behaviour); 1 = one review + one revision.
+    MISSION_REVIEW_ROUNDS: z.coerce.number().int().min(0).default(1),
     // Checks the mission Verifier runs per item — the truth source for "done".
     MISSION_CHECKS: z
       .string()

@@ -186,18 +186,21 @@ LLM), **`WorkRunner`** (runs one item through a compiled graph → deliverable +
 ### 5.4 Roles
 
 - **Orchestrator/Lead** — owns the backlog: prioritises, sets work in motion, re-plans from results.
-- **Team** (architect → workers → lead → critic) — *the target* executor for each item.
+- **Implementer** — writes real code in the item's worktree (write tools, ReAct loop).
+- **Critic** — challenges the implementer's *actual diff* and loops it back for revision (★, below).
 - **Tester/Verifier** — runs the real checks; its result, not the LLM, decides "done".
 
-> **As-built note (be honest):** today a mission item is executed by a **single
-> write-capable implementer node** (`createImplementerGraph`), not the full team —
-> the collaborate-and-challenge team graph is currently wired only into the bounded
-> *task* path. So a mission's quality bar is "one implementer pass + Verifier +
-> Replanner", which catches *red* builds but not *green-but-wrong* work. Wiring the
-> team (or at least a critic/lead review pass) into the mission `WorkRunner` is the
-> key open correctness step — now unblocked by per-role models (§3.8), so the
-> mission critic can be a cheap Gemini while the implementer is Claude. Tracked in
-> [BACKLOG.md](BACKLOG.md) under M3.
+> **As-built (M3 ★ — the team challenges each item):** a mission item now runs
+> through `createMissionTeamGraph` — `implementer → critic → [pass | revise]`,
+> bounded by `MISSION_REVIEW_ROUNDS` (default 1). The critic reviews the **real
+> `git diff`** (captured in code, not via an LLM tool, so no write capability is
+> exposed to it) against the item's acceptance criteria and, on a fail, loops back
+> to the implementer with concrete issues. This is the adversarial pass that catches
+> **green-but-wrong** work — code that passes checks but misimplements intent —
+> which the Verifier alone can't. The critic uses its **own configurable model**
+> (§3.8/per-mission §3.8), e.g. a cheap Gemini critic over a Claude implementer.
+> The Verifier (real checks) still independently decides "done"; the critic only
+> adds a gate. Set `MISSION_REVIEW_ROUNDS=0` for the pre-★ lone-implementer path.
 
 ### 5.5 Human policy — park-risk, run the rest (never block)
 
@@ -315,4 +318,6 @@ MISSION_DEADLINE_HHMM=07:00           # optional wall-clock stop
 MISSION_MAX_ITERATIONS=               # backstop iteration cap
 MISSION_NOPROGRESS_LIMIT=3            # consecutive no-progress iterations before stopping
 MISSION_HIGH_RISK_PATTERNS=           # extra patterns forcing risk=high (deploy, drop, delete …)
+MISSION_CONCURRENCY=1                 # items run in parallel per mission (integration stays serial)
+MISSION_REVIEW_ROUNDS=1              # ★ critic↔implementer revision cycles per item (0 = lone implementer)
 ```

@@ -1,5 +1,6 @@
 import {
   createImplementerGraph,
+  createMissionTeamGraph,
   createWorktreeWorkRunner,
   makeDecomposer,
   makeReplanner,
@@ -76,6 +77,7 @@ async function main(): Promise<void> {
     `[mission-worker] v${APP_VERSION} up | provider: ${env.LLM_PROVIDER} | ` +
       `roles: ${roleSummary || "default everywhere"} | ` +
       `memory: ${memory ? "on" : "off"} | checks: ${env.MISSION_CHECKS.join(",")} | ` +
+      `review: ${env.MISSION_REVIEW_ROUNDS > 0 ? `${env.MISSION_REVIEW_ROUNDS} round(s)` : "off"} | ` +
       `concurrency: ${env.MISSION_CONCURRENCY} | poll: ${env.MISSION_WORKER_POLL_MS}ms`,
   );
 
@@ -136,16 +138,31 @@ async function main(): Promise<void> {
             console.warn(`[mission-worker] deps install in ${wt.path} (${install.status}) — checks may fail.`);
           }
         },
-        buildGraph: (wt) =>
-          createImplementerGraph({
-            model,
-            models: missionModels,
-            checkpointer: checkpointer.saver,
-            repo: createWritableRepoTools(wt.path, {
-              allowedChecks: env.REPO_ALLOWED_CHECKS,
-              allowedCommands: env.REPO_ALLOWED_COMMANDS,
-            }),
-          }) as RunnableMissionGraph,
+        buildGraph: (wt) => {
+          const repo = createWritableRepoTools(wt.path, {
+            allowedChecks: env.REPO_ALLOWED_CHECKS,
+            allowedCommands: env.REPO_ALLOWED_COMMANDS,
+          });
+          // With review on (★), each item runs implementer → critic → revise,
+          // the critic challenging the real diff with the configured critic
+          // model. With it off (0), the lone implementer (pre-★ behaviour).
+          return (
+            env.MISSION_REVIEW_ROUNDS > 0
+              ? createMissionTeamGraph({
+                  model,
+                  models: missionModels,
+                  checkpointer: checkpointer.saver,
+                  repo,
+                  reviewRounds: env.MISSION_REVIEW_ROUNDS,
+                })
+              : createImplementerGraph({
+                  model,
+                  models: missionModels,
+                  checkpointer: checkpointer.saver,
+                  repo,
+                })
+          ) as RunnableMissionGraph;
+        },
       });
       const verifier = createVerifier(mission.repoPath, {
         allowedChecks: env.REPO_ALLOWED_CHECKS,
