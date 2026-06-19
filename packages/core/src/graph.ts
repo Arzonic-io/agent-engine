@@ -135,9 +135,11 @@ export interface CreateMissionTeamGraphOptions {
   repo: WritableRepoTools;
   checkpointer: BaseCheckpointSaver;
   /**
-   * Max implementer→critic revision cycles. With 1 (default), the implementer runs
-   * once, the critic reviews, and on a fail the implementer gets exactly one
-   * revision before the graph ends. Bounds the loop so it always terminates.
+   * Max implementer→critic revisions. With 1 (default): the implementer writes,
+   * the critic reviews; on a fail the implementer revises ONCE, and the critic
+   * re-reviews that revision (its verdict is the fix's approval) before the graph
+   * ends. So the critic runs after every implementer pass — at most reviewRounds+1
+   * times — which bounds the loop so it always terminates.
    */
   reviewRounds?: number;
 }
@@ -146,21 +148,26 @@ export interface CreateMissionTeamGraphOptions {
  * Mission execution WITH an adversarial review pass (M3 ★ — the team challenges
  * each item):
  *   implementer (writes code) → critic (reviews the real diff)
- *     → [pass | rounds exhausted → END ; else → implementer (revise)].
+ *     → [pass → END | fail & revisions left → implementer (revise) → critic … | fail & budget spent → END].
  *
- * Unlike `createImplementerGraph` (a lone implementer), the critic challenges the
- * work with its OWN configurable model — so green-but-wrong code (passes checks
- * but misimplements intent) is caught before the Verifier even runs. The Verifier
- * (real checks) still independently decides "done"; this only adds a gate. The
- * loop is bounded by `reviewRounds` (and the implementer's own recursion limit).
+ * The critic reviews after EVERY implementer pass, including the final revision —
+ * so its last verdict reflects the fixed code (the fix's approval), not a stale
+ * pre-fix judgement. Unlike `createImplementerGraph` (a lone implementer), the
+ * critic challenges the work with its OWN configurable model, so green-but-wrong
+ * code (passes checks but misimplements intent) is caught. The Verifier (real
+ * checks) still independently decides "done"; the critic's verdict is an advisory
+ * in-graph gate that drives revision, never the "done" authority. Bounded by
+ * `reviewRounds` (and the implementer's own recursion limit).
  */
 export function createMissionTeamGraph(options: CreateMissionTeamGraphOptions) {
   const implementerModel = options.models?.implementer ?? options.model;
   const criticModel = options.models?.critic ?? options.model;
   const reviewRounds = options.reviewRounds ?? 1;
 
-  // `round` counts implementer runs (the implementer increments it). After the
-  // first run round=1; allow a revision while round <= reviewRounds, else stop.
+  // `round` counts implementer runs (the implementer increments it). The critic
+  // routes back for a revision while the revision budget holds (round <=
+  // reviewRounds); past it, END — the just-reviewed state is final and the
+  // Verifier judges it. A critic "pass" ends immediately.
   const afterCritic = (state: GraphStateType): "implementer" | typeof END => {
     if (state.verdict?.pass) return END;
     if (state.round > reviewRounds) return END;
