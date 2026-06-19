@@ -15,6 +15,12 @@ export {
   type ProjectGraph,
   type ImplementerGraph,
 } from "./graph.js";
+export {
+  MODEL_ROLES,
+  pickModel,
+  type ModelRole,
+  type RoleModels,
+} from "./models.js";
 export type { RepoTools, WritableRepoTools } from "./tools.js";
 export type {
   Worktree,
@@ -66,6 +72,7 @@ export {
 export {
   runMission,
   defaultReplanner,
+  createDecomposedItems,
   type MissionDeps,
   type MissionOutcome,
   type MissionGovernors,
@@ -74,6 +81,10 @@ export {
   type Replanner,
   type ReplanInput,
   type ReplanDecision,
+  type Decomposer,
+  type DecomposeInput,
+  type DecomposeResult,
+  type DecomposedItem,
   type Notifier,
   type MissionEvent,
   type Clock,
@@ -85,9 +96,17 @@ export {
   type MakeReplannerOptions,
 } from "./nodes/replan.js";
 export {
+  makeDecomposer,
+  applyDecomposeGuards,
+  type DecomposeOutput,
+  type MakeDecomposerOptions,
+  type DecomposeGuardOptions,
+} from "./nodes/decompose.js";
+export {
   classifyRisk,
   approveParkedItem,
   rejectParkedItem,
+  resumeMissionIfBlocked,
   buildDigest,
   DEFAULT_HIGH_RISK_PATTERNS,
   type MissionDigest,

@@ -17,6 +17,7 @@ import {
   defaultRubric,
   type AgentGraph,
   type GraphStateType,
+  type RoleModels,
   type Rubric,
 } from "@arzonic/agent-core";
 import {
@@ -37,7 +38,7 @@ import type { BaseChatModel } from "@langchain/core/language_models/chat_models"
 import { Command } from "@langchain/langgraph";
 import type { CheckpointerHandle } from "../checkpointer.js";
 import type { ApiEnv } from "../env.js";
-import { CHECKPOINTER, ENV, MEMORY, MODEL } from "../tokens.js";
+import { CHECKPOINTER, ENV, MEMORY, MODEL, ROLE_MODELS } from "../tokens.js";
 import type { DecisionDto, StartRunDto } from "./dto/runs.dto.js";
 
 const REJECTION_MARKER = "Rejected final draft.";
@@ -74,6 +75,7 @@ export class RunsService implements OnModuleDestroy {
   constructor(
     @Inject(ENV) private readonly env: ApiEnv,
     @Inject(MODEL) private readonly model: BaseChatModel,
+    @Inject(ROLE_MODELS) private readonly roleModels: RoleModels,
     @Inject(CHECKPOINTER) private readonly checkpointer: CheckpointerHandle,
     @Inject(MEMORY) private readonly memory: MemoryService | null,
   ) {}
@@ -104,6 +106,7 @@ export class RunsService implements OnModuleDestroy {
   private makeGraph(options?: StartRunDto["options"], rubricId?: string): AgentGraph {
     return createAgentGraph({
       model: this.model,
+      models: this.roleModels,
       checkpointer: this.checkpointer.saver,
       rubric: this.rubricFor(rubricId),
       guardrails: this.guardrails(options),
@@ -142,6 +145,7 @@ export class RunsService implements OnModuleDestroy {
   private makeTeamGraph(options?: StartRunDto["options"], rubricId?: string) {
     return createTeamGraph({
       model: this.model,
+      models: this.roleModels,
       checkpointer: this.checkpointer.saver,
       rubric: this.rubricFor(rubricId),
       guardrails: this.guardrails(options),
@@ -161,6 +165,7 @@ export class RunsService implements OnModuleDestroy {
   private makeProjectGraph(options?: StartRunDto["options"], rubricId?: string): AgentGraph {
     return createProjectGraph({
       model: this.model,
+      models: this.roleModels,
       memory: this.requireMemory(),
       checkpointer: this.checkpointer.saver,
       rubric: this.rubricFor(rubricId),
@@ -172,6 +177,7 @@ export class RunsService implements OnModuleDestroy {
   private makeRepoGraph(repoPath: string, options?: StartRunDto["options"], rubricId?: string) {
     return createRepoAnalysisGraph({
       model: this.model,
+      models: this.roleModels,
       checkpointer: this.checkpointer.saver,
       rubric: this.rubricFor(rubricId),
       guardrails: this.guardrails(options),

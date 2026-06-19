@@ -1,0 +1,45 @@
+import type { BaseChatModel } from "@langchain/core/language_models/chat_models";
+
+/**
+ * The roles that own an LLM call and can each be assigned their OWN model — the
+ * configurable "team members". The runtime maps these to concrete models (e.g.
+ * Gemini Flash for the critic, Claude for the implementer, Mistral for the
+ * architect) and injects them; core stays pure — it only ever receives model
+ * *instances*, never provider/key/transport config.
+ *
+ * Graph roles (architect/worker/lead/critic/builder/analyst/router) drive the
+ * task & team graphs; mission roles (implementer/replan/decompose) drive the
+ * autonomous-mission loop. A role without an explicit assignment falls back to
+ * a graph's default `model`, so this is purely additive — nothing breaks when
+ * `models` is omitted.
+ */
+export const MODEL_ROLES = [
+  "architect",
+  "worker",
+  "lead",
+  "critic",
+  "builder",
+  "implementer",
+  "analyst",
+  "router",
+  "replan",
+  "decompose",
+] as const;
+
+export type ModelRole = (typeof MODEL_ROLES)[number];
+
+/** Per-role model overrides; any unassigned role falls back to the graph's default `model`. */
+export type RoleModels = Partial<Record<ModelRole, BaseChatModel>>;
+
+/**
+ * Resolve the model for a role: the per-role override if one is configured,
+ * otherwise the fallback (`model`). This is the single resolution point every
+ * graph uses, so "configure the critic to use Gemini" is one map entry away.
+ */
+export function pickModel(
+  fallback: BaseChatModel,
+  role: ModelRole,
+  models?: RoleModels,
+): BaseChatModel {
+  return models?.[role] ?? fallback;
+}

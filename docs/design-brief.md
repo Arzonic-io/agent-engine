@@ -95,6 +95,20 @@ feed; run view streams the debate with a human-gate inspector.
 types. API deploys to the VPS via PM2; CLI runs ad hoc; persistence/resume via the
 Postgres checkpointer (run id = thread id).
 
+### 3.8 Per-role models (the configurable team members)
+
+Each role that owns an LLM call can be assigned its **own** model/provider — e.g.
+Mistral as the architect, **Gemini Flash** as the (cheap) critic, **Claude** as the
+implementer. Core stays pure: it defines `ModelRole` + a `pickModel` seam, and every
+graph takes a `model` (fallback) plus an optional `models: RoleModels` map; a node
+resolves `models[role] ?? model`. The runtime builds the map from `LLM_ROLE_MODELS`
+(JSON `role→{provider,model?}`) via `buildRoleModels(env)` in `@arzonic/agent-shared`,
+which is the single place provider SDKs (`@langchain/anthropic|mistralai|google-genai`)
+are instantiated. Unassigned roles fall back to `LLM_PROVIDER`, so it's purely
+additive. Roles: `architect, worker, lead, critic, builder, implementer, analyst,
+router, replan, decompose`. *(Open: per-role temperature, prompt-caching on stable
+system prompts, and a per-project/per-mission override surface in the UI — §6 M3.)*
+
 ---
 
 ## 4. Guardrails / termination (tasks, provable today)
@@ -163,8 +177,18 @@ LLM), **`WorkRunner`** (runs one item through a compiled graph → deliverable +
 ### 5.4 Roles
 
 - **Orchestrator/Lead** — owns the backlog: prioritises, sets work in motion, re-plans from results.
-- **Team** (architect → workers → lead) — executes each item via the existing team graph.
+- **Team** (architect → workers → lead → critic) — *the target* executor for each item.
 - **Tester/Verifier** — runs the real checks; its result, not the LLM, decides "done".
+
+> **As-built note (be honest):** today a mission item is executed by a **single
+> write-capable implementer node** (`createImplementerGraph`), not the full team —
+> the collaborate-and-challenge team graph is currently wired only into the bounded
+> *task* path. So a mission's quality bar is "one implementer pass + Verifier +
+> Replanner", which catches *red* builds but not *green-but-wrong* work. Wiring the
+> team (or at least a critic/lead review pass) into the mission `WorkRunner` is the
+> key open correctness step — now unblocked by per-role models (§3.8), so the
+> mission critic can be a cheap Gemini while the implementer is Claude. Tracked in
+> [BACKLOG.md](BACKLOG.md) under M3.
 
 ### 5.5 Human policy — park-risk, run the rest (never block)
 
@@ -262,8 +286,9 @@ the autonomous-missions direction. The original phased briefs are merged into th
 ## 10. Env vars
 
 ```
-LLM_PROVIDER=mistral|anthropic        # + MISTRAL_API_KEY / ANTHROPIC_API_KEY
-LLM_MODEL=                            # optional explicit model id
+LLM_PROVIDER=mistral|anthropic|google # default provider; + MISTRAL_API_KEY / ANTHROPIC_API_KEY / GOOGLE_API_KEY
+LLM_MODEL=                            # optional explicit default model id
+LLM_ROLE_MODELS=                      # JSON role→{provider,model?}: per-role "team member" models (§3.8)
 SUPABASE_DB_URL=                      # Postgres + pgvector → checkpointer + memory + missions
 SUPABASE_URL= / SUPABASE_SERVICE_KEY=
 MAX_ROUNDS=3

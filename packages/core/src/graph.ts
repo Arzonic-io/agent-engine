@@ -22,12 +22,16 @@ import { makeRetrieveContextNode } from "./nodes/retrieveContext.js";
 import { makeRouterNode } from "./nodes/router.js";
 import { makeWorkerNode } from "./nodes/worker.js";
 import type { ProjectMemory } from "./memory.js";
+import type { ModelRole, RoleModels } from "./models.js";
 import { defaultRubric, type Rubric } from "./rubric.js";
 import { GraphState, type GraphStateType } from "./state.js";
 import type { RepoTools, WritableRepoTools } from "./tools.js";
 
 export interface CreateAgentGraphOptions {
+  /** Fallback model — used for any role not overridden in `models`. */
   model: BaseChatModel;
+  /** Optional per-role model overrides (e.g. a cheaper critic). Additive — omit for one model everywhere. */
+  models?: RoleModels;
   rubric?: Rubric;
   guardrails?: GuardrailConfig;
   /**
@@ -40,6 +44,7 @@ export interface CreateAgentGraphOptions {
 export function createAgentGraph(options: CreateAgentGraphOptions) {
   const rubric = options.rubric ?? defaultRubric;
   const guardrails = options.guardrails ?? DEFAULT_GUARDRAILS;
+  const pick = (role: ModelRole) => options.models?.[role] ?? options.model;
 
   const failNode = async (
     state: GraphStateType,
@@ -67,8 +72,8 @@ export function createAgentGraph(options: CreateAgentGraphOptions) {
   };
 
   return new StateGraph(GraphState)
-    .addNode("builder", makeBuilderNode(options.model))
-    .addNode("critic", makeCriticNode(options.model, rubric))
+    .addNode("builder", makeBuilderNode(pick("builder")))
+    .addNode("critic", makeCriticNode(pick("critic"), rubric))
     .addNode("markAwaitingHuman", markAwaitingHuman)
     .addNode("humanGate", humanGateNode)
     .addNode("fail", failNode)
@@ -93,7 +98,10 @@ function afterGate(state: GraphStateType): "builder" | typeof END {
 export type AgentGraph = ReturnType<typeof createAgentGraph>;
 
 export interface CreateImplementerGraphOptions {
+  /** Fallback model — used for the implementer unless overridden in `models`. */
   model: BaseChatModel;
+  /** Optional per-role model overrides (here: the `implementer` role). */
+  models?: RoleModels;
   /** Write-capable repo tools rooted at the item's worktree, injected by the runtime. */
   repo: WritableRepoTools;
   checkpointer: BaseCheckpointSaver;
@@ -107,8 +115,9 @@ export interface CreateImplementerGraphOptions {
  * `WritableRepoTools`.
  */
 export function createImplementerGraph(options: CreateImplementerGraphOptions) {
+  const model = options.models?.implementer ?? options.model;
   return new StateGraph(GraphState)
-    .addNode("implementer", makeImplementerNode(options.model, options.repo))
+    .addNode("implementer", makeImplementerNode(model, options.repo))
     .addEdge(START, "implementer")
     .addEdge("implementer", END)
     .compile({ checkpointer: options.checkpointer });
@@ -117,7 +126,10 @@ export function createImplementerGraph(options: CreateImplementerGraphOptions) {
 export type ImplementerGraph = ReturnType<typeof createImplementerGraph>;
 
 export interface CreateRepoAnalysisGraphOptions {
+  /** Fallback model — used for any role not overridden in `models`. */
   model: BaseChatModel;
+  /** Optional per-role model overrides (here: `analyst` and `critic`). */
+  models?: RoleModels;
   /** Read-only repo capabilities, sandboxed + injected by the runtime. */
   tools: RepoTools;
   rubric?: Rubric;
@@ -133,6 +145,7 @@ export interface CreateRepoAnalysisGraphOptions {
 export function createRepoAnalysisGraph(options: CreateRepoAnalysisGraphOptions) {
   const rubric = options.rubric ?? defaultRubric;
   const guardrails = options.guardrails ?? DEFAULT_GUARDRAILS;
+  const pick = (role: ModelRole) => options.models?.[role] ?? options.model;
 
   const failNode = async (
     state: GraphStateType,
@@ -164,8 +177,8 @@ export function createRepoAnalysisGraph(options: CreateRepoAnalysisGraphOptions)
   };
 
   return new StateGraph(GraphState)
-    .addNode("analyst", makeAnalystNode(options.model, options.tools))
-    .addNode("critic", makeCriticNode(options.model, rubric))
+    .addNode("analyst", makeAnalystNode(pick("analyst"), options.tools))
+    .addNode("critic", makeCriticNode(pick("critic"), rubric))
     .addNode("done", done)
     .addNode("fail", failNode)
     .addEdge(START, "analyst")
@@ -179,7 +192,10 @@ export function createRepoAnalysisGraph(options: CreateRepoAnalysisGraphOptions)
 export type RepoAnalysisGraph = ReturnType<typeof createRepoAnalysisGraph>;
 
 export interface CreateTeamGraphOptions {
+  /** Fallback model — used for any team role not overridden in `models`. */
   model: BaseChatModel;
+  /** Optional per-role model overrides: architect / worker / lead / critic. */
+  models?: RoleModels;
   rubric?: Rubric;
   guardrails?: GuardrailConfig;
   checkpointer: BaseCheckpointSaver;
@@ -196,6 +212,7 @@ export interface CreateTeamGraphOptions {
 export function createTeamGraph(options: CreateTeamGraphOptions) {
   const rubric = options.rubric ?? defaultRubric;
   const guardrails = options.guardrails ?? DEFAULT_GUARDRAILS;
+  const pick = (role: ModelRole) => options.models?.[role] ?? options.model;
 
   const failNode = async (
     state: GraphStateType,
@@ -236,11 +253,11 @@ export function createTeamGraph(options: CreateTeamGraphOptions) {
     state.status === "running" ? "lead" : END;
 
   return new StateGraph(GraphState)
-    .addNode("architect", makeArchitectNode(options.model))
-    .addNode("worker", makeWorkerNode(options.model))
+    .addNode("architect", makeArchitectNode(pick("architect")))
+    .addNode("worker", makeWorkerNode(pick("worker")))
     .addNode("advance", advance)
-    .addNode("lead", makeLeadNode(options.model))
-    .addNode("critic", makeCriticNode(options.model, rubric))
+    .addNode("lead", makeLeadNode(pick("lead")))
+    .addNode("critic", makeCriticNode(pick("critic"), rubric))
     .addNode("markAwaitingHuman", markAwaitingHuman)
     .addNode("humanGate", humanGateNode)
     .addNode("fail", failNode)
@@ -259,7 +276,10 @@ export function createTeamGraph(options: CreateTeamGraphOptions) {
 export type TeamGraph = ReturnType<typeof createTeamGraph>;
 
 export interface CreateProjectGraphOptions {
+  /** Fallback model — used for any role not overridden in `models`. */
   model: BaseChatModel;
+  /** Optional per-role model overrides: router / builder / architect / worker / lead / critic. */
+  models?: RoleModels;
   /** Injected pgvector-backed project memory (retrieve before / persist after). */
   memory: ProjectMemory;
   rubric?: Rubric;
@@ -276,7 +296,8 @@ export interface CreateProjectGraphOptions {
 export function createProjectGraph(options: CreateProjectGraphOptions) {
   const rubric = options.rubric ?? defaultRubric;
   const guardrails = options.guardrails ?? DEFAULT_GUARDRAILS;
-  const { model, memory } = options;
+  const { memory } = options;
+  const pick = (role: ModelRole) => options.models?.[role] ?? options.model;
 
   const failNode = async (
     state: GraphStateType,
@@ -330,13 +351,13 @@ export function createProjectGraph(options: CreateProjectGraphOptions) {
 
   return new StateGraph(GraphState)
     .addNode("retrieveContext", makeRetrieveContextNode(memory))
-    .addNode("router", makeRouterNode(model))
-    .addNode("builder", makeBuilderNode(model))
-    .addNode("architect", makeArchitectNode(model))
-    .addNode("worker", makeWorkerNode(model))
+    .addNode("router", makeRouterNode(pick("router")))
+    .addNode("builder", makeBuilderNode(pick("builder")))
+    .addNode("architect", makeArchitectNode(pick("architect")))
+    .addNode("worker", makeWorkerNode(pick("worker")))
     .addNode("advance", advance)
-    .addNode("lead", makeLeadNode(model))
-    .addNode("critic", makeCriticNode(model, rubric))
+    .addNode("lead", makeLeadNode(pick("lead")))
+    .addNode("critic", makeCriticNode(pick("critic"), rubric))
     .addNode("markAwaitingHuman", markAwaitingHuman)
     .addNode("humanGate", humanGateNode)
     .addNode("persistMemory", makePersistMemoryNode(memory))

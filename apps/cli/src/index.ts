@@ -7,7 +7,7 @@ import {
   type HumanDecision,
   type HumanGatePayload,
 } from "@arzonic/agent-core";
-import { getModel, loadEnv } from "@arzonic/agent-shared";
+import { buildRoleModels, getModel, loadEnv } from "@arzonic/agent-shared";
 import { Command } from "@langchain/langgraph";
 import { createCheckpointer } from "./checkpointer.js";
 
@@ -138,6 +138,7 @@ async function main(): Promise<void> {
   const checkpointer = await createCheckpointer(env);
   const graph = createAgentGraph({
     model,
+    models: buildRoleModels(env),
     checkpointer: checkpointer.saver,
     guardrails: {
       maxRounds: env.MAX_ROUNDS,

@@ -4,7 +4,7 @@ import {
   createRepoAnalysisGraph,
   type GraphStateType,
 } from "@arzonic/agent-core";
-import { getModel, loadEnv } from "@arzonic/agent-shared";
+import { buildRoleModels, getModel, loadEnv } from "@arzonic/agent-shared";
 import { MemorySaver } from "@langchain/langgraph";
 import { createRepoTools } from "./tools/repoTools.js";
 
@@ -51,6 +51,7 @@ async function main(): Promise<void> {
   });
   const graph = createRepoAnalysisGraph({
     model,
+    models: buildRoleModels(env),
     tools,
     checkpointer: new MemorySaver(),
     guardrails: { maxRounds: env.MAX_ROUNDS, tokenBudget: env.RUN_TOKEN_BUDGET },

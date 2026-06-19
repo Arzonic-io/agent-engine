@@ -1,6 +1,14 @@
-export { loadEnv, cleanEnv, type Env } from "./env.js";
+export {
+  loadEnv,
+  cleanEnv,
+  LLM_PROVIDERS,
+  type Env,
+  type LlmProvider,
+  type RoleModelSpec,
+  type RoleModelsConfig,
+} from "./env.js";
 export { createSupabaseClient } from "./supabase.js";
-export { getModel } from "./llm.js";
+export { getModel, buildModel, buildRoleModels } from "./llm.js";
 export {
   createRepoTools,
   createWritableRepoTools,

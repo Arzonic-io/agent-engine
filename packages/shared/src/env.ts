@@ -1,14 +1,61 @@
 import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { MODEL_ROLES, type ModelRole } from "@arzonic/agent-core";
 import { config as loadDotenv } from "dotenv";
 import { z } from "zod";
 
+/** LLM providers a team member can be assigned. Claude = anthropic, Gemini = google. */
+export const LLM_PROVIDERS = ["mistral", "anthropic", "google"] as const;
+export type LlmProvider = (typeof LLM_PROVIDERS)[number];
+
+/** One team member's model assignment — `{ provider, model? }`; model defaults per provider. */
+const RoleModelSpecSchema = z.object({
+  provider: z.enum(LLM_PROVIDERS),
+  model: z.string().min(1).optional(),
+});
+export type RoleModelSpec = z.infer<typeof RoleModelSpecSchema>;
+
+/**
+ * `LLM_ROLE_MODELS` is a JSON map of role → { provider, model? }, e.g.
+ *   {"architect":{"provider":"mistral"},"critic":{"provider":"google","model":"gemini-2.0-flash"},
+ *    "implementer":{"provider":"anthropic","model":"claude-sonnet-4-6"}}
+ * Unknown roles are rejected so a typo can't silently misconfigure the team.
+ */
+const RoleModelsConfigSchema = z
+  .record(z.string(), RoleModelSpecSchema)
+  .superRefine((obj, ctx) => {
+    for (const key of Object.keys(obj)) {
+      if (!(MODEL_ROLES as readonly string[]).includes(key)) {
+        ctx.addIssue({
+          code: "custom",
+          message: `unknown role '${key}' (valid: ${MODEL_ROLES.join(", ")})`,
+        });
+      }
+    }
+  });
+export type RoleModelsConfig = Partial<Record<ModelRole, RoleModelSpec>>;
+
 const EnvSchema = z
   .object({
-    LLM_PROVIDER: z.enum(["mistral", "anthropic"]).default("mistral"),
+    LLM_PROVIDER: z.enum(LLM_PROVIDERS).default("mistral"),
     LLM_MODEL: z.string().min(1).optional(),
+    // Per-role model assignments (the configurable "team members"). JSON; empty = one model everywhere.
+    LLM_ROLE_MODELS: z
+      .string()
+      .optional()
+      .transform((s, ctx): unknown => {
+        if (!s) return undefined;
+        try {
+          return JSON.parse(s);
+        } catch {
+          ctx.addIssue({ code: "custom", message: "LLM_ROLE_MODELS must be valid JSON" });
+          return z.NEVER;
+        }
+      })
+      .pipe(RoleModelsConfigSchema.optional()),
     MISTRAL_API_KEY: z.string().min(1).optional(),
     ANTHROPIC_API_KEY: z.string().min(1).optional(),
+    GOOGLE_API_KEY: z.string().min(1).optional(),
     SUPABASE_URL: z.url().optional(),
     SUPABASE_SERVICE_KEY: z.string().min(1).optional(),
     SUPABASE_DB_URL: z.string().min(1).optional(),
@@ -62,19 +109,27 @@ const EnvSchema = z
     MISSION_WORKER_POLL_MS: z.coerce.number().int().min(1000).default(5000),
   })
   .superRefine((env, ctx) => {
-    if (env.LLM_PROVIDER === "mistral" && !env.MISTRAL_API_KEY) {
-      ctx.addIssue({
-        code: "custom",
-        path: ["MISTRAL_API_KEY"],
-        message: "MISTRAL_API_KEY is required when LLM_PROVIDER=mistral",
-      });
+    // Every provider actually in use — the default plus any per-role override —
+    // needs its API key. So configuring just the critic to use Gemini requires
+    // GOOGLE_API_KEY, even if the default provider is mistral.
+    const used = new Set<LlmProvider>([env.LLM_PROVIDER]);
+    for (const spec of Object.values(env.LLM_ROLE_MODELS ?? {})) {
+      if (spec) used.add(spec.provider);
     }
-    if (env.LLM_PROVIDER === "anthropic" && !env.ANTHROPIC_API_KEY) {
-      ctx.addIssue({
-        code: "custom",
-        path: ["ANTHROPIC_API_KEY"],
-        message: "ANTHROPIC_API_KEY is required when LLM_PROVIDER=anthropic",
-      });
+    const keyFor: Record<LlmProvider, { key: keyof typeof env; value?: string }> = {
+      mistral: { key: "MISTRAL_API_KEY", value: env.MISTRAL_API_KEY },
+      anthropic: { key: "ANTHROPIC_API_KEY", value: env.ANTHROPIC_API_KEY },
+      google: { key: "GOOGLE_API_KEY", value: env.GOOGLE_API_KEY },
+    };
+    for (const provider of used) {
+      const { key, value } = keyFor[provider];
+      if (!value) {
+        ctx.addIssue({
+          code: "custom",
+          path: [key as string],
+          message: `${key} is required when a role uses provider=${provider}`,
+        });
+      }
     }
     if (env.LANGSMITH_TRACING && !env.LANGSMITH_API_KEY) {
       ctx.addIssue({

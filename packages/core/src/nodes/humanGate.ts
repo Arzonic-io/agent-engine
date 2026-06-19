@@ -58,7 +58,16 @@ export async function humanGateNode(
   if (decision === "approve") {
     return {
       status: "accepted",
-      messages: [{ agent: "human", role: "user", content: "Approved final draft." }],
+      humanNotes: notes,
+      messages: [
+        {
+          agent: "human",
+          role: "user",
+          content: notes
+            ? `Approved final draft. Reviewer notes: ${notes}`
+            : "Approved final draft.",
+        },
+      ],
     };
   }
 

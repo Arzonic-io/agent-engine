@@ -4,7 +4,7 @@
 > komme. Opdatér den løbende: kryds af, flyt punkter mellem sektioner, og log
 > leverede ting under **Senest leveret**.
 
-**Sidst opdateret:** 2026-06-17
+**Sidst opdateret:** 2026-06-19
 
 ## 🌙 Nordstjerne — Autonome missioner
 
@@ -48,6 +48,45 @@ Det store perspektiv — fra nu til Nordstjernen. Detaljerne lever i tiers + epi
 ---
 
 ## ✅ Senest leveret
+
+### 2026-06-19 — Per-rolle-modeller: konfigurér hvert team-medlem (fundament for M3 Trin 4)
+- [x] Rent core-søm ([models.ts](../packages/core/src/models.ts)): `MODEL_ROLES` + `ModelRole` + `RoleModels`
+      + `pickModel(fallback, role, models)`. Hver graf tager nu `model` (fallback) **plus** valgfri
+      `models: RoleModels`; en node slår op via `models[role] ?? model`. Springet fra "én model overalt"
+      til "vælg model pr. rolle". Rent additivt — udelades `models`, opfører alt sig præcis som før.
+- [x] Multi-provider factory i shared ([llm.ts](../packages/shared/src/llm.ts)): `buildModel(env, {provider, model?})`
+      dækker **mistral / anthropic (Claude) / google (Gemini)** — ét sted provider-SDK'er instantieres.
+      `buildRoleModels(env)` bygger rolle→model-mappen; `getModel(env)` er default/fallback.
+- [x] Env-drevet config ([env.ts](../packages/shared/src/env.ts)): `LLM_ROLE_MODELS` (JSON `role→{provider,model?}`),
+      `GOOGLE_API_KEY`, og `LLM_PROVIDER` udvidet med `google`. Zod afviser **ukendte roller** (typo) og kræver
+      **API-nøgle for hver brugt provider** (fx en google-rolle kræver `GOOGLE_API_KEY`).
+- [x] Wired overalt: team/project/agent/repo-graferne (via ny `ROLE_MODELS`-DI-token i [app.module.ts](../apps/api/src/app.module.ts)
+      + [runs.service.ts](../apps/api/src/runs/runs.service.ts)), missions-stien (implementer/replan/decompose via
+      `pickModel` i [mission-worker.ts](../apps/api/src/mission-worker.ts)) og CLI'en. `@langchain/google-genai@2.1.26` tilføjet.
+- [x] Bevist: [verify-role-models.ts](../packages/core/verify-role-models.ts) (core: resolution + grafer kompilerer
+      med/uden map) + [verify-role-models.ts](../packages/shared/verify-role-models.ts) (shared: critic→Gemini,
+      implementer→Claude, architect→Mistral, fallback, ukendt rolle + manglende nøgle afvist). Fuld `turbo build` grøn (6/6),
+      API-smoke grøn. Beskrevet i design-brief §3.8.
+- [x] Sidegevinst: human-gaten persisterer nu **reviewer-noter ved godkendelse** i transcriptet
+      ([humanGate.ts](../packages/core/src/nodes/humanGate.ts)) — opfylder en stående (rød) smoke-assertion.
+- [ ] **Rest af M3 Trin 4:** prompt-caching på stabile system-prompts; per-rolle temperatur; UI til at vælge
+      team-medlemmers modeller pr. projekt/mission (i dag env-drevet).
+
+### 2026-06-18 — M3 Trin 1: Decomposer (missionen planlægger sin egen backlog)
+- [x] `Decomposer`-søm i core ([controller.ts](../packages/core/src/controller.ts)) — injiceret som
+      `Replanner`/`Verifier`/`Integrator`; `DecomposeInput`/`DecomposeResult`/`DecomposedItem`. Springet
+      fra "mennesket skriver item-listen i UI'et" til "giv motoren et mål, den planlægger selv".
+- [x] LLM-impl `makeDecomposer` ([decompose.ts](../packages/core/src/nodes/decompose.ts)): mål +
+      acceptkriterier → små, uafhængigt-verificerbare items med prioritet, `dependsOn` (pr. `key`) og `risk`.
+- [x] **Kaldt kun på en tom backlog** i [runMission](../packages/core/src/controller.ts) (efter resume-hygiejne,
+      før loopet) → en hand-seedet mission beholder sine items, og et resume re-dekomponerer **aldrig**.
+- [x] `createDecomposedItems`: to-pass key→id-resolution (vilkårlig DAG uden topo-sort); ukendte keys og
+      selv-deps droppes defensivt → en model-slip kan ikke kile loopet. `applyDecomposeGuards` capper antal
+      (default 40), gør keys unikke, dropper tomme titler, stripper deps til ukendte keys.
+- [x] Decompose-tokens foldes ind i mission-budgettet. Wired i mission-worker (`makeDecomposer(model)` → deps).
+- [x] Bevist: [verify-decompose.ts](../packages/core/verify-decompose.ts) (19 checks, fakes — key-resolution,
+      idempotens, guards, end-to-end via runMission, bagudkompat) + [verify-decompose-live.ts](../packages/core/verify-decompose-live.ts)
+      (live Mistral planlagde en 8-punkts todo-API-backlog med korrekt afhængigheds-DAG + validerings-items). `turbo build` grøn (6/6).
 
 ### 2026-06-18 — M2 Trin 6: Parallelisme (M2 i mål 🎉)
 - [x] `concurrency`-governor i controlleren ([packages/core/src/controller.ts](../packages/core/src/controller.ts)):
@@ -404,13 +443,82 @@ Build-vs-adopt (LangChain):
 
 ### 🤝 M3 — Kvalitet & tillid (Phase 5)
 
-- [ ] **Dybere verifikation.** Agent-genererede tests / e2e, så "grøn build" er en stærk
-      sandhed — ikke kun lint/build.
-- [ ] **Konvergens-kvalitet.** Bedre dekomponering, undgå thrash, vide hvornår "godt nok" på
-      åbne mål — tuning + evals.
-- [ ] **Drift over mange timer.** Cost/budget i skala, model-valg, caching, rate-limit-retries,
-      fejl-recovery.
-- [ ] **Tillids-UX.** Diffs man kan godkende/afvise, morning digest, kurskorrektion undervejs.
+Mål: hæve missionen fra "kan forfatte kode" (M2) til **kan stoles på natten over**.
+Fire temaer: (1) **dybere verifikation** — agent-genererede tests, så "grøn build" er
+en stærk sandhed, ikke kun lint/build; (2) **konvergens-kvalitet** — bedre
+dekomponering, undgå thrash, vide hvornår "godt nok"; (3) **drift over mange timer** —
+cost/budget i skala, model-valg, caching, rate-limit-retries, fejl-recovery;
+(4) **tillids-UX** — diffs man kan godkende/afvise, morgendigest, kurskorrektion undervejs.
+
+> **Forudsætning bevist (2026-06-18):** M2-kæden kører end-to-end med en *live* model —
+> [smoke-mission.ts](../packages/core/smoke-mission.ts) lod Mistral forfatte rigtig kode der
+> blev grøn på mission-branchen (1 item, 1 iteration). M3 er springet fra den trivielle
+> røgtest til **flerlags-opgaver man tør lade køre uovervåget.**
+
+Build-order (shippet + bevist pr. trin, som M1/M2). Foundation → tillid:
+
+- [x] **1. Decomposer (mål → backlog).** *(leveret 2026-06-18)* Nyt `Decomposer`-søm i core
+      ([controller.ts](../packages/core/src/controller.ts)) + LLM-impl `makeDecomposer`
+      ([decompose.ts](../packages/core/src/nodes/decompose.ts)) der oversætter mål +
+      acceptkriterier → prioriterede items med `dependsOn` + `risk`. Kaldt ved mission-start
+      **kun når backloggen er tom** (idempotent → resume/hand-seed re-dekomponerer ikke).
+      Afhængigheder udtrykkes pr. `key` og resolves til rigtige ids (`createDecomposedItems`,
+      to-pass, dropper ukendte/selv-deps). Guards capper antal, gør keys unikke, dropper tomme
+      titler. Wired i mission-worker. *Bevist:* [verify-decompose.ts](../packages/core/verify-decompose.ts)
+      (19 checks, fakes) + [verify-decompose-live.ts](../packages/core/verify-decompose-live.ts)
+      (live Mistral → 8-punkts plan med korrekt afhængigheds-DAG). `turbo build` grøn (6/6).
+- [ ] 🚧 **★ Team i missions-eksekvering (det største spring mod visionen).** I dag kører hvert
+      mission-item gennem **én implementer-node** (`createImplementerGraph`) — team-grafen
+      (architect→workers→lead→critic, som *udfordrer* sig selv) er kun wired ind i opgave-stien.
+      Det fanger *røde* builds, men ikke *grønt-men-forkert* arbejde. **Næste udvikling:** wir
+      `createTeamGraph` (eller minimum et critic/lead-review-pass) ind i mission-`WorkRunner`,
+      så hvert item får adversarisk review oven på Verifier. **Nu fri af blokeringen:** per-rolle-modeller
+      (leveret 2026-06-19) gør at mission-kritikeren kan være en billig Gemini mens implementeren er Claude.
+      *Bevis:* et grønt-men-forkert item fanges af critic/lead i missionen (ikke kun af checks); per-rolle-modeller
+      flyder uændret igennem. Se design-brief §5.4-noten + [[missions-skip-the-team-graph]].
+- [ ] **2. Agent-genererede tests (grøn = stærk sandhed).** Når et item mangler en check der
+      faktisk udøver koden, lader vi en agent **forfatte testen** (i worktree'et, via
+      write-tools) og kører den som en rigtig check — Verifier-pass forbliver sandheden
+      (exit-kode, ikke LLM). *Bevis:* for et item uden test forfattes en test der **fanger**
+      en buggy impl (rød) og **passerer** en korrekt (grøn). Holder invarianten: genererede
+      tests er rigtige checks, ikke selv-attestering.
+- [ ] **3. Drift-robusthed (overlever natten).** Retry m. eksponentiel backoff + jitter på
+      *transiente* LLM-fejl (rate-limit/5xx/timeout), og fejl-recovery i controlleren: et item
+      der fejler på *infrastruktur* (ikke logik) re-queues frem for at parkeres som "failed".
+      Strukturet cost/event-log pr. mission. *Bevis:* en injiceret flaky model fejler N gange
+      og lykkes så → item fuldføres alligevel; en ægte ikke-transient fejl skjules ikke.
+- [🚧] **4. Per-rolle modeller + prompt-caching (cost/kvalitet).**
+  - [x] **Per-rolle modeller** *(leveret 2026-06-19)* — `MODEL_ROLES`/`pickModel`-søm i core +
+        `buildRoleModels(env)` i shared (mistral/anthropic/google), env `LLM_ROLE_MODELS`. Pin en
+        stærk model til planner/critic/replan, billigere til mekaniske roller. Wired i alle grafer +
+        missions-stien + CLI. Bevist (core + shared verify). Se "Senest leveret" + design-brief §3.8.
+  - [ ] **Prompt-caching** på de stabile system-prompts (Anthropic) — *Bevis:* caching reducerer
+        tokens på gentagne kald (målt i smoke-harnessen).
+  - [ ] **Per-rolle temperatur** (fx critic=0) + **UI** til at vælge team-medlemmers modeller pr.
+        projekt/mission (i dag env-drevet; `LLM_ROLE_MODELS` mapper rent til en fremtidig form).
+- [ ] **5. Approvable diffs (se hvad motoren skrev).** Nyt `Differ`-søm: pr. item en
+      struktureret diff (ændrede filer, ±linjer, patch) af item-branch vs. mission-branch.
+      Eksponeret i mission-API'et + vist på dashboardet — især for parkerede items, så et
+      menneske kan **se** ændringen før Godkend/Afvis. *Bevis:* differ returnerer korrekt
+      patch for en kendt ændring; API'et leverer den; dashboard rendrer diff på parkerede items.
+- [ ] **6. Morgendigest + kurskorrektion.** Rigere digest (seneste hændelser, hvad der
+      blokerer, næste høj-risiko-items) leveret via `Notifier` (stub → rigtig mail/Slack), og
+      et `guidance`-felt: et menneske kan sende fri-tekst til en *kørende* mission, der flyder
+      ind i næste replan/decompose-kontekst (kurskorrektion ud over Stop). *Bevis:* guidance
+      sat på en mission optræder i replan-prompten og ændrer follow-ups; digest ruller de nye
+      felter op.
+
+Invarianter (bevares fra M1/M2):
+
+- **Verifier er stadig sandheden for "done"** — også for genererede tests (Trin 2): de er
+  rigtige checks med rigtig exit-kode, ikke en LLM-score. Et item kan aldrig blive "done" på
+  en rød build (`applyReplanGuards`).
+- **Core forbliver ren:** `Decomposer`/`Differ` injiceres som de øvrige søm; ingen `Date.now()`,
+  ingen transport/framework-deps. Retries/backoff lever i shared/worker, ikke i pure core.
+- **Robusthed ≠ skjule fejl:** kun *transiente* fejl retries; en ægte logik-/build-fejl skal
+  stadig parkeres/feedes ind i næste replan, ikke svøbes væk (Trin 3).
+- **Mennesket overvåger asynkront:** kurskorrektion (Trin 6) blokerer aldrig loopet — guidance
+  konsumeres ved næste checkpoint, ligesom park-beslutninger.
 
 ### Øvrige temaer (M4 — produktisering)
 

@@ -19,6 +19,7 @@
     "@arzonic/agent-core": "workspace:*",
     "@langchain/anthropic": "1.4.1",
     "@langchain/core": "1.1.49",
+    "@langchain/google-genai": "2.1.26",
     "@langchain/mistralai": "1.1.0",
     "@supabase/supabase-js": "2.108.1",
     "dotenv": "17.4.2",

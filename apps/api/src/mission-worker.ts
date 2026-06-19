@@ -1,12 +1,15 @@
 import {
   createImplementerGraph,
   createWorktreeWorkRunner,
+  makeDecomposer,
   makeReplanner,
+  pickModel,
   runMission,
   type MissionGovernors,
   type RunnableMissionGraph,
 } from "@arzonic/agent-core";
 import {
+  buildRoleModels,
   createConsoleNotifier,
   createGitIntegrator,
   createVerifier,
@@ -43,6 +46,11 @@ async function main(): Promise<void> {
   }
 
   const model = getModel(env);
+  // Per-role model overrides (the configurable team members). In a mission the
+  // active roles are implementer (writes the code), replan (decides done +
+  // follow-ups) and decompose (plans the backlog); any unassigned role falls
+  // back to `model`. Assign e.g. Claude to implementer, Gemini to replan.
+  const roleModels = buildRoleModels(env);
   const checkpointer = await createCheckpointer(env);
   const backlog = await createBacklog(env);
   const memory = await createMemory(env);
@@ -54,10 +62,14 @@ async function main(): Promise<void> {
   }
 
   // The replan agent sees the current backlog titles so it avoids duplicates.
-  const replanner = makeReplanner(model, {
+  const replanner = makeReplanner(pickModel(model, "replan", roleModels), {
     backlogTitles: async ({ mission }) =>
       (await backlog.listItems(mission.id)).map((i) => i.title),
   });
+  // The decomposer grows the initial backlog from the goal (M3 Trin 1). The
+  // controller calls it only when a mission's backlog is empty, so a hand-seeded
+  // mission keeps its items and a resume never re-plans.
+  const decomposer = makeDecomposer(pickModel(model, "decompose", roleModels));
 
   const governors: MissionGovernors = {
     maxIterations: env.MISSION_MAX_ITERATIONS,
@@ -67,8 +79,12 @@ async function main(): Promise<void> {
     concurrency: env.MISSION_CONCURRENCY,
   };
 
+  const roleSummary = Object.entries(env.LLM_ROLE_MODELS ?? {})
+    .map(([role, spec]) => `${role}=${spec.provider}${spec.model ? `:${spec.model}` : ""}`)
+    .join(", ");
   console.log(
     `[mission-worker] v${APP_VERSION} up | provider: ${env.LLM_PROVIDER} | ` +
+      `roles: ${roleSummary || "default everywhere"} | ` +
       `memory: ${memory ? "on" : "off"} | checks: ${env.MISSION_CHECKS.join(",")} | ` +
       `concurrency: ${env.MISSION_CONCURRENCY} | poll: ${env.MISSION_WORKER_POLL_MS}ms`,
   );
@@ -115,6 +131,7 @@ async function main(): Promise<void> {
         buildGraph: (wt) =>
           createImplementerGraph({
             model,
+            models: roleModels,
             checkpointer: checkpointer.saver,
             repo: createWritableRepoTools(wt.path, {
               allowedChecks: env.REPO_ALLOWED_CHECKS,
@@ -133,6 +150,7 @@ async function main(): Promise<void> {
             verifier,
             runner,
             integrator,
+            decomposer,
             replanner,
             notifier,
             clock: { now: () => Date.now() },

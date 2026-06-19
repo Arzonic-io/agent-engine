@@ -1,6 +1,6 @@
 import { Module } from "@nestjs/common";
 import { APP_GUARD } from "@nestjs/core";
-import { getModel } from "@arzonic/agent-shared";
+import { buildRoleModels, getModel } from "@arzonic/agent-shared";
 import { ApiKeyGuard } from "./auth/api-key.guard.js";
 import { createBacklog } from "./backlog.provider.js";
 import { createCheckpointer } from "./checkpointer.js";
@@ -15,7 +15,7 @@ import { RubricController } from "./runs/rubric.controller.js";
 import { RunsController } from "./runs/runs.controller.js";
 import { TasksController } from "./runs/tasks.controller.js";
 import { RunsService } from "./runs/runs.service.js";
-import { BACKLOG, CHECKPOINTER, ENV, MEMORY, MODEL } from "./tokens.js";
+import { BACKLOG, CHECKPOINTER, ENV, MEMORY, MODEL, ROLE_MODELS } from "./tokens.js";
 
 @Module({
   controllers: [
@@ -31,6 +31,11 @@ import { BACKLOG, CHECKPOINTER, ENV, MEMORY, MODEL } from "./tokens.js";
     {
       provide: MODEL,
       useFactory: (env: ApiEnv) => getModel(env),
+      inject: [ENV],
+    },
+    {
+      provide: ROLE_MODELS,
+      useFactory: (env: ApiEnv) => buildRoleModels(env),
       inject: [ENV],
     },
     {

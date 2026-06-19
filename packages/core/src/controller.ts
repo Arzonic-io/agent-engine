@@ -5,6 +5,7 @@ import type {
   CreateBacklogItemInput,
   Mission,
   MissionStatus,
+  Risk,
 } from "./mission.js";
 import { classifyRisk } from "./humanPolicy.js";
 import type { WorkResult, WorkRunner } from "./runner.js";
@@ -58,6 +59,85 @@ export const defaultReplanner: Replanner = {
     return { itemStatus: verification.passed ? "done" : "failed" };
   },
 };
+
+// ── Decompose seam (M3 Trin 1: grow the initial backlog from the goal) ──
+
+/**
+ * One item a `Decomposer` proposes. Dependencies are expressed by `key` —
+ * a local slug naming another item in the SAME batch — because real ids don't
+ * exist until the store creates the rows. The controller resolves keys → ids.
+ */
+export interface DecomposedItem {
+  /** Local slug used to declare dependencies within this batch (not persisted). */
+  key?: string;
+  title: string;
+  detail?: string;
+  /** Higher = worked sooner. */
+  priority?: number;
+  /** Keys of other items in THIS batch that must be done first. */
+  dependsOn?: string[];
+  risk?: Risk;
+}
+
+export interface DecomposeInput {
+  mission: Mission;
+  /** Titles already in the backlog (usually empty at decompose time). */
+  existingTitles?: string[];
+}
+
+export interface DecomposeResult {
+  items: DecomposedItem[];
+  /** One-line note for the journal/digest. */
+  note?: string;
+  /** Tokens the decompose step spent, folded into the mission budget. */
+  tokensUsed?: number;
+}
+
+/**
+ * Turns a mission goal into an initial backlog. Injected like every other seam;
+ * the LLM impl is `makeDecomposer`. Called once, only when the backlog is empty,
+ * so resume never re-decomposes.
+ */
+export interface Decomposer {
+  decompose(input: DecomposeInput): Promise<DecomposeResult>;
+}
+
+/**
+ * Persist a decomposed batch, resolving `key`-based dependencies to real item
+ * ids. Two passes so any DAG works without topological sorting: create every
+ * item (recording key → id), then patch `dependsOn` with the resolved ids.
+ * Keys that don't resolve (typo / cycle-to-self) are dropped defensively, so a
+ * model slip can never wedge the loop. Pure — no I/O beyond the injected store.
+ */
+export async function createDecomposedItems(
+  backlog: BacklogStore,
+  missionId: string,
+  items: DecomposedItem[],
+): Promise<BacklogItem[]> {
+  const created: BacklogItem[] = [];
+  const keyToId = new Map<string, string>();
+  for (const it of items) {
+    const row = await backlog.createItem({
+      missionId,
+      title: it.title,
+      detail: it.detail,
+      priority: it.priority,
+      risk: it.risk,
+    });
+    created.push(row);
+    if (it.key) keyToId.set(it.key, row.id);
+  }
+  for (let i = 0; i < items.length; i++) {
+    const deps = items[i]!.dependsOn ?? [];
+    if (deps.length === 0) continue;
+    const ids = [...new Set(deps.map((k) => keyToId.get(k)).filter((x): x is string => !!x))]
+      .filter((id) => id !== created[i]!.id); // never depend on yourself
+    if (ids.length > 0) {
+      created[i] = (await backlog.updateItem(created[i]!.id, { dependsOn: ids })) ?? created[i]!;
+    }
+  }
+  return created;
+}
 
 // ── Notifier seam (Trin 7 wires real transport) ──
 
@@ -137,6 +217,8 @@ export interface MissionDeps {
   backlog: BacklogStore;
   verifier: Verifier;
   runner: WorkRunner;
+  /** Grows the initial backlog from the goal when it's empty (M3 Trin 1). Optional. */
+  decomposer?: Decomposer;
   replanner?: Replanner;
   notifier?: Notifier;
   clock?: Clock;
@@ -197,8 +279,22 @@ export async function runMission(
   let mission: Mission = loaded;
 
   // Resume hygiene: an item left mid-run by a crash goes back to the queue.
-  for (const it of await backlog.listItems(missionId)) {
+  const existing = await backlog.listItems(missionId);
+  for (const it of existing) {
     if (it.status === "in_progress") await backlog.updateItem(it.id, { status: "todo" });
+  }
+
+  // Decompose (M3 Trin 1): grow the initial backlog from the goal — but ONLY when
+  // it's empty, so a resume (or a manually-seeded mission) is never re-planned.
+  if (deps.decomposer && existing.length === 0) {
+    const plan = await deps.decomposer.decompose({ mission });
+    await createDecomposedItems(backlog, missionId, plan.items);
+    if (plan.tokensUsed) {
+      mission =
+        (await backlog.updateMission(missionId, {
+          spentTokens: mission.spentTokens + plan.tokensUsed,
+        })) ?? mission;
+    }
   }
 
   let iterations = 0;

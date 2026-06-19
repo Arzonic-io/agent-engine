@@ -11,6 +11,7 @@ import {
   buildDigest,
   classifyRisk,
   rejectParkedItem,
+  resumeMissionIfBlocked,
 } from "@arzonic/agent-core";
 import type { BacklogService } from "@arzonic/agent-shared";
 import type {
@@ -123,6 +124,15 @@ export class MissionsService {
       dto.decision === "approve"
         ? await approveParkedItem(backlog, itemId)
         : await rejectParkedItem(backlog, itemId);
+    // Re-queuing the item isn't enough on approve: if the controller already
+    // parked the whole mission (status "blocked") because every remaining item
+    // was awaiting a human, the PM2 worker — which scans only "running" missions —
+    // would never re-pick it, so the approved work would silently never resume.
+    // Flip blocked → running. A no-op for a human-stopped/paused or terminal
+    // mission (the helper guards that), and reject never resurrects.
+    if (dto.decision === "approve") {
+      await resumeMissionIfBlocked(backlog, missionId);
+    }
     return { itemId, status: (updated ?? item).status };
   }
 

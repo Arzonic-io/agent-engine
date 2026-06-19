@@ -79,6 +79,30 @@ export function rejectParkedItem(
   return backlog.updateItem(itemId, { status: "failed" });
 }
 
+/**
+ * Resume a mission the loop parked only because every remaining item was waiting
+ * on a human. When the controller runs out of actionable work and the rest is
+ * parked, it calls `stop("blocked", …)` — so the mission sits at `blocked` while
+ * the PM2 worker, which scans only `running` missions, ignores it. Approving a
+ * parked item re-queues the ITEM but does nothing to the MISSION, so the work
+ * would never resume — the "never block the loop" invariant breaks. Flipping
+ * `blocked` → `running` lets the worker re-pick it on its next poll.
+ *
+ * ONLY `blocked` is resurrected: a `stopped` mission was deliberately killed by a
+ * human, `paused` was deliberately paused, and `done`/`failed` are terminal — none
+ * should silently restart. `running` is already live, so this is a no-op there too.
+ * Returns the (possibly updated) mission, or null if it no longer exists.
+ */
+export function resumeMissionIfBlocked(
+  backlog: BacklogStore,
+  missionId: string,
+): Promise<Mission | null> {
+  return backlog.getMission(missionId).then((mission) => {
+    if (!mission || mission.status !== "blocked") return mission;
+    return backlog.updateMission(missionId, { status: "running" });
+  });
+}
+
 export interface MissionDigest {
   missionId: string;
   goal: string;
