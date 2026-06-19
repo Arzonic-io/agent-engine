@@ -86,4 +86,29 @@ const env2 = loadEnv();
 ok(Object.keys(buildRoleModels(env2)).length === 0, "no LLM_ROLE_MODELS → empty override map (one model everywhere)");
 ok(getModel(env2) instanceof ChatAnthropic, "default resolves to the configured provider");
 
-console.log("\nPer-role model configuration verified ✓");
+// 5. Per-mission override merges OVER the global env config (a mission's own team).
+setEnv({
+  LLM_PROVIDER: "mistral",
+  MISTRAL_API_KEY: "dummy-mistral",
+  ANTHROPIC_API_KEY: "dummy-anthropic",
+  GOOGLE_API_KEY: "dummy-google",
+  LLM_ROLE_MODELS: JSON.stringify({
+    architect: { provider: "mistral" },
+    critic: { provider: "google" },
+  }),
+});
+const env3 = loadEnv();
+// This mission overrides critic and adds implementer; architect inherits from env.
+const missionModels = buildRoleModels(env3, {
+  critic: { provider: "anthropic" },
+  implementer: { provider: "anthropic", model: "claude-sonnet-4-6" },
+});
+ok(missionModels.critic instanceof ChatAnthropic, "mission override wins over the global config (critic env google → mission Claude)");
+ok(missionModels.architect instanceof ChatMistralAI, "global env role survives where the mission doesn't override it (architect)");
+ok(missionModels.implementer instanceof ChatAnthropic, "a mission-only role is added (implementer → Claude)");
+ok(missionModels.worker === undefined, "a role in neither env nor mission has no override (falls back to default)");
+// And no override = pure env config (back-compat with the global-only path).
+const envOnly = buildRoleModels(env3);
+ok(envOnly.critic instanceof ChatGoogleGenerativeAI && envOnly.implementer === undefined, "no mission override → exactly the global env config");
+
+console.log("\nPer-role + per-mission model configuration verified ✓");

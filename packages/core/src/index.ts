@@ -17,9 +17,15 @@ export {
 } from "./graph.js";
 export {
   MODEL_ROLES,
+  MODEL_PROVIDERS,
   pickModel,
+  ModelSpecSchema,
+  RoleModelsConfigSchema,
   type ModelRole,
   type RoleModels,
+  type ModelProvider,
+  type ModelSpec,
+  type RoleModelsConfig,
 } from "./models.js";
 export type { RepoTools, WritableRepoTools } from "./tools.js";
 export type {

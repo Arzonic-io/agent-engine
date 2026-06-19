@@ -46,9 +46,29 @@ export class MissionsService {
     return this.backlog;
   }
 
+  /**
+   * Every provider a team-config references must have its API key set server-side,
+   * else the worker couldn't build that agent. Reject at creation for fast feedback.
+   */
+  private validateRoleModels(roleModels: CreateMissionDto["roleModels"]): void {
+    const keyFor: Record<string, string | undefined> = {
+      mistral: this.env.MISTRAL_API_KEY,
+      anthropic: this.env.ANTHROPIC_API_KEY,
+      google: this.env.GOOGLE_API_KEY,
+    };
+    for (const [role, spec] of Object.entries(roleModels ?? {})) {
+      if (spec && !keyFor[spec.provider]) {
+        throw new BadRequestException(
+          `Role '${role}' uses provider '${spec.provider}', but its API key is not configured on the server.`,
+        );
+      }
+    }
+  }
+
   async create(dto: CreateMissionDto): Promise<MissionDetail> {
     const backlog = this.require();
     const repoPath = this.runs.validateRepoPath(dto.repoPath);
+    this.validateRoleModels(dto.roleModels);
     const mission = await backlog.createMission({
       projectId: dto.projectId,
       goal: dto.goal,
@@ -56,6 +76,7 @@ export class MissionsService {
       acceptanceCriteria: dto.acceptanceCriteria ?? [],
       budget: dto.budget ?? null,
       deadline: dto.deadline ?? null,
+      roleModels: dto.roleModels,
     });
     // Seed the initial backlog, classifying risk up front so the board shows it
     // (the controller re-checks at run-time too — this is just for visibility).

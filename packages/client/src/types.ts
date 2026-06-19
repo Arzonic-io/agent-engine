@@ -181,6 +181,16 @@ export interface ApiBacklogItem {
   updatedAt: string;
 }
 
+/** A team member's model assignment. anthropic = Claude, google = Gemini. */
+export type ModelProvider = "mistral" | "anthropic" | "google";
+export interface ModelSpec {
+  provider: ModelProvider;
+  /** Explicit model id; omitted = the provider's default. */
+  model?: string;
+}
+/** Per-role model choices: role name → spec. Roles: architect, worker, lead, critic, builder, implementer, analyst, router, replan, decompose. */
+export type RoleModelsConfig = Record<string, ModelSpec>;
+
 export interface MissionSummary {
   id: string;
   projectId: string;
@@ -191,6 +201,8 @@ export interface MissionSummary {
   budget: number | null;
   spentTokens: number;
   deadline: string | null;
+  /** Per-mission team config — which provider/model each role uses for this mission. */
+  roleModels: RoleModelsConfig;
   createdAt: string;
 }
 
@@ -230,6 +242,8 @@ export interface CreateMissionRequest {
   deadline?: string | null;
   /** Optional initial backlog to seed the mission with. */
   items?: NewBacklogItem[];
+  /** Optional per-mission team config: role → { provider, model? }. Inherits global default if omitted. */
+  roleModels?: RoleModelsConfig;
 }
 
 /** Async approve/reject of a parked (high-risk or thrashing) item (§5.5). */

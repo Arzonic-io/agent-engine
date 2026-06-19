@@ -1,3 +1,4 @@
+import { RoleModelsConfigSchema } from "@arzonic/agent-core";
 import { z } from "zod";
 
 const NewBacklogItemSchema = z.object({
@@ -16,6 +17,8 @@ export const CreateMissionSchema = z.object({
   budget: z.number().int().min(1).nullable().optional(),
   deadline: z.iso.datetime().nullable().optional(),
   items: z.array(NewBacklogItemSchema).max(200).optional(),
+  /** Per-mission team config: role → { provider, model? }. Inherits global default if omitted. */
+  roleModels: RoleModelsConfigSchema.optional(),
 });
 export type CreateMissionDto = z.infer<typeof CreateMissionSchema>;
 

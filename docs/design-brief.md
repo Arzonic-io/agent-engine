@@ -106,8 +106,17 @@ resolves `models[role] ?? model`. The runtime builds the map from `LLM_ROLE_MODE
 which is the single place provider SDKs (`@langchain/anthropic|mistralai|google-genai`)
 are instantiated. Unassigned roles fall back to `LLM_PROVIDER`, so it's purely
 additive. Roles: `architect, worker, lead, critic, builder, implementer, analyst,
-router, replan, decompose`. *(Open: per-role temperature, prompt-caching on stable
-system prompts, and a per-project/per-mission override surface in the UI — §6 M3.)*
+router, replan, decompose`.
+
+**Per-mission team config (persisted).** Beyond the global env default, each mission
+stores its OWN role→model map on its `missions` row (`role_models` jsonb, §5.2), set
+in the mission setup flow. The worker resolves a mission's agents with
+`buildRoleModels(env, mission.roleModels)` — the mission's choices **merge over** the
+global default per role — so one mission can run Claude-implements/Gemini-critiques
+while another inherits the default. The config is plain data end-to-end (core defines
+`ModelSpec`/`RoleModelsConfig`; the API validates that every referenced provider has a
+key server-side). *(Open: per-role temperature; prompt-caching on stable system
+prompts; a per-project default; editing a running mission's team — §6 M3.)*
 
 ---
 
@@ -142,7 +151,7 @@ mode beside them.
 
 - **`missions`**: `id, projectId, goal, acceptanceCriteria[], repoPath, status
   (running | paused | blocked | done | failed | stopped), budget, spentTokens,
-  deadline, createdAt`.
+  deadline, roleModels (per-mission team config, §3.8), createdAt`.
 - **`backlog_items`**: `id, missionId, title, detail, status (todo | in_progress |
   done | blocked_needs_human | failed), priority, dependsOn[], risk (low | high),
   runId, verification (check result), createdAt, updatedAt`.

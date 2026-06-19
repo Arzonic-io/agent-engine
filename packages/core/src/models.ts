@@ -1,4 +1,5 @@
 import type { BaseChatModel } from "@langchain/core/language_models/chat_models";
+import { z } from "zod";
 
 /**
  * The roles that own an LLM call and can each be assigned their OWN model — the
@@ -30,6 +31,42 @@ export type ModelRole = (typeof MODEL_ROLES)[number];
 
 /** Per-role model overrides; any unassigned role falls back to the graph's default `model`. */
 export type RoleModels = Partial<Record<ModelRole, BaseChatModel>>;
+
+/**
+ * The providers a role can be assigned. These are *data* (just names) — core
+ * never instantiates an SDK; the runtime (`@arzonic/agent-shared`) maps a spec to
+ * a concrete model. Kept here so the persisted/over-the-wire mission config and
+ * the runtime resolver share one source of truth. anthropic = Claude, google = Gemini.
+ */
+export const MODEL_PROVIDERS = ["mistral", "anthropic", "google"] as const;
+export type ModelProvider = (typeof MODEL_PROVIDERS)[number];
+
+/** One role's model assignment as plain config data: `{ provider, model? }`. */
+export const ModelSpecSchema = z.object({
+  provider: z.enum(MODEL_PROVIDERS),
+  model: z.string().min(1).optional(),
+});
+export type ModelSpec = z.infer<typeof ModelSpecSchema>;
+
+/**
+ * A per-role model config (role → spec) — the shape persisted on a mission and
+ * sent over the API to pick each "team member's" model. Unknown role keys are
+ * rejected so a typo can't silently misconfigure the team. This is config DATA;
+ * the runtime turns it into `RoleModels` (live model instances) via `buildRoleModels`.
+ */
+export const RoleModelsConfigSchema = z
+  .record(z.string(), ModelSpecSchema)
+  .superRefine((obj, ctx) => {
+    for (const key of Object.keys(obj)) {
+      if (!(MODEL_ROLES as readonly string[]).includes(key)) {
+        ctx.addIssue({
+          code: "custom",
+          message: `unknown role '${key}' (valid: ${MODEL_ROLES.join(", ")})`,
+        });
+      }
+    }
+  });
+export type RoleModelsConfig = Partial<Record<ModelRole, ModelSpec>>;
 
 /**
  * Resolve the model for a role: the per-role override if one is configured,

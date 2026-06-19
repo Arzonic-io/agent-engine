@@ -4,7 +4,7 @@
 > komme. Opdatér den løbende: kryds af, flyt punkter mellem sektioner, og log
 > leverede ting under **Senest leveret**.
 
-**Sidst opdateret:** 2026-06-19
+**Sidst opdateret:** 2026-06-20
 
 ## 🌙 Nordstjerne — Autonome missioner
 
@@ -48,6 +48,24 @@ Det store perspektiv — fra nu til Nordstjernen. Detaljerne lever i tiers + epi
 ---
 
 ## ✅ Senest leveret
+
+### 2026-06-20 — Per-mission team-config (gemt i DB): vælg agent-modeller i mission-opsætningen
+- [x] Hver **mission gemmer sit eget team-setup** — hvilken provider/model hver rolle bruger — på
+      `missions.role_models` (jsonb). Datatypen er ren config i core ([models.ts](../packages/core/src/models.ts):
+      `ModelProvider`/`ModelSpec`/`RoleModelsConfig` + zod), så den flyder gennem core (Mission), DB og API uden SDK.
+- [x] **DB**: kolonne `role_models` (idempotent `ALTER … ADD COLUMN IF NOT EXISTS`) + insert/map i
+      [BacklogService](../packages/shared/src/backlog.ts); `Mission`/`CreateMissionInput` udvidet.
+- [x] **Resolver**: `buildRoleModels(env, mission.roleModels)` ([llm.ts](../packages/shared/src/llm.ts)) —
+      missionens valg **fletter over** den globale env-default pr. rolle. Worker'en bygger nu replan/decompose/
+      implementer **pr. mission** med dens eget team ([mission-worker.ts](../apps/api/src/mission-worker.ts)).
+- [x] **API**: `POST /missions` accepterer `roleModels` ([missions.dto.ts](../apps/api/src/missions/missions.dto.ts));
+      servicen afviser en provider hvis dens nøgle mangler server-side ([missions.service.ts](../apps/api/src/missions/missions.service.ts)).
+      `roleModels` returneres på mission-objektet (client-wire-typer udvidet).
+- [x] **UI**: sammenklappelig "Team-modeller"-sektion i [MissionComposer](../apps/web/app/components/MissionComposer.tsx) —
+      pr. mission-rolle (decompose/architect/implementer/critic/lead/replan) et provider-valg (Standard/Mistral/Claude/Gemini)
+      + valgfrit model-id. "Standard" arver den globale default.
+- [x] Bevist: [shared verify-role-models](../packages/shared/verify-role-models.ts) udvidet med merge-scenarier
+      (mission overstyrer env, env-rolle overlever, mission-only-rolle tilføjes, ingen override = ren env). `turbo build` grøn (6/6), API-smoke grøn.
 
 ### 2026-06-19 — Per-rolle-modeller: konfigurér hvert team-medlem (fundament for M3 Trin 4)
 - [x] Rent core-søm ([models.ts](../packages/core/src/models.ts)): `MODEL_ROLES` + `ModelRole` + `RoleModels`
@@ -488,14 +506,15 @@ Build-order (shippet + bevist pr. trin, som M1/M2). Foundation → tillid:
       Strukturet cost/event-log pr. mission. *Bevis:* en injiceret flaky model fejler N gange
       og lykkes så → item fuldføres alligevel; en ægte ikke-transient fejl skjules ikke.
 - [🚧] **4. Per-rolle modeller + prompt-caching (cost/kvalitet).**
-  - [x] **Per-rolle modeller** *(leveret 2026-06-19)* — `MODEL_ROLES`/`pickModel`-søm i core +
-        `buildRoleModels(env)` i shared (mistral/anthropic/google), env `LLM_ROLE_MODELS`. Pin en
-        stærk model til planner/critic/replan, billigere til mekaniske roller. Wired i alle grafer +
-        missions-stien + CLI. Bevist (core + shared verify). Se "Senest leveret" + design-brief §3.8.
+  - [x] **Per-rolle modeller (global)** *(leveret 2026-06-19)* — `MODEL_ROLES`/`pickModel`-søm i core +
+        `buildRoleModels(env)` i shared (mistral/anthropic/google), env `LLM_ROLE_MODELS`. Wired i alle
+        grafer + missions-stien + CLI. Bevist. Se "Senest leveret" + design-brief §3.8.
+  - [x] **Per-mission team-config + UI** *(leveret 2026-06-20)* — gemt på `missions.role_models`, valgt i
+        MissionComposeren; `buildRoleModels(env, mission.roleModels)` fletter pr. mission over default.
   - [ ] **Prompt-caching** på de stabile system-prompts (Anthropic) — *Bevis:* caching reducerer
         tokens på gentagne kald (målt i smoke-harnessen).
-  - [ ] **Per-rolle temperatur** (fx critic=0) + **UI** til at vælge team-medlemmers modeller pr.
-        projekt/mission (i dag env-drevet; `LLM_ROLE_MODELS` mapper rent til en fremtidig form).
+  - [ ] **Per-rolle temperatur** (fx critic=0) + **per-projekt default** + redigér en **kørende** missions
+        team. (Bemærk: når team-i-missioner ★ lander, bliver architect/worker/lead/critic-valgene aktive i missionen.)
 - [ ] **5. Approvable diffs (se hvad motoren skrev).** Nyt `Differ`-søm: pr. item en
       struktureret diff (ændrede filer, ±linjer, patch) af item-branch vs. mission-branch.
       Eksponeret i mission-API'et + vist på dashboardet — især for parkerede items, så et

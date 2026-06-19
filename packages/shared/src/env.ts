@@ -1,39 +1,22 @@
 import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { MODEL_ROLES, type ModelRole } from "@arzonic/agent-core";
+import {
+  MODEL_PROVIDERS,
+  RoleModelsConfigSchema,
+  type ModelProvider,
+  type ModelSpec,
+  type RoleModelsConfig,
+} from "@arzonic/agent-core";
 import { config as loadDotenv } from "dotenv";
 import { z } from "zod";
 
-/** LLM providers a team member can be assigned. Claude = anthropic, Gemini = google. */
-export const LLM_PROVIDERS = ["mistral", "anthropic", "google"] as const;
-export type LlmProvider = (typeof LLM_PROVIDERS)[number];
-
-/** One team member's model assignment — `{ provider, model? }`; model defaults per provider. */
-const RoleModelSpecSchema = z.object({
-  provider: z.enum(LLM_PROVIDERS),
-  model: z.string().min(1).optional(),
-});
-export type RoleModelSpec = z.infer<typeof RoleModelSpecSchema>;
-
-/**
- * `LLM_ROLE_MODELS` is a JSON map of role → { provider, model? }, e.g.
- *   {"architect":{"provider":"mistral"},"critic":{"provider":"google","model":"gemini-2.0-flash"},
- *    "implementer":{"provider":"anthropic","model":"claude-sonnet-4-6"}}
- * Unknown roles are rejected so a typo can't silently misconfigure the team.
- */
-const RoleModelsConfigSchema = z
-  .record(z.string(), RoleModelSpecSchema)
-  .superRefine((obj, ctx) => {
-    for (const key of Object.keys(obj)) {
-      if (!(MODEL_ROLES as readonly string[]).includes(key)) {
-        ctx.addIssue({
-          code: "custom",
-          message: `unknown role '${key}' (valid: ${MODEL_ROLES.join(", ")})`,
-        });
-      }
-    }
-  });
-export type RoleModelsConfig = Partial<Record<ModelRole, RoleModelSpec>>;
+// Provider/spec/config shapes are defined once in pure core (data only) and
+// re-exported here for the runtime. anthropic = Claude, google = Gemini.
+export const LLM_PROVIDERS = MODEL_PROVIDERS;
+export type LlmProvider = ModelProvider;
+/** Back-compat alias — a role's `{ provider, model? }` assignment. */
+export type RoleModelSpec = ModelSpec;
+export type { RoleModelsConfig };
 
 const EnvSchema = z
   .object({

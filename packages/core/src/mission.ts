@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { RoleModelsConfigSchema, type RoleModelsConfig } from "./models.js";
 
 /**
  * Mission domain — the autonomous-missions north star (§5 of the design brief).
@@ -60,6 +61,13 @@ export const MissionSchema = z.object({
   spentTokens: z.number().int().min(0),
   /** ISO wall-clock deadline, or null. */
   deadline: z.string().nullable(),
+  /**
+   * Per-mission "team config": which provider/model each role uses for THIS
+   * mission (e.g. Claude implements, Gemini critiques). Persisted on the mission
+   * row; the worker merges it over the global env default to build this mission's
+   * agents. Empty/undefined = inherit the global default everywhere.
+   */
+  roleModels: RoleModelsConfigSchema.optional(),
   createdAt: z.string(),
 });
 export type Mission = z.infer<typeof MissionSchema>;
@@ -91,6 +99,8 @@ export interface CreateMissionInput {
   acceptanceCriteria?: string[];
   budget?: number | null;
   deadline?: string | null;
+  /** Per-mission per-role model choices (the team config); inherits global default if omitted. */
+  roleModels?: RoleModelsConfig;
 }
 
 export type MissionPatch = Partial<

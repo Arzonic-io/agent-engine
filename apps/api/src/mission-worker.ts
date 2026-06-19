@@ -46,11 +46,6 @@ async function main(): Promise<void> {
   }
 
   const model = getModel(env);
-  // Per-role model overrides (the configurable team members). In a mission the
-  // active roles are implementer (writes the code), replan (decides done +
-  // follow-ups) and decompose (plans the backlog); any unassigned role falls
-  // back to `model`. Assign e.g. Claude to implementer, Gemini to replan.
-  const roleModels = buildRoleModels(env);
   const checkpointer = await createCheckpointer(env);
   const backlog = await createBacklog(env);
   const memory = await createMemory(env);
@@ -60,16 +55,6 @@ async function main(): Promise<void> {
     console.error("[mission-worker] backlog unavailable — exiting.");
     process.exit(1);
   }
-
-  // The replan agent sees the current backlog titles so it avoids duplicates.
-  const replanner = makeReplanner(pickModel(model, "replan", roleModels), {
-    backlogTitles: async ({ mission }) =>
-      (await backlog.listItems(mission.id)).map((i) => i.title),
-  });
-  // The decomposer grows the initial backlog from the goal (M3 Trin 1). The
-  // controller calls it only when a mission's backlog is empty, so a hand-seeded
-  // mission keeps its items and a resume never re-plans.
-  const decomposer = makeDecomposer(pickModel(model, "decompose", roleModels));
 
   const governors: MissionGovernors = {
     maxIterations: env.MISSION_MAX_ITERATIONS,
@@ -118,6 +103,19 @@ async function main(): Promise<void> {
         continue;
       }
       const worktrees = createWorktreeManager(mission.repoPath);
+      // This mission's team config: its stored role→model choices merged over the
+      // global default. Active mission roles are implementer (writes code), replan
+      // (done + follow-ups) and decompose (plans backlog); unassigned roles fall
+      // back to the default model. Built per mission so each can use its own team.
+      const missionModels = buildRoleModels(env, mission.roleModels);
+      // The replan agent sees the current backlog titles so it avoids duplicates.
+      const replanner = makeReplanner(pickModel(model, "replan", missionModels), {
+        backlogTitles: async ({ mission: m }) =>
+          (await backlog.listItems(m.id)).map((i) => i.title),
+      });
+      // The decomposer grows the initial backlog from the goal (M3 Trin 1), only
+      // when the backlog is empty (a resume / hand-seed never re-plans).
+      const decomposer = makeDecomposer(pickModel(model, "decompose", missionModels));
       const runner = createWorktreeWorkRunner({
         worktrees,
         baseRef: missionBranch,
@@ -131,7 +129,7 @@ async function main(): Promise<void> {
         buildGraph: (wt) =>
           createImplementerGraph({
             model,
-            models: roleModels,
+            models: missionModels,
             checkpointer: checkpointer.saver,
             repo: createWritableRepoTools(wt.path, {
               allowedChecks: env.REPO_ALLOWED_CHECKS,

@@ -1,3 +1,4 @@
+import type { RoleModelsConfig } from "@arzonic/agent-core";
 import pg from "pg";
 
 const { Pool } = pg;
@@ -46,6 +47,8 @@ export interface Mission {
   budget: number | null;
   spentTokens: number;
   deadline: string | null;
+  /** Per-mission per-role model choices (the team config); empty = global default. */
+  roleModels: RoleModelsConfig;
   createdAt: string;
 }
 
@@ -71,6 +74,7 @@ export interface CreateMissionInput {
   acceptanceCriteria?: string[];
   budget?: number | null;
   deadline?: string | null;
+  roleModels?: RoleModelsConfig;
 }
 
 export type MissionPatch = Partial<
@@ -117,8 +121,13 @@ export class BacklogService {
         budget              bigint,
         spent_tokens        bigint NOT NULL DEFAULT 0,
         deadline            timestamptz,
+        role_models         jsonb NOT NULL DEFAULT '{}',
         created_at          timestamptz NOT NULL DEFAULT now()
       )`);
+    // Add the per-mission team-config column to pre-existing missions tables.
+    await this.pool.query(
+      `ALTER TABLE missions ADD COLUMN IF NOT EXISTS role_models jsonb NOT NULL DEFAULT '{}'`,
+    );
     await this.pool.query(`
       CREATE TABLE IF NOT EXISTS backlog_items (
         id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -142,8 +151,8 @@ export class BacklogService {
   // ── missions ──
   async createMission(input: CreateMissionInput): Promise<Mission> {
     const { rows } = await this.pool.query(
-      `INSERT INTO missions (project_id, goal, repo_path, acceptance_criteria, budget, deadline)
-       VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
+      `INSERT INTO missions (project_id, goal, repo_path, acceptance_criteria, budget, deadline, role_models)
+       VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
       [
         input.projectId,
         input.goal,
@@ -151,6 +160,7 @@ export class BacklogService {
         JSON.stringify(input.acceptanceCriteria ?? []),
         input.budget ?? null,
         input.deadline ?? null,
+        JSON.stringify(input.roleModels ?? {}),
       ],
     );
     return this.mapMission(rows[0]);
@@ -290,6 +300,7 @@ export class BacklogService {
       budget: r.budget === null ? null : Number(r.budget),
       spentTokens: Number(r.spent_tokens ?? 0),
       deadline: r.deadline ? new Date(r.deadline).toISOString() : null,
+      roleModels: r.role_models ?? {},
       createdAt: new Date(r.created_at).toISOString(),
     };
   }
