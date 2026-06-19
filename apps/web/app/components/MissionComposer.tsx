@@ -121,13 +121,13 @@ export function MissionComposer({
           <LuUsers className="h-3.5 w-3.5" />
           <span className="font-medium text-fg">Team-modeller</span>
           <span className="text-dim/70">
-            {pinned > 0 ? `${pinned} rolle${pinned > 1 ? "r" : ""} tilpasset` : "vælg model pr. agent (valgfri)"}
+            {pinned > 0 ? `${pinned} stilling${pinned > 1 ? "er" : ""} tilpasset` : "vælg model pr. stilling (valgfri)"}
           </span>
           <span className="ml-auto text-dim/50 transition group-open:rotate-180">⌄</span>
         </summary>
         <div className="space-y-1.5 border-t border-line px-3 py-3">
           <p className="mb-2 text-[11px] leading-relaxed text-dim/70">
-            Hver agent bruger <span className="text-fg">Standard</span> (den globale default) med mindre du vælger
+            Hver stilling bruger <span className="text-fg">Standard</span> (den globale default) med mindre du vælger
             en anden her. Gemmes på missionen. Lad model-feltet stå tomt for providerens default.
           </p>
           <TeamModelPicker roles={TEAM_ROLES} value={team} onChange={setTeam} />

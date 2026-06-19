@@ -2,24 +2,30 @@
 
 import type { ModelProvider, ModelSpec, RoleModelsConfig } from "@arzonic/agent-client";
 
-/** A role that can be pinned to its own model, with a human label. */
+/** A role ("stilling") that can be pinned to its own model — human label, hint, dot colour. */
 export interface TeamRole {
   key: string;
   label: string;
   hint: string;
+  /** Tailwind bg-* class for the role's colour dot (matches the create-view roster). */
+  dot: string;
 }
 
 /** Per-role UI selection: provider "" means "Standard" (inherit the default). */
 export type TeamSelection = Record<string, { provider: string; model: string }>;
 
-/** The roles that actually run in a mission — the configurable team members. */
+/**
+ * The team "stillinger" — human job titles + the same colours the create-view
+ * roster uses (Udvikler=builder, Kritiker=critic, Arkitekt=lead, Lead=human),
+ * with distinct colours for the mission-only planning roles.
+ */
 export const TEAM_ROLES: TeamRole[] = [
-  { key: "decompose", label: "Decompose", hint: "mål → backlog" },
-  { key: "architect", label: "Arkitekt", hint: "planlægger" },
-  { key: "implementer", label: "Implementer", hint: "skriver koden" },
-  { key: "critic", label: "Kritiker", hint: "udfordrer" },
-  { key: "lead", label: "Lead", hint: "samler" },
-  { key: "replan", label: "Replan", hint: "done + follow-ups" },
+  { key: "decompose", label: "Planlægger", hint: "mål → backlog", dot: "bg-analyst" },
+  { key: "architect", label: "Arkitekt", hint: "designer trinene", dot: "bg-lead" },
+  { key: "implementer", label: "Udvikler", hint: "skriver koden", dot: "bg-builder" },
+  { key: "critic", label: "Kritiker", hint: "udfordrer arbejdet", dot: "bg-critic" },
+  { key: "lead", label: "Lead", hint: "samler resultatet", dot: "bg-human" },
+  { key: "replan", label: "Koordinator", hint: "beslutter næste skridt", dot: "bg-warning" },
 ];
 
 const PROVIDERS: { value: string; label: string }[] = [
@@ -71,14 +77,23 @@ export function TeamModelPicker({
   availableProviders?: ModelProvider[];
 }) {
   return (
-    <div className="space-y-1.5">
+    <div className="space-y-2">
       {roles.map((role) => {
         const sel = value[role.key] ?? { provider: "", model: "" };
+        const custom = !!sel.provider;
         return (
-          <div key={role.key} className="flex items-center gap-2">
-            <span className="w-28 shrink-0 text-xs text-fg">
-              {role.label}
-              <span className="ml-1 text-dim/50">· {role.hint}</span>
+          <div
+            key={role.key}
+            className={`flex items-center gap-3 rounded-field border px-2.5 py-1.5 transition ${
+              custom ? "border-line bg-elev/50" : "border-transparent hover:bg-elev/30"
+            }`}
+          >
+            <span className="flex w-36 shrink-0 items-center gap-2">
+              <span className={`h-2 w-2 shrink-0 rounded-full ${role.dot}`} />
+              <span className="min-w-0 leading-tight">
+                <span className="block truncate text-xs font-semibold text-fg">{role.label}</span>
+                <span className="block truncate text-[10px] text-dim">{role.hint}</span>
+              </span>
             </span>
             <select
               value={sel.provider}
@@ -101,8 +116,8 @@ export function TeamModelPicker({
             <input
               value={sel.model}
               onChange={(e) => onChange({ ...value, [role.key]: { ...sel, model: e.target.value } })}
-              disabled={!sel.provider}
-              placeholder={sel.provider ? "model (valgfri)" : "—"}
+              disabled={!custom}
+              placeholder={custom ? "model (valgfri)" : "—"}
               className="input input-xs flex-1 border-line bg-elev text-xs disabled:opacity-40"
             />
           </div>
