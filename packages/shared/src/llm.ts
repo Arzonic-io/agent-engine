@@ -19,6 +19,27 @@ const DEFAULT_MODELS: Record<LlmProvider, string> = {
 };
 
 /**
+ * ChatAnthropic with prompt caching defaulted ON (M3 Trin 4). The base model only
+ * reads `cache_control` from per-call options, so a one-off `.withConfig(...)`
+ * wouldn't survive — `createReactAgent` re-binds the model via `bindTools` and
+ * `withStructuredOutput` does too, both dropping the bound call options. Overriding
+ * `invocationParams` instead injects the breakpoint on EVERY underlying call while
+ * staying a real `ChatAnthropic` (so `bindTools`/`withStructuredOutput` still
+ * exist — a `RunnableBinding` would expose neither). The top-level `cache_control`
+ * auto-places one ephemeral breakpoint on the last cacheable block and advances it
+ * as the conversation grows: in the implementer/tester ReAct loop, tools + system +
+ * the accumulated transcript are read from cache each tool round-trip. A caller can
+ * still override per call (e.g. a 1h TTL); we only fill in the default.
+ */
+class CachingChatAnthropic extends ChatAnthropic {
+  invocationParams(options?: this["ParsedCallOptions"]) {
+    const params = super.invocationParams(options);
+    if (!params.cache_control) params.cache_control = { type: "ephemeral" };
+    return params;
+  }
+}
+
+/**
  * Build ONE chat model from an explicit `{ provider, model? }` spec, pulling the
  * matching API key out of the env. This is the single place provider SDKs are
  * instantiated — `getModel` (default) and `buildRoleModels` (per-role) both go
@@ -36,9 +57,13 @@ export function buildModel(env: Env, spec: RoleModelSpec): BaseChatModel {
     onFailedAttempt: llmRetryOnFailedAttempt,
   };
   switch (spec.provider) {
-    case "anthropic":
+    case "anthropic": {
       // ChatAnthropic routes through this.caller, so the constructor option applies.
-      return new ChatAnthropic({ apiKey: env.ANTHROPIC_API_KEY, model, temperature: 0.2, ...retry });
+      // CachingChatAnthropic adds a default prompt-cache breakpoint (LLM_PROMPT_CACHE);
+      // both are plain ChatAnthropic, so bindTools/withStructuredOutput are intact.
+      const Anthropic = env.LLM_PROMPT_CACHE ? CachingChatAnthropic : ChatAnthropic;
+      return new Anthropic({ apiKey: env.ANTHROPIC_API_KEY, model, temperature: 0.2, ...retry });
+    }
     case "mistral":
       // ChatMistralAI ignores this.caller (builds a fresh one per request), so the
       // constructor onFailedAttempt is dropped — disable its internal retry and

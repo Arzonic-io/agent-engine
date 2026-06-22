@@ -4,7 +4,7 @@
 > komme. Opdatér den løbende: kryds af, flyt punkter mellem sektioner, og log
 > leverede ting under **Senest leveret**.
 
-**Sidst opdateret:** 2026-06-20
+**Sidst opdateret:** 2026-06-23
 
 ## 🌙 Nordstjerne — Autonome missioner
 
@@ -48,6 +48,26 @@ Det store perspektiv — fra nu til Nordstjernen. Detaljerne lever i tiers + epi
 ---
 
 ## ✅ Senest leveret
+
+### 2026-06-23 — M3 Trin 4: Prompt-caching for Claude (billigere natkørsler)
+- [x] **`CachingChatAnthropic`** ([llm.ts](../packages/shared/src/llm.ts)): tynd `ChatAnthropic`-subklasse der
+      overrider `invocationParams` og defaulter en top-level **ephemeral** `cache_control`-breakpoint på hvert
+      Claude-kald. API'et auto-placerer breakpointet på den sidste cacheable blok og rykker det frem efterhånden
+      som samtalen vokser — så den stabile prefix (tools + system + transcript) genbruges fra cache (~0.1x) i
+      stedet for at blive genberegnet til fuld pris.
+- [x] **Hvorfor en subklasse, ikke `.withConfig`:** basemodellen læser kun `cache_control` fra per-kald-options,
+      og `createReactAgent`/`withStructuredOutput` re-binder modellen (taber bound options). En `.withConfig(...)`
+      ville desuden returnere en `RunnableBinding` **uden** `bindTools`/`withStructuredOutput`. Subklassen forbliver
+      en ægte `ChatAnthropic`, så ReAct-loopet og de strukturerede noder virker uændret — breakpointet flyder gennem
+      hvert underliggende kald (inkl. inde i implementer/tester-loopet, hvor gevinsten er størst).
+- [x] **Gated + Anthropic-only:** ny `LLM_PROMPT_CACHE` (default **on**, ren cost-reduktion, ingen adfærdsændring;
+      slå fra for at måle rå tokens). Kun `case "anthropic"` i [buildModel](../packages/shared/src/llm.ts) bruger den
+      — Mistral/Gemini er urørte.
+- [x] Bevist: [verify-prompt-cache.ts](../packages/shared/verify-prompt-cache.ts) (11 wiring-checks, ingen nøgle —
+      breakpoint injiceres, eksplicit override bevares, `bindTools`/`withStructuredOutput` overlever, andre providers
+      urørte) + [verify-prompt-cache-live.ts](../packages/shared/verify-prompt-cache-live.ts) (måler `cache_creation`
+      på 1. kald og `cache_read>0` på 2. — skipper rent uden `ANTHROPIC_API_KEY`). `turbo build` grøn (6/6);
+      role-models + retry-harnesses stadig grønne.
 
 ### 2026-06-20 — M3 Trin 3: Drift-robusthed (overlever natten)
 - [x] **LLM-retry (shared):** `isTransientLlmError` + `llmRetryOnFailedAttempt` ([retry.ts](../packages/shared/src/retry.ts))
@@ -592,8 +612,12 @@ Build-order (shippet + bevist pr. trin, som M1/M2). Foundation → tillid:
         grafer + missions-stien + CLI. Bevist. Se "Senest leveret" + design-brief §3.8.
   - [x] **Per-mission team-config + UI** *(leveret 2026-06-20)* — gemt på `missions.role_models`, valgt i
         MissionComposeren; `buildRoleModels(env, mission.roleModels)` fletter pr. mission over default.
-  - [ ] **Prompt-caching** på de stabile system-prompts (Anthropic) — *Bevis:* caching reducerer
-        tokens på gentagne kald (målt i smoke-harnessen).
+  - [x] **Prompt-caching** på de stabile system-prompts (Anthropic) *(leveret 2026-06-23)* —
+        `CachingChatAnthropic` i [llm.ts](../packages/shared/src/llm.ts) defaulter en top-level ephemeral
+        cache-breakpoint på hvert Claude-kald (gated af `LLM_PROMPT_CACHE`, default on). Det store spar er
+        implementer/tester-ReAct-loopet: tools + system + den voksende transcript læses fra cache (~0.1x) hver
+        tool-runde. *Bevist:* [verify-prompt-cache.ts](../packages/shared/verify-prompt-cache.ts) (wiring, ingen nøgle)
+        + [verify-prompt-cache-live.ts](../packages/shared/verify-prompt-cache-live.ts) (måler cache_read>0 på 2. kald).
   - [ ] **Per-rolle temperatur** (fx critic=0) + **per-projekt default** + redigér en **kørende** missions
         team. (Bemærk: når team-i-missioner ★ lander, bliver architect/worker/lead/critic-valgene aktive i missionen.)
 - [ ] **5. Approvable diffs (se hvad motoren skrev).** Nyt `Differ`-søm: pr. item en

@@ -36,6 +36,16 @@ const EnvSchema = z
         }
       })
       .pipe(RoleModelsConfigSchema.optional()),
+    // Prompt caching (M3 Trin 4) — Anthropic only. When on, every Claude call gets
+    // a top-level ephemeral cache breakpoint that the API auto-places on the last
+    // cacheable block and advances as the conversation grows. The big win is the
+    // implementer/tester ReAct loop, where tools + system prompt + the growing
+    // transcript are re-read from cache (~0.1x) each tool round-trip instead of
+    // reprocessed at full price. Pure cost reduction, no behaviour change; default on.
+    LLM_PROMPT_CACHE: z
+      .enum(["true", "false"])
+      .default("true")
+      .transform((v) => v === "true"),
     MISTRAL_API_KEY: z.string().min(1).optional(),
     ANTHROPIC_API_KEY: z.string().min(1).optional(),
     GOOGLE_API_KEY: z.string().min(1).optional(),
