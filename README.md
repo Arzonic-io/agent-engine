@@ -1,144 +1,221 @@
 # Agent Engine
 
-Internal multi-agent engine for Arzonic. v1 is a builder ↔ critic loop orchestrated
-with LangGraph.js that refines a single task until a rubric passes or a round limit
-is hit, with a human approval gate before anything is accepted. Runs as a CLI.
+Internal multi-agent engine for Arzonic. A project-scoped, web-first orchestrator built
+on LangGraph.js that runs work in two modes:
 
-Full spec: [docs/design-brief.md](docs/design-brief.md).
+- **Task** — a bounded, human-gated run. A router picks a builder ↔ critic loop or a full
+  architect → workers → lead team, refines until a rubric passes or a round limit hits,
+  and stops at a human approval gate. Minutes, not hours.
+- **Mission** — a long-running, self-driving goal. The engine plans its **own** backlog,
+  writes and tests real code in isolated git worktrees, has a critic challenge each diff,
+  verifies with real checks, integrates, re-plans, and loops until the goal is met or a
+  governor stops it. The human is an **async overseer** (review queue, kill switch, morning
+  digest, mid-run course-correction), never a gate on every step.
+
+Both modes run inside a **project** — a repo + a persistent memory (pgvector RAG) the agents
+carry across runs. The reusable heart (`@arzonic/agent-core`) is pure TypeScript with no HTTP,
+transport, or framework, so it can be lifted into Ranky/Bravy or consumed over HTTP.
+
+Full concept & north star: [docs/design-brief.md](docs/design-brief.md). Living plan and
+delivery log: [docs/BACKLOG.md](docs/BACKLOG.md).
+
+## The team ("stillinger")
+
+Each role owns one kind of LLM call and can run on its **own** provider/model/temperature
+(e.g. Mistral plans, a deterministic Gemini critiques, Claude writes the code):
+
+| Role | Job |
+|---|---|
+| `decompose` | Goal → an ordered, dependency-aware backlog (mission start) |
+| `architect` | Designs the steps / decomposes a team task |
+| `builder` / `worker` | Produces the draft (task mode) |
+| `implementer` | Writes real code in a worktree via write-tools (mission mode) |
+| `critic` | Challenges the work against acceptance criteria / the rubric |
+| `tester` | Authors a test that exercises the change before verification |
+| `lead` | Synthesises the team's output |
+| `replan` | After each item: done / retry / park + propose follow-ups |
+| `analyst` | Read-only repo analysis |
+| `router` | Picks single vs. team topology |
+
+Configure them globally (`LLM_ROLE_MODELS` env or the Settings UI), per project, or per
+mission — most-specific wins: **mission > project > global default (DB) > env**.
 
 ## Layout
 
 | Package | Purpose |
 |---|---|
-| `packages/core` (`@arzonic/agent-core`) | Graph, nodes, state schema, rubric, guardrails. Pure TS — only `@langchain/langgraph`, `@langchain/core`, `zod`. No HTTP, no transport, no framework. This is the reuse contract with Ranky. |
-| `packages/shared` (`@arzonic/agent-shared`) | Env loading (zod-validated), Supabase client, `getModel()` LLM factory. |
-| `apps/cli` (`@arzonic/agent-cli`) | v1 entrypoint: runs the graph on one task, streams steps, handles the human gate, owns the checkpointer. |
-| `apps/api` (`@arzonic/agent-api`) | Phase 2: NestJS HTTP service exposing core — start runs, watch them over SSE, drive the human gate over HTTP. The only place Nest is allowed. |
-| `packages/client` (`@arzonic/agent-client`) | Thin typed HTTP client (zero deps) for Ranky/Bravy. Also the source of truth for the wire types the api serves. |
+| `packages/core` (`@arzonic/agent-core`) | Graphs, nodes, state/mission schemas, rubric, guardrails, the `runMission` controller loop and all its injected seams (BacklogStore, Verifier, WorkRunner, Integrator, Differ, Replanner, Decomposer, …). **Pure TS** — only `@langchain/*` + `zod`. No HTTP, no `pg`, no `Date.now()`. The reuse contract. |
+| `packages/shared` (`@arzonic/agent-shared`) | The runtime: env loading (zod-validated), the multi-provider `buildModel`/`buildRoleModels` factory (Mistral/Claude/Gemini + prompt-caching + transient-retry), Postgres-backed project memory, mission backlog, app settings, git worktree manager, integrator, differ, verifier, write-capable repo tools. |
+| `packages/client` (`@arzonic/agent-client`) | Thin typed HTTP client (zero deps) **and** the source-of-truth wire types `apps/api` serves — they can't drift. |
+| `apps/api` (`@arzonic/agent-api`) | NestJS HTTP service (the only place Nest lives) + the PM2 **mission worker** process. |
+| `apps/web` (`@arzonic/agent-web`) | Next.js dashboard — the primary UX. Projects, the Task/Mission composer, the mission board, approvable diffs, the morning digest, course-correction. Talks to the API only through server-side proxy routes (the bearer key never reaches the browser). |
+| `apps/cli` (`@arzonic/agent-cli`) | Ad-hoc CLI: run one task, or analyze a repo. |
 
 ## Setup
 
-Requires Node >= 20 and pnpm.
+Requires **Node ≥ 20** and **pnpm**.
 
 ```bash
 pnpm install
-cp .env.example .env   # fill in at least the API key for your provider
+cp .env.example .env        # see Configuration below
+docker compose up -d        # local pgvector Postgres (memory + checkpointer + backlog)
 pnpm build
 ```
 
-Minimal `.env`:
+Minimal `.env` to get running with persistence:
 
 ```bash
-LLM_PROVIDER=mistral        # or anthropic
-MISTRAL_API_KEY=...         # or ANTHROPIC_API_KEY
+LLM_PROVIDER=mistral
+MISTRAL_API_KEY=...                 # a key for whichever provider(s) you use
+AGENT_API_KEY=<at least 16 chars>   # bearer key the web proxy / clients send
+SUPABASE_DB_URL=postgresql://agent:devpassword@127.0.0.1:5432/agent_engine
+REPO_ALLOWED_ROOTS=/Users/<you>/Documents/GitHub   # dirs the repo picker may list
 ```
+
+Without `SUPABASE_DB_URL` the engine falls back to LangGraph's in-memory saver (Task mode
+works; projects/memory/missions need the database). See `.env.example` for the full,
+annotated list of every variable.
 
 ## Run
 
-```bash
-pnpm agent "Write a launch plan for feature X"
-```
-
-The CLI streams each node step (builder rounds, critic verdicts), then pauses at the
-human gate. Answer `a` to approve (status `accepted`) or `r` to reject (status
-`failed`). The final draft, structured verdict, and full transcript are printed at
-the end.
-
-Guardrails (all env-driven): `MAX_ROUNDS` (default 3, hard stop), `RUN_TOKEN_BUDGET`
-(optional — run is marked `failed` when exceeded), `RUN_TIMEOUT_MS` (default 300000 —
-the run is aborted on timeout).
-
-## Persistence & resume
-
-By default the checkpointer is LangGraph's in-memory `MemorySaver` — fine for local
-runs, nothing survives the process.
-
-Set `SUPABASE_DB_URL` (Supabase → Settings → Database → connection string) to switch
-to the Postgres checkpointer (`@langchain/langgraph-checkpoint-postgres`). Every run
-then persists under its thread id (printed at start), and an interrupted run — e.g.
-one paused at the human gate, or killed by the timeout — can be resumed:
+### Web app (primary UX)
 
 ```bash
-pnpm agent --thread <thread-id>
+pnpm dev      # web on http://localhost:3400, API on http://localhost:8787
 ```
 
-The checkpointer is injected into `createAgentGraph()` by the runtime; core never
-owns persistence. That is deliberate — it keeps `@arzonic/agent-core` importable
-into any host (Next.js included) without dragging in pg/Supabase.
+`pnpm dev` runs the API and the web app together (and `predev` starts the local Postgres
+and frees the ports). Open the web app, create a project, pick its repo, and choose
+**Opgave** (Task) or **Mission**.
 
-## Editing the rubric
+### Mission worker
 
-The rubric is the main quality lever. It lives in
-[packages/core/src/rubric.ts](packages/core/src/rubric.ts) as a plain config object
-(`defaultRubric`): a list of criteria (`id`, `description`, `required`) plus a
-`passThreshold` (0–100).
-
-- A draft passes only when **all `required` criteria are met AND `score >=
-  passThreshold`** — this rule is enforced in code (`criticNode`), not delegated to
-  the model.
-- Add/edit criteria by editing the object; the critic prompt renders them
-  automatically.
-- Hosts can pass a custom rubric per run: `createAgentGraph({ model, checkpointer,
-  rubric })`.
-
-## HTTP service (`apps/api`)
-
-Start locally (requires `AGENT_API_KEY` ≥ 16 chars in `.env`; set `SUPABASE_DB_URL`
-so runs survive restarts — without it the api warns and uses the in-memory saver):
+Missions are driven by a **separate worker process** that scans for `running` missions and
+runs `runMission` for each. In dev:
 
 ```bash
-pnpm build
-node apps/api/dist/main.js     # listens on API_PORT (default 8787)
+pnpm --filter @arzonic/agent-api worker:dev
 ```
 
-Every route requires `Authorization: Bearer $AGENT_API_KEY` and returns 401 otherwise.
+In production it's a PM2 process (see below). The API owns intake, the kill switch, the
+parked-item decisions, and mid-run course-correction; the worker does the work.
 
-| Route | Purpose |
+### CLI (ad hoc)
+
+```bash
+pnpm agent "Write a launch plan for feature X"   # one bounded task, human gate at the end
+pnpm analyze                                     # read-only repo analysis
+```
+
+## Configuration
+
+Everything is env-driven (`.env`, zod-validated at boot). Highlights — full list in
+[.env.example](.env.example):
+
+- **Providers & models** — `LLM_PROVIDER` (mistral | anthropic | google), per-provider keys,
+  `LLM_MODEL`, and `LLM_ROLE_MODELS` (per-role `{provider, model?, temperature?}` JSON).
+  `LLM_PROMPT_CACHE` (default on) caches Claude's stable prompt prefix at ~0.1×.
+- **Persistence** — `SUPABASE_DB_URL` (Postgres checkpointer + memory + backlog),
+  `SUPABASE_URL` / `SUPABASE_SERVICE_KEY`.
+- **Task guardrails** — `MAX_ROUNDS`, `RUN_TOKEN_BUDGET`, `RUN_TIMEOUT_MS`.
+- **Mission governors** — `MISSION_TOKEN_BUDGET`, `MISSION_MAX_ITERATIONS`,
+  `MISSION_NOPROGRESS_LIMIT`, `MISSION_THRASH_LIMIT`, `MISSION_CONCURRENCY`,
+  `MISSION_REQUEUE_LIMIT`, `MISSION_LLM_MAX_RETRIES`, `MISSION_REVIEW_ROUNDS`,
+  `MISSION_AUTHOR_TESTS`, `MISSION_CHECKS`, `MISSION_HIGH_RISK_PATTERNS`,
+  `MISSION_WORKER_POLL_MS`.
+- **Repo sandbox** — `REPO_ALLOWED_ROOTS` (which dirs the picker lists), `REPO_ALLOWED_CHECKS`
+  (pnpm scripts the Verifier may run), `REPO_ALLOWED_COMMANDS` (executables a mission may run,
+  no shell — `&&`/pipe/`$(…)` are inert).
+- **API** — `AGENT_API_KEY` (≥16 chars), `API_PORT` (8787), `API_CORS_ORIGINS`.
+- **Tracing** — `LANGSMITH_TRACING` + `LANGSMITH_API_KEY` (off by default).
+
+## Architecture
+
+### Task graphs (`packages/core/src/graph.ts`)
+
+- `createAgentGraph` — builder ↔ critic loop with the rubric and a human gate.
+- `createTeamGraph` — architect → workers → lead for decomposable work.
+- `createProjectGraph` — retrieve project memory → router (single | team) → run → gate →
+  persist memory. This is what a project Task runs.
+- `createRepoAnalysisGraph` — an analyst with read-only repo tools.
+
+The **rubric** ([packages/core/src/rubric.ts](packages/core/src/rubric.ts)) is the quality
+lever: a draft passes only when **all `required` criteria are met AND `score ≥ passThreshold`**,
+enforced in code (`criticNode`), never delegated to the model.
+
+### Missions engine (`packages/core/src/controller.ts`)
+
+`runMission(deps, missionId)` is a pure, provably-terminating loop. For each actionable
+backlog item it:
+
+1. **picks a batch** (high-risk items parked for a human *before* they run),
+2. **runs** each item in its own git **worktree** — the implementer writes real code, an
+   optional tester authors a test, then a **critic** challenges the real `git diff`,
+3. **captures a structured diff** of what was written (for human review),
+4. **verifies** the authored code with real checks — the Verifier's exit code, not an LLM, is
+   the sole truth for "done",
+5. **integrates**: merges the green item into the mission branch and **re-verifies there**
+   (two independently-green items can still sum to red → rolled back + parked),
+6. **re-plans**: the lead decides done / retry / park and proposes follow-ups.
+
+Governors (budget, deadline, iterations, no-progress, thrash, concurrency, requeue) guarantee
+termination; transient infra blips are retried/re-queued, real failures are surfaced and
+parked — never swallowed. When the mission stops it delivers a **morning digest** (what's
+done, what's blocking and why, the next high-risk work) via the notifier. A human can drop
+free-text **guidance** onto a running mission at any time; it flows into the next planning
+round (course-correction beyond Stop).
+
+Everything the loop touches is an **injected seam** (BacklogStore, Verifier, WorkRunner,
+WorktreeManager, Integrator, Differ, Decomposer, Replanner, TestAuthor, Notifier, Clock,
+governors), so `core` stays pure and the whole loop is resume-safe: re-invoking
+`runMission` after a crash requeues any in-flight item and continues.
+
+## HTTP API
+
+NestJS service on `API_PORT` (8787). Every route requires `Authorization: Bearer
+$AGENT_API_KEY` (401 otherwise). The web app reaches it only via server-side proxy routes.
+
+| Area | Routes |
 |---|---|
-| `POST /runs` | Start a run. Body `{ task, rubricId?, options?: { maxRounds? } }` → `{ runId, threadId, status }`. Returns immediately; work continues async. |
-| `GET /runs/:id` | Status, round, draft, verdict, full transcript. Status: `running \| awaiting_human \| accepted \| rejected \| failed`. |
-| `GET /runs/:id/stream` | SSE. Typed events: `node`, `verdict`, `awaiting_human`, `done`, `error`. Live + replay from run start. |
-| `POST /runs/:id/decision` | The human gate. Body `{ decision: 'approve' \| 'reject', notes? }`. Approve → `accepted`, reject → `rejected`. 409 if the run isn't paused at the gate. |
-| `GET /runs` | Recent runs for a list view (in-process registry; cleared on restart — state itself is in the checkpointer). |
+| Tasks / runs | `POST /runs`, `GET /runs`, `GET /runs/:id`, `GET /runs/:id/stream` (SSE), `POST /runs/:id/decision` |
+| Projects | `POST /projects`, `GET /projects`, `GET /projects/:id`, `PATCH /projects/:id`, `DELETE /projects/:id`, `GET /projects/:id/tasks`, `POST /projects/:id/tasks` |
+| Missions | `POST /missions`, `GET /missions`, `GET /missions/:id`, `GET /missions/:id/stream` (SSE), `POST /missions/:id/stop`, `PATCH /missions/:id/role-models`, `PATCH /missions/:id/guidance`, `POST /missions/:id/items/:itemId/decision`, `GET /missions/:id/items/:itemId/diff` |
+| Settings | `GET /settings`, `PUT /settings/role-models` |
+| Misc | `GET /repos`, `GET /rubric`, `GET /tasks` |
 
-Smoke-test the whole surface with curl:
+A wiring smoke test that boots the app with a stub model (no API keys needed) lives at
+`apps/api/smoke.ts` — `pnpm --filter @arzonic/agent-api run smoke`.
+
+## Testing
+
+There is no test framework; correctness is proven by **standalone harnesses** run with `tsx`,
+each a throwaway proof of one slice (in-memory fakes for logic, real temp git repos for
+integration). Examples:
 
 ```bash
-KEY=$AGENT_API_KEY; BASE=http://127.0.0.1:8787
-curl -s -X POST $BASE/runs -H "Authorization: Bearer $KEY" -H 'Content-Type: application/json' \
-  -d '{"task":"Write a launch plan for feature X"}'          # -> {"runId":"..."}
-curl -N $BASE/runs/<id>/stream -H "Authorization: Bearer $KEY"  # watch live events
-curl -s -X POST $BASE/runs/<id>/decision -H "Authorization: Bearer $KEY" \
-  -H 'Content-Type: application/json' -d '{"decision":"approve"}'
+pnpm build                                                   # turbo: 6/6 packages typecheck + compile
+pnpm --filter @arzonic/agent-core exec tsx verify-mission.ts # the controller loop
+pnpm --filter @arzonic/agent-shared exec tsx verify-differ.ts# the git differ, against a real repo
+pnpm --filter @arzonic/agent-api run smoke                   # the HTTP surface
 ```
 
-Notes on behaviour:
+See `packages/*/verify-*.ts` for the full set (mission, decompose, replan, drift, tester,
+team graph, integrator, worktree, role-models, prompt-cache, differ, human-policy, …).
 
-- Run ids double as LangGraph thread ids, so with `SUPABASE_DB_URL` set a run
-  paused at the gate survives a process restart — `GET /runs/:id` and
-  `POST /decision` work purely off the checkpointer.
-- Reject currently always ends the run as `rejected`; "loop once more with notes"
-  needs a `humanGate → builder` edge in core's graph and is deferred to the phase
-  that next touches core. `notes` are appended to the persisted transcript.
-- A wiring smoke test lives at `apps/api/smoke.ts`
-  (`pnpm --filter @arzonic/agent-api run smoke`) — boots the app with a stub
-  model, no API keys needed.
-
-### PM2 / VPS
+## Production (PM2 / VPS)
 
 ```bash
 pnpm install && pnpm build
-pm2 start ecosystem.config.cjs   # runs apps/api/dist/main.js as "agent-api"
+pm2 start ecosystem.config.cjs   # starts agent-api + agent-mission-worker
 ```
 
-Put it behind the CloudPanel reverse proxy on its own port (`API_PORT`), ideally
-internal-only or on a non-discoverable subdomain. Set `API_CORS_ORIGINS` to the
-exact Ranky/Bravy origins.
+Both are single-fork processes sharing the VPS's native Postgres. Put the API behind the
+reverse proxy on `API_PORT` (internal-only or a non-discoverable subdomain), and set
+`API_CORS_ORIGINS` to the exact consumer origins. All secrets via the repo-root `.env`.
 
-### Consuming from Ranky / Bravy
+## Consuming from Ranky / Bravy
 
-Product apps call the service — they never import core. Install
-`@arzonic/agent-client`:
+Product apps call the service — they never import core. Install `@arzonic/agent-client`:
 
 ```ts
 import { AgentClient } from "@arzonic/agent-client";
@@ -149,36 +226,9 @@ const agent = new AgentClient({
 });
 
 const { runId } = await agent.startRun({ task: "..." });
-for await (const event of agent.streamRun(runId)) { /* node/verdict/awaiting_human/done */ }
+for await (const event of agent.streamRun(runId)) { /* node / verdict / awaiting_human / done */ }
 await agent.decide(runId, { decision: "approve" });
 ```
 
-In Ranky (Next.js) keep all calls in route handlers / server actions; in Bravy
-(NestJS) wrap the client in a small `AgentClientService`. `AGENT_API_KEY` must
-never reach a browser.
-
-## Tracing
-
-Set `LANGSMITH_TRACING=true` and `LANGSMITH_API_KEY` to enable LangSmith tracing.
-Off by default.
-
-## Deployment
-
-Plain Node processes — `pnpm build`, then `pm2 start ecosystem.config.cjs` for the
-api; the CLI runs ad hoc. All secrets via env; nothing is hardcoded.
-
-## What's next (not built yet)
-
-- **Architect / lead agents**: add nodes next to `builder`/`critic` in
-  `packages/core/src/nodes/` and wire them in `packages/core/src/graph.ts` — e.g.
-  `START → architect → builder` for upfront task decomposition, and a `lead`
-  orchestrator deciding routing instead of the static conditional edge. State and
-  rubric are already agent-agnostic (`AgentMessage.agent` is a string enum — extend
-  it).
-- **Slack/Mattermost relay** of the SSE stream, and a dashboard subscribing via
-  Supabase Realtime.
-- **Reject-and-revise**: a `humanGate → builder` edge in core so a rejection with
-  notes can trigger one more round instead of ending the run.
-- **Ranky**: lift `packages/core` into the Ranky repo (or publish `@arzonic/agent-core`)
-  and inject Ranky's own model, rubric, and checkpointer — or just consume this api
-  via `@arzonic/agent-client` ("run once, serve everywhere").
+Keep all calls server-side (Next.js route handlers / a small NestJS `AgentClientService`).
+`AGENT_API_KEY` must never reach a browser.

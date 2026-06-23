@@ -486,8 +486,9 @@ Ting der er i stykker, blokerer brug, eller mangler for at appen hænger sammen.
 - [ ] **Hukommelse slået fra → pæn tilstand.** Når `SUPABASE_DB_URL`/`MISTRAL_API_KEY`
       mangler, fejler hele projekt-flowet med en rå 503. Vis en tydelig "aktivér
       projekt-hukommelse"-tilstand i stedet.
-- [ ] **Opdatér README/docs.** README beskriver kun CLI/builder↔critic. Web-appen,
-      projekter, hukommelse og nye agents (analyst/architect/lead/worker/router) er ikke nævnt.
+- [x] **Opdatér README/docs.** *(leveret 2026-06-23)* [README.md](../README.md) skrevet om: Opgave/Mission-modes,
+      hele team-rosteren, missions-motoren (M1–M3), web-appen, projekter/hukommelse, per-rolle/per-projekt/per-mission
+      modeller, fuld API-rute-tabel, setup (docker compose Postgres) + run (web/worker/CLI), verify-harnesses og PM2.
 - [ ] **Slet/omdøb projekt fra UI.** Backend har `DELETE /projects/:id` + `PATCH`,
       men der er ingen knap i web-appen endnu.
 - [ ] **Rediger projekt-brief/navn i UI.** I dag kun ved oprettelse.
