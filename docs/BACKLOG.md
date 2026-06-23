@@ -492,8 +492,13 @@ Ting der er i stykker, blokerer brug, eller mangler for at appen hænger sammen.
 - [ ] **Slet/omdøb projekt fra UI.** Backend har `DELETE /projects/:id` + `PATCH`,
       men der er ingen knap i web-appen endnu.
 - [ ] **Rediger projekt-brief/navn i UI.** I dag kun ved oprettelse.
-- [ ] **Kerne-tests.** Næsten ingen automatiserede tests (kun api-smoke). Mindst:
-      rubric pass-regel, router-valg (single/team), memory store/retrieve.
+- [x] **Kerne-tests.** *(leveret 2026-06-23)* De tre flaggede huller er dækket hermetisk i
+      [verify-graph-nodes.ts](../packages/core/verify-graph-nodes.ts) (25 checks, fake-model + fake-memory):
+      critic'ens **deterministiske rubric pass-regel** (alle required mødt + score ≥ threshold, kan ikke passes ved
+      udeladelse, optional blokerer ikke), **router-valg** (single/team-mapping + token-fold), og **memory-noderne**
+      (retrieve pakker brief+hits → context; persist skriver artifact, best-effort). `memory store/retrieve` mod rigtig
+      pgvector er allerede dækket live i [verify-memory.ts](../packages/shared/verify-memory.ts). Resten af motoren har
+      20+ `verify-*`-harnesses; et egentligt test-framework er stadig fravalgt til fordel for disse.
 - [ ] **Fejl- og tomme tilstande i web.** Fejl vises flere steder som rå servertekst;
       ensartede tomme/fejl/skeleton-tilstande mangler.
 
