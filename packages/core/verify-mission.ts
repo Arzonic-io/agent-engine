@@ -12,6 +12,8 @@ import {
   type Differ,
   type Integrator,
   type MissionDeps,
+  type MissionEvent,
+  type Notifier,
   type Replanner,
 } from "./src/controller.js";
 import type {
@@ -217,11 +219,21 @@ const retryReplanner: Replanner = {
   ok(out.status === "done" && out.itemsDone === 1, "in_progress item requeued on resume and finished");
 }
 
-// ── 7. kill switch: mission already stopped ⇒ loop halts immediately ──
+// ── 7. kill switch: mission already stopped ⇒ loop halts immediately, digest delivered ──
 {
+  // A human clicking Stop flips status off `running`; the loop must STILL deliver
+  // the morning digest (M3 Trin 6) on that exit, not only on controller-driven ends.
+  const events: MissionEvent["type"][] = [];
+  const notifier: Notifier = {
+    notify(e) {
+      events.push(e.type);
+    },
+  };
   const store = makeStore({ ...baseMission, status: "stopped" }, [item("a", 1)]);
-  const out = await runMission({ backlog: store, verifier: passingVerifier, runner }, "m1");
+  const out = await runMission({ backlog: store, verifier: passingVerifier, runner, notifier }, "m1");
   ok(out.iterations === 0 && out.status === "stopped", "non-running mission halts before any work");
+  ok(events.includes("mission_digest"), "the morning digest IS delivered when a human stops the mission");
+  ok(events.includes("mission_stopped"), "the stop event is delivered on the human-stop exit too");
 }
 
 // ── 8. thrash guard: a repeatedly-failing item is PARKED, not retried forever ──

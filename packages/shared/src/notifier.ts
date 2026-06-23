@@ -25,6 +25,18 @@ function describe(e: MissionEvent): string {
       return `⏸ parked (${e.reason}, needs human): ${e.item.title}`;
     case "item_retried":
       return `↻ retry #${e.attempt} (transient: ${e.reason}): ${e.item.title}`;
+    case "mission_digest": {
+      const d = e.digest;
+      const lines = [
+        `📋 digest — ${d.done.length} done · ${d.parked.length} parked · ${d.pending} pending · ${d.failed.length} failed · ${d.spentTokens} tokens`,
+      ];
+      if (d.blocked.length) {
+        lines.push(`  blocking: ${d.blocked.map((b) => `${b.title} (${b.reason})`).join("; ")}`);
+      }
+      if (d.nextHighRisk.length) lines.push(`  next high-risk: ${d.nextHighRisk.join("; ")}`);
+      if (d.next.length) lines.push(`  next up: ${d.next.slice(0, 5).join("; ")}`);
+      return lines.join("\n");
+    }
     case "mission_stopped":
       return `■ mission ${e.status} — ${e.reason}`;
   }

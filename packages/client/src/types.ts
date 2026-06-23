@@ -248,10 +248,24 @@ export interface MissionSummary {
   deadline: string | null;
   /** Per-mission team config — which provider/model each role uses for this mission. */
   roleModels: RoleModelsConfig;
+  /** Free-text operator course-correction; flows into the next replan (M3 Trin 6). Null = none. */
+  guidance: string | null;
   createdAt: string;
 }
 
-/** Done/parked/failed/next rollup — the morning digest (§5.5). */
+/** A parked item plus WHY it parked (M3 Trin 6). */
+export interface DigestBlocked {
+  title: string;
+  reason: string;
+}
+
+/** A recently-touched item — recent activity at a glance (M3 Trin 6). */
+export interface DigestRecent {
+  title: string;
+  status: BacklogItemStatus;
+}
+
+/** Done/parked/failed/next rollup — the morning digest (§5.5 / Trin 6). */
 export interface MissionDigest {
   missionId: string;
   goal: string;
@@ -262,6 +276,12 @@ export interface MissionDigest {
   failed: string[];
   pending: number;
   next: string[];
+  /** Parked items each with why they parked — what the human acts on. */
+  blocked: DigestBlocked[];
+  /** Upcoming todo items that classify high-risk. */
+  nextHighRisk: string[];
+  /** Most-recently-updated items — recent activity. */
+  recent: DigestRecent[];
 }
 
 export interface MissionDetail extends MissionSummary {
@@ -289,6 +309,14 @@ export interface CreateMissionRequest {
   items?: NewBacklogItem[];
   /** Optional per-mission team config: role → { provider, model? }. Inherits global default if omitted. */
   roleModels?: RoleModelsConfig;
+  /** Optional initial operator guidance steering the first decompose (M3 Trin 6). */
+  guidance?: string;
+}
+
+/** Body of PATCH /missions/:id/guidance — course-correct a running mission (M3 Trin 6). */
+export interface UpdateMissionGuidanceRequest {
+  /** Free-text steer; empty string / null clears it. */
+  guidance: string | null;
 }
 
 /** Async approve/reject of a parked (high-risk or thrashing) item (§5.5). */

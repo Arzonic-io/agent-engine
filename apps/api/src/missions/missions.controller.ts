@@ -12,6 +12,7 @@ import {
 } from "@nestjs/common";
 import { map, type Observable } from "rxjs";
 import type {
+  ApiDiff,
   MissionDetail,
   MissionItemDecisionResponse,
   MissionSummary,
@@ -21,9 +22,11 @@ import { ZodValidationPipe } from "../runs/dto/runs.dto.js";
 import {
   CreateMissionSchema,
   MissionItemDecisionSchema,
+  UpdateMissionGuidanceSchema,
   UpdateMissionRoleModelsSchema,
   type CreateMissionDto,
   type MissionItemDecisionDto,
+  type UpdateMissionGuidanceDto,
   type UpdateMissionRoleModelsDto,
 } from "./missions.dto.js";
 import { MissionsService } from "./missions.service.js";
@@ -62,6 +65,14 @@ export class MissionsController {
     return this.missions.updateRoleModels(id, dto.roleModels);
   }
 
+  @Patch(":id/guidance")
+  updateGuidance(
+    @Param("id") id: string,
+    @Body(new ZodValidationPipe(UpdateMissionGuidanceSchema)) dto: UpdateMissionGuidanceDto,
+  ): Promise<MissionDetail> {
+    return this.missions.updateGuidance(id, dto.guidance);
+  }
+
   @Post(":id/stop")
   stop(@Param("id") id: string): Promise<StopMissionResponse> {
     return this.missions.stop(id);
@@ -71,6 +82,15 @@ export class MissionsController {
   async remove(@Param("id") id: string): Promise<{ ok: true }> {
     await this.missions.remove(id);
     return { ok: true };
+  }
+
+  /** An item's full authored diff (with patch) — lazy-loaded when a human expands it. */
+  @Get(":id/items/:itemId/diff")
+  itemDiff(
+    @Param("id") id: string,
+    @Param("itemId") itemId: string,
+  ): Promise<ApiDiff | null> {
+    return this.missions.itemDiff(id, itemId);
   }
 
   @Post(":id/items/:itemId/decision")

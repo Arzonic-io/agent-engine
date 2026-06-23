@@ -49,6 +49,8 @@ export interface Mission {
   deadline: string | null;
   /** Per-mission per-role model choices (the team config); empty = global default. */
   roleModels: RoleModelsConfig;
+  /** Free-text course-correction from a human (M3 Trin 6); flows into the next replan. Null = none. */
+  guidance: string | null;
   createdAt: string;
 }
 
@@ -77,10 +79,11 @@ export interface CreateMissionInput {
   budget?: number | null;
   deadline?: string | null;
   roleModels?: RoleModelsConfig;
+  guidance?: string | null;
 }
 
 export type MissionPatch = Partial<
-  Pick<Mission, "status" | "spentTokens" | "deadline" | "budget" | "roleModels">
+  Pick<Mission, "status" | "spentTokens" | "deadline" | "budget" | "roleModels" | "guidance">
 >;
 
 export interface CreateBacklogItemInput {
@@ -124,12 +127,15 @@ export class BacklogService {
         spent_tokens        bigint NOT NULL DEFAULT 0,
         deadline            timestamptz,
         role_models         jsonb NOT NULL DEFAULT '{}',
+        guidance            text,
         created_at          timestamptz NOT NULL DEFAULT now()
       )`);
     // Add the per-mission team-config column to pre-existing missions tables.
     await this.pool.query(
       `ALTER TABLE missions ADD COLUMN IF NOT EXISTS role_models jsonb NOT NULL DEFAULT '{}'`,
     );
+    // Add the operator-guidance column (M3 Trin 6) to pre-existing missions tables.
+    await this.pool.query(`ALTER TABLE missions ADD COLUMN IF NOT EXISTS guidance text`);
     await this.pool.query(`
       CREATE TABLE IF NOT EXISTS backlog_items (
         id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -156,8 +162,8 @@ export class BacklogService {
   // ── missions ──
   async createMission(input: CreateMissionInput): Promise<Mission> {
     const { rows } = await this.pool.query(
-      `INSERT INTO missions (project_id, goal, repo_path, acceptance_criteria, budget, deadline, role_models)
-       VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
+      `INSERT INTO missions (project_id, goal, repo_path, acceptance_criteria, budget, deadline, role_models, guidance)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
       [
         input.projectId,
         input.goal,
@@ -166,6 +172,7 @@ export class BacklogService {
         input.budget ?? null,
         input.deadline ?? null,
         JSON.stringify(input.roleModels ?? {}),
+        input.guidance ?? null,
       ],
     );
     return this.mapMission(rows[0]);
@@ -188,6 +195,7 @@ export class BacklogService {
       deadline: "deadline",
       budget: "budget",
       roleModels: "role_models",
+      guidance: "guidance",
     };
     // role_models is a jsonb column — stringify it like the item-side json fields.
     const json = new Set<keyof MissionPatch>(["roleModels"]);
@@ -311,6 +319,7 @@ export class BacklogService {
       spentTokens: Number(r.spent_tokens ?? 0),
       deadline: r.deadline ? new Date(r.deadline).toISOString() : null,
       roleModels: r.role_models ?? {},
+      guidance: r.guidance ?? null,
       createdAt: new Date(r.created_at).toISOString(),
     };
   }

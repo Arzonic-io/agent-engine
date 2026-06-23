@@ -132,6 +132,8 @@ export {
   buildDigest,
   DEFAULT_HIGH_RISK_PATTERNS,
   type MissionDigest,
+  type DigestBlocked,
+  type DigestRecent,
 } from "./humanPolicy.js";
 export {
   defaultRubric,

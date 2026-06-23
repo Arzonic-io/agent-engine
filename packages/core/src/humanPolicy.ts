@@ -1,5 +1,6 @@
 import type {
   BacklogItem,
+  BacklogItemStatus,
   BacklogStore,
   Mission,
   MissionStatus,
@@ -103,6 +104,19 @@ export function resumeMissionIfBlocked(
   });
 }
 
+/** A parked item plus WHY it parked — the actionable half of the digest. */
+export interface DigestBlocked {
+  title: string;
+  /** Short reason: the failing check, "high-risk", "run-error", "infrastructure", … */
+  reason: string;
+}
+
+/** A recently-touched item — a glance at what the mission has been doing. */
+export interface DigestRecent {
+  title: string;
+  status: BacklogItemStatus;
+}
+
 export interface MissionDigest {
   missionId: string;
   goal: string;
@@ -118,10 +132,27 @@ export interface MissionDigest {
   pending: number;
   /** Titles of the items that would run next (actionable, not parked). */
   next: string[];
+  /** Parked items each with WHY they parked — what the human needs to act on (Trin 6). */
+  blocked: DigestBlocked[];
+  /** Upcoming todo items that classify high-risk — they'll need a human when reached (Trin 6). */
+  nextHighRisk: string[];
+  /** Most-recently-updated items — recent activity at a glance (Trin 6). */
+  recent: DigestRecent[];
 }
 
-/** Roll a mission + its backlog into the morning-digest shape (§5.5). Pure. */
-export function buildDigest(mission: Mission, items: BacklogItem[]): MissionDigest {
+/** How many items the "recent activity" rollup surfaces. */
+const RECENT_LIMIT = 5;
+
+/**
+ * Roll a mission + its backlog into the morning-digest shape (§5.5 / Trin 6). Pure.
+ * Beyond the status tallies it surfaces what a human actually needs: what's BLOCKING
+ * (each parked item + why), the next HIGH-RISK work coming up, and recent activity.
+ */
+export function buildDigest(
+  mission: Mission,
+  items: BacklogItem[],
+  highRiskPatterns: string[] = [],
+): MissionDigest {
   const byStatus = (s: BacklogItem["status"]) =>
     items.filter((i) => i.status === s).map((i) => i.title);
   const doneIds = new Set(items.filter((i) => i.status === "done").map((i) => i.id));
@@ -129,6 +160,20 @@ export function buildDigest(mission: Mission, items: BacklogItem[]): MissionDige
     .filter((i) => i.status === "todo" && i.dependsOn.every((d) => doneIds.has(d)))
     .sort((a, b) => b.priority - a.priority)
     .map((i) => i.title);
+  const blocked: DigestBlocked[] = items
+    .filter((i) => i.status === "blocked_needs_human")
+    .map((i) => ({
+      title: i.title,
+      reason: i.verification?.check || (i.risk === "high" ? "high-risk" : "needs human"),
+    }));
+  const nextHighRisk = items
+    .filter((i) => i.status === "todo" && classifyRisk(i, highRiskPatterns) === "high")
+    .sort((a, b) => b.priority - a.priority)
+    .map((i) => i.title);
+  const recent: DigestRecent[] = [...items]
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+    .slice(0, RECENT_LIMIT)
+    .map((i) => ({ title: i.title, status: i.status }));
   return {
     missionId: mission.id,
     goal: mission.goal,
@@ -139,5 +184,8 @@ export function buildDigest(mission: Mission, items: BacklogItem[]): MissionDige
     failed: byStatus("failed"),
     pending: items.filter((i) => i.status === "todo" || i.status === "in_progress").length,
     next,
+    blocked,
+    nextHighRisk,
+    recent,
   };
 }

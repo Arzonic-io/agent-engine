@@ -103,6 +103,11 @@ function buildPrompt(input: ReplanInput, backlogTitles: string[]): string {
     mission.acceptanceCriteria.length
       ? `# Acceptance criteria\n${mission.acceptanceCriteria.map((c) => `- ${c}`).join("\n")}`
       : "",
+    // Operator course-correction (M3 Trin 6): a human's free-text steer for a
+    // running mission. Weight it heavily — it reflects intent the goal didn't capture.
+    mission.guidance?.trim()
+      ? `# Operator guidance (follow this — a human is steering the mission)\n${mission.guidance.trim()}`
+      : "",
     `# Item worked\n${item.title}${item.detail ? `\n${item.detail}` : ""}`,
     `# Deliverable (run status: ${result.status})\n${result.draft || "(no draft produced)"}`,
     `# Verification (passed: ${verification.passed})\n${checks}${failOutput ? `\n\nFailure output:\n${failOutput}` : ""}`,

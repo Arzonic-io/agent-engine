@@ -8,8 +8,10 @@ import {
   LuChevronDown,
   LuChevronRight,
   LuCircleStop,
+  LuCompass,
   LuFileDiff,
   LuSave,
+  LuTriangleAlert,
   LuUsers,
   LuX,
 } from "react-icons/lu";
@@ -50,14 +52,55 @@ export default function MissionDashboard({ params }: { params: Promise<{ id: str
   const [teamErr, setTeamErr] = useState<string | null>(null);
   // Which items have their authored-diff expanded.
   const [openDiffs, setOpenDiffs] = useState<Set<string>>(new Set());
+  // Lazily-fetched full patches, keyed by item id — the board snapshot ships only
+  // the diff summary (no patch), so we load the patch on first expand and cache it.
+  const [patches, setPatches] = useState<Map<string, ApiDiff>>(new Map());
+  const [loadingDiffs, setLoadingDiffs] = useState<Set<string>>(new Set());
+  // Operator guidance (course-correction).
+  const [guidanceText, setGuidanceText] = useState("");
+  const [savingGuidance, setSavingGuidance] = useState(false);
+  const [guidanceErr, setGuidanceErr] = useState<string | null>(null);
+  const guidanceSeeded = useRef(false);
   const esRef = useRef<EventSource | null>(null);
 
-  const toggleDiff = (itemId: string) =>
+  // Seed the guidance box from the mission once (SSE snapshots must not clobber typing).
+  useEffect(() => {
+    if (mission && !guidanceSeeded.current) {
+      setGuidanceText(mission.guidance ?? "");
+      guidanceSeeded.current = true;
+    }
+  }, [mission]);
+
+  const toggleDiff = (itemId: string) => {
+    const willOpen = !openDiffs.has(itemId);
     setOpenDiffs((prev) => {
       const next = new Set(prev);
       next.has(itemId) ? next.delete(itemId) : next.add(itemId);
       return next;
     });
+    if (willOpen) void loadDiff(itemId);
+  };
+
+  // Fetch an item's full patch once and cache it; the board snapshot omits it.
+  async function loadDiff(itemId: string) {
+    if (patches.has(itemId)) return;
+    setLoadingDiffs((prev) => new Set(prev).add(itemId));
+    try {
+      const res = await fetch(`/api/missions/${id}/items/${itemId}/diff`);
+      if (res.ok) {
+        const diff = (await res.json()) as ApiDiff | null;
+        if (diff) setPatches((prev) => new Map(prev).set(itemId, diff));
+      }
+    } catch {
+      /* leave uncached so re-expanding retries */
+    } finally {
+      setLoadingDiffs((prev) => {
+        const next = new Set(prev);
+        next.delete(itemId);
+        return next;
+      });
+    }
+  }
 
   // Initial load + live snapshot stream.
   useEffect(() => {
@@ -156,6 +199,24 @@ export default function MissionDashboard({ params }: { params: Promise<{ id: str
     }
   }
 
+  async function saveGuidance() {
+    setSavingGuidance(true);
+    setGuidanceErr(null);
+    try {
+      const res = await fetch(`/api/missions/${id}/guidance`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ guidance: guidanceText.trim() || null }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      setMission((await res.json()) as MissionDetail);
+    } catch (e) {
+      setGuidanceErr(e instanceof Error ? e.message : "Kunne ikke sende styringen");
+    } finally {
+      setSavingGuidance(false);
+    }
+  }
+
   if (error) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-3 text-center">
@@ -251,6 +312,55 @@ export default function MissionDashboard({ params }: { params: Promise<{ id: str
               <span className="text-fg/60">Accept:</span> {mission.acceptanceCriteria.join(" · ")}
             </p>
           )}
+
+          {/* Digest foresight: the next high-risk work coming up (M3 Trin 6). */}
+          {d.nextHighRisk.length > 0 && (
+            <p className="mt-3 flex items-start gap-1.5 text-xs text-warning/90">
+              <LuTriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              <span>
+                <span className="text-fg/60">Næste høj-risiko:</span> {d.nextHighRisk.join(" · ")}
+              </span>
+            </p>
+          )}
+
+          {/* Operator guidance — course-correct a running mission (M3 Trin 6). */}
+          {active && (
+            <div className="mt-4 rounded-field border border-line bg-elev/40 p-3">
+              <div className="mb-1.5 flex items-center gap-1.5 text-xs text-dim">
+                <LuCompass className="h-3.5 w-3.5" /> Styring · kurskorrektion
+              </div>
+              <textarea
+                value={guidanceText}
+                onChange={(e) => setGuidanceText(e.target.value)}
+                rows={2}
+                placeholder="Send fri-tekst til missionen — fx 'prioritér fejlhåndtering' eller 'spring deploy over'. Flyder ind i næste planlægnings-runde."
+                className="textarea textarea-sm w-full resize-none border-line bg-elev text-sm"
+              />
+              <div className="mt-2 flex items-center gap-3">
+                <button
+                  onClick={() => void saveGuidance()}
+                  disabled={savingGuidance}
+                  className="btn btn-sm gap-2 border-line bg-elev text-fg normal-case hover:border-builder/50"
+                >
+                  {savingGuidance ? (
+                    <>
+                      <span className="loading loading-spinner loading-xs" /> Sender…
+                    </>
+                  ) : (
+                    <>
+                      <LuCompass className="h-4 w-4" /> Send styring
+                    </>
+                  )}
+                </button>
+                {mission.guidance ? (
+                  <span className="text-xs text-builder">Aktiv styring ✓</span>
+                ) : (
+                  <span className="text-xs text-dim">Ingen aktiv styring</span>
+                )}
+                {guidanceErr && <span className="text-xs text-error">{guidanceErr}</span>}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* backlog board */}
@@ -311,6 +421,8 @@ export default function MissionDashboard({ params }: { params: Promise<{ id: str
                       {it.diff && it.diff.files.length > 0 && (
                         <DiffView
                           diff={it.diff}
+                          patch={patches.get(it.id)?.patch ?? ""}
+                          loading={loadingDiffs.has(it.id)}
                           open={openDiffs.has(it.id)}
                           onToggle={() => toggleDiff(it.id)}
                         />
@@ -385,8 +497,24 @@ const DIFF_STATUS: Record<ApiDiff["files"][number]["status"], { tone: string; ma
   renamed: { tone: "text-fg/60", mark: "R" },
 };
 
-/** Collapsible view of an item's authored diff — file list + coloured unified patch. */
-function DiffView({ diff, open, onToggle }: { diff: ApiDiff; open: boolean; onToggle: () => void }) {
+/**
+ * Collapsible view of an item's authored diff — file list (from the board
+ * summary) + the lazily-fetched unified patch. The patch arrives via `patch`
+ * once the human expands the item; `loading` covers the in-flight fetch.
+ */
+function DiffView({
+  diff,
+  patch,
+  loading,
+  open,
+  onToggle,
+}: {
+  diff: ApiDiff;
+  patch: string;
+  loading: boolean;
+  open: boolean;
+  onToggle: () => void;
+}) {
   return (
     <div className="mt-2 border-t border-line pt-2">
       <button
@@ -419,18 +547,24 @@ function DiffView({ diff, open, onToggle }: { diff: ApiDiff; open: boolean; onTo
               );
             })}
           </ul>
-          {diff.patch.trim() && (
-            <pre className="max-h-80 overflow-auto rounded-field border border-line bg-elev/60 p-2 text-[11px] leading-relaxed">
-              <code>
-                {diff.patch.split("\n").map((line, i) => (
-                  <span key={i} className={`block ${patchLineTone(line)}`}>
-                    {line || " "}
-                  </span>
-                ))}
-              </code>
-            </pre>
+          {loading ? (
+            <p className="flex items-center gap-1.5 text-[11px] text-dim">
+              <span className="loading loading-spinner loading-xs" /> indlæser…
+            </p>
+          ) : (
+            patch.trim() && (
+              <pre className="max-h-80 overflow-auto rounded-field border border-line bg-elev/60 p-2 text-[11px] leading-relaxed">
+                <code>
+                  {patch.split("\n").map((line, i) => (
+                    <span key={i} className={`block ${patchLineTone(line)}`}>
+                      {line || " "}
+                    </span>
+                  ))}
+                </code>
+              </pre>
+            )
           )}
-          {diff.truncated && (
+          {!loading && diff.truncated && (
             <p className="text-[10px] text-dim/70">… diffen er forkortet (for stor til at vise fuldt ud).</p>
           )}
         </div>

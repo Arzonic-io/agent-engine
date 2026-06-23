@@ -98,6 +98,13 @@ export const MissionSchema = z.object({
    * agents. Empty/undefined = inherit the global default everywhere.
    */
   roleModels: RoleModelsConfigSchema.optional(),
+  /**
+   * Free-text course-correction from a human (M3 Trin 6). Set on a RUNNING mission,
+   * it flows into the next replan/decompose context — a steer beyond Stop that never
+   * blocks the loop. STANDING, not one-shot: it keeps shaping every subsequent
+   * planning round until a human changes or clears it (set to empty). Null = none.
+   */
+  guidance: z.string().nullable(),
   createdAt: z.string(),
 });
 export type Mission = z.infer<typeof MissionSchema>;
@@ -133,10 +140,12 @@ export interface CreateMissionInput {
   deadline?: string | null;
   /** Per-mission per-role model choices (the team config); inherits global default if omitted. */
   roleModels?: RoleModelsConfig;
+  /** Optional initial course-correction text; usually set later on a running mission. */
+  guidance?: string | null;
 }
 
 export type MissionPatch = Partial<
-  Pick<Mission, "status" | "spentTokens" | "deadline" | "budget" | "roleModels">
+  Pick<Mission, "status" | "spentTokens" | "deadline" | "budget" | "roleModels" | "guidance">
 >;
 
 /** Fields callers supply when adding a backlog item; the store fills the rest. */

@@ -32,8 +32,8 @@ Det store perspektiv — fra nu til Nordstjernen. Detaljerne lever i tiers + epi
 - [x] **M2 — Fra motor til byg.** Skrive-capable eksekvering i worktrees + parallelisme —
       springet fra "laver en plan" til "laver kørende kode". *(leveret — write-tools, worktrees,
       implementer-node, worktree-runner, integration+verify-after-merge, parallelisme)*
-- [ ] **M3 — Kvalitet & tillid.** Dybere verifikation/tests, konvergens-tuning, drift over
-      mange timer (cost/retries), tillids-UX (diffs, digest, kurskorrektion). *(Phase 5)*
+- [x] **M3 — Kvalitet & tillid.** Dybere verifikation/tests, konvergens-tuning, drift over
+      mange timer (cost/retries), tillids-UX (diffs, digest, kurskorrektion). *(leveret — alle 6 trin)*
 - [ ] **M4 — Produktisering.** Løft core ind i Ranky/Bravy, multi-tenant, deploy af
       web-appen. *(se Øvrige temaer)*
 
@@ -48,6 +48,25 @@ Det store perspektiv — fra nu til Nordstjernen. Detaljerne lever i tiers + epi
 ---
 
 ## ✅ Senest leveret
+
+### 2026-06-23 — M3 Trin 6: Morgendigest + kurskorrektion (M3 i mål 🎉)
+- [x] **Guidance (kurskorrektion ud over Stop):** nyt `guidance`-felt på missionen
+      ([mission.ts](../packages/core/src/mission.ts) + DB-kolonne). `PATCH /missions/:id/guidance`
+      ([missions.controller.ts](../apps/api/src/missions/missions.controller.ts)) sætter fri-tekst på en **ikke-terminal**
+      mission; replan- og decompose-prompterne ([replan.ts](../packages/core/src/nodes/replan.ts) /
+      [decompose.ts](../packages/core/src/nodes/decompose.ts)) væver den ind som "Operator guidance". Controlleren
+      gen-læser missionen hver loop-runde, så en styring sat midt i kørslen fanges ved næste planlægning. **Standing**
+      (ikke one-shot): styrer hver efterfølgende runde til den ændres/ryddes. UI: et "Styring"-panel på dashboardet.
+- [x] **Rigere morgendigest:** `buildDigest` ([humanPolicy.ts](../packages/core/src/humanPolicy.ts)) ruller nu også
+      **`blocked`** (parkerede items + *hvorfor*), **`nextHighRisk`** (kommende høj-risiko-arbejde) og **`recent`**
+      (seneste aktivitet) op. Leveret via `Notifier` som et nyt **`mission_digest`-event** i controllerens `stop()` —
+      **også når et menneske trykker Stop** (kill-switch-exit ruter nu gennem `stop()`, ikke et bart return). Console-
+      notifieren rendrer digesten; dashboardet viser "Næste høj-risiko" + foresight.
+- [x] Bevist: [verify-human-policy.ts](../packages/core/verify-human-policy.ts) udvidet (blocked-med-grund,
+      nextHighRisk, recent-orden) + [verify-replan.ts](../packages/core/verify-replan.ts) (guidance optræder verbatim i
+      replan-prompten; ingen guidance ⇒ ingen sektion) + [verify-mission.ts](../packages/core/verify-mission.ts)
+      (digesten leveres på menneske-Stop). `turbo build` grøn (6/6); alle M3-harnesses + API-smoke grønne. Reviewet
+      adversarielt: rettede den manglende digest-levering på Stop.
 
 ### 2026-06-23 — M3 Trin 5: Approvable diffs (se hvad motoren skrev)
 - [x] **`Differ`-søm i core** ([controller.ts](../packages/core/src/controller.ts) + `DiffResult`/`DiffFile` i
@@ -70,9 +89,13 @@ Det store perspektiv — fra nu til Nordstjernen. Detaljerne lever i tiers + epi
       [verify-mission.ts](../packages/core/verify-mission.ts) udvidet (diff fanget på worktree + persisteret; springes
       over uden worktree; en kastende differ strander ikke item'et). `turbo build` grøn (6/6); integrator + øvrige
       M3-harnesses + API-smoke stadig grønne.
-- [ ] **Follow-up (perf):** SSE-snapshottet sender alle items' patches hver 2s — uafgrænset i aggregat. Lazy-load
-      patchen pr. item ved udfold (et `GET /missions/:id/items/:itemId/diff`-endpoint), så board-frames forbliver små
-      over en natlang stream.
+- [x] **Follow-up (perf) — leveret:** SSE-snapshottet sendte alle items' patches hver 2s — uafgrænset i aggregat.
+      Nu stripper `detail()`/`snapshot()` ([missions.service.ts](../apps/api/src/missions/missions.service.ts))
+      `patch`-feltet (board'et beholder kun fil-resuméet: `files`/`additions`/`deletions`/`truncated`), og patchen
+      lazy-loades pr. item ved udfold via `GET /missions/:id/items/:itemId/diff`
+      ([controller](../apps/api/src/missions/missions.controller.ts) → `itemDiff` + web-proxy), caches i en
+      `Map<itemId, ApiDiff>` med en lille "indlæser…"-tilstand. Wire-typerne urørte (`ApiDiff.patch` er bare `""`
+      i board-resuméer). `turbo build` grøn (6/6).
 
 ### 2026-06-23 — M3 Trin 4 i mål: per-projekt default-team + redigér en kørende missions team
 - [x] **Per-projekt default-team (arv ved oprettelse):** et projekt gemmer sit eget standard-team
@@ -697,12 +720,11 @@ Build-order (shippet + bevist pr. trin, som M1/M2). Foundation → tillid:
       struktureret diff (ændrede filer, ±linjer, patch) — fanget på item'ets worktree før verify/merge,
       persisteret på item'et, og vist på dashboardet (især parkerede items, så et menneske kan **se** ændringen
       før Godkend/Afvis). Se "Senest leveret". *Rest:* lazy-load patchen pr. item så SSE-frames forbliver små.
-- [ ] **6. Morgendigest + kurskorrektion.** Rigere digest (seneste hændelser, hvad der
-      blokerer, næste høj-risiko-items) leveret via `Notifier` (stub → rigtig mail/Slack), og
-      et `guidance`-felt: et menneske kan sende fri-tekst til en *kørende* mission, der flyder
-      ind i næste replan/decompose-kontekst (kurskorrektion ud over Stop). *Bevis:* guidance
-      sat på en mission optræder i replan-prompten og ændrer follow-ups; digest ruller de nye
-      felter op.
+- [x] **6. Morgendigest + kurskorrektion.** *(leveret 2026-06-23 — M3 i mål 🎉)* Rigere digest
+      (hvad der blokerer + hvorfor, næste høj-risiko-items, seneste aktivitet) leveret via `Notifier`
+      (`mission_digest`-event, også på menneske-Stop) + et `guidance`-felt: et menneske sender fri-tekst
+      til en *kørende* mission, der flyder ind i næste replan/decompose-prompt (kurskorrektion ud over Stop).
+      Se "Senest leveret".
 
 Invarianter (bevares fra M1/M2):
 

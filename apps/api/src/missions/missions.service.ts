@@ -16,8 +16,9 @@ import {
   RoleModelsConfigSchema,
   type RoleModelsConfig,
 } from "@arzonic/agent-core";
-import type { BacklogService, MemoryService } from "@arzonic/agent-shared";
+import type { BacklogItem, BacklogService, MemoryService } from "@arzonic/agent-shared";
 import type {
+  ApiDiff,
   MissionDetail,
   MissionItemDecisionResponse,
   MissionStreamEvent,
@@ -35,6 +36,20 @@ const TERMINAL_MISSION_STATUSES = new Set(["done", "failed", "stopped"]);
 
 /** How often the SSE stream re-reads mission state and pushes a snapshot. */
 const SNAPSHOT_INTERVAL_MS = 2000;
+
+/**
+ * Board summaries of each item's diff: the file rollup (paths, ±lines, truncated
+ * flag) the dashboard renders, WITHOUT the potentially 100KB unified `patch`.
+ * The board re-reads this every {@link SNAPSHOT_INTERVAL_MS} for the life of an
+ * open dashboard, so re-shipping every parked item's full patch each tick would
+ * balloon the SSE frames on a "runs all night" mission. The patch is lazy-loaded
+ * per item via {@link MissionsService.itemDiff} only when a human expands it.
+ */
+function summariseItemDiffs(items: BacklogItem[]): BacklogItem[] {
+  return items.map((it) =>
+    it.diff ? { ...it, diff: { ...it.diff, patch: "" } } : it,
+  );
+}
 
 @Injectable()
 export class MissionsService {
@@ -84,6 +99,7 @@ export class MissionsService {
       budget: dto.budget ?? null,
       deadline: dto.deadline ?? null,
       roleModels,
+      guidance: dto.guidance ?? null,
     });
     // Seed the initial backlog, classifying risk up front so the board shows it
     // (the controller re-checks at run-time too — this is just for visibility).
@@ -112,9 +128,43 @@ export class MissionsService {
     const backlog = this.require();
     const mission = await backlog.getMission(id);
     if (!mission) throw new NotFoundException(`No mission ${id}`);
-    const items = await backlog.listItems(id);
-    const digest = buildDigest(mission, items);
+    const items = summariseItemDiffs(await backlog.listItems(id));
+    const digest = buildDigest(mission, items, this.env.MISSION_HIGH_RISK_PATTERNS);
     return { ...mission, items, digest } as MissionDetail;
+  }
+
+  /**
+   * The full authored diff for one item — WITH the unified patch. The board's
+   * snapshot stream ships patch-free summaries (see `summariseItemDiffs`), so the
+   * dashboard lazy-loads the patch through here only when a human expands an item.
+   * Null if the item hasn't authored a diff yet.
+   */
+  async itemDiff(missionId: string, itemId: string): Promise<ApiDiff | null> {
+    const backlog = this.require();
+    const item = await backlog.getItem(itemId);
+    if (!item || item.missionId !== missionId) {
+      throw new NotFoundException(`No item ${itemId} on mission ${missionId}`);
+    }
+    return (item.diff as ApiDiff | null) ?? null;
+  }
+
+  /**
+   * Course-correct a non-terminal mission with free-text guidance (M3 Trin 6). It
+   * flows into the next replan/decompose context on the worker's next pass — a steer
+   * beyond Stop that never blocks the loop. Empty string clears it.
+   */
+  async updateGuidance(id: string, guidance: string | null): Promise<MissionDetail> {
+    const backlog = this.require();
+    const mission = await backlog.getMission(id);
+    if (!mission) throw new NotFoundException(`No mission ${id}`);
+    if (TERMINAL_MISSION_STATUSES.has(mission.status)) {
+      throw new ConflictException(
+        `Mission ${id} is ${mission.status} — guidance no longer affects it.`,
+      );
+    }
+    const trimmed = guidance?.trim();
+    await backlog.updateMission(id, { guidance: trimmed ? trimmed : null });
+    return this.detail(id);
   }
 
   /**
@@ -202,6 +252,8 @@ export class MissionsService {
 
   private async snapshot(id: string): Promise<MissionStreamEvent> {
     try {
+      // `detail()` already strips per-item patches (summariseItemDiffs), so the
+      // periodic snapshot carries only the board summary — never the full patch.
       const { items, digest, ...mission } = await this.detail(id);
       return { type: "snapshot", mission, items, digest };
     } catch (err) {

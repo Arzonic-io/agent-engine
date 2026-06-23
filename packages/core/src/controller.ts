@@ -8,7 +8,7 @@ import type {
   MissionStatus,
   Risk,
 } from "./mission.js";
-import { classifyRisk } from "./humanPolicy.js";
+import { buildDigest, classifyRisk, type MissionDigest } from "./humanPolicy.js";
 import type { WorkResult, WorkRunner } from "./runner.js";
 import type { Verifier, VerifierReport } from "./verifier.js";
 
@@ -182,6 +182,8 @@ export type MissionEvent =
   | { type: "item_finished"; missionId: string; item: BacklogItem; status: BacklogItemStatus }
   | { type: "item_parked"; missionId: string; item: BacklogItem; reason: string }
   | { type: "item_retried"; missionId: string; item: BacklogItem; attempt: number; reason: string }
+  /** The morning digest (M3 Trin 6), delivered when the mission stops — log now, mail/Slack later. */
+  | { type: "mission_digest"; missionId: string; digest: MissionDigest }
   | { type: "mission_stopped"; missionId: string; status: MissionStatus; reason: string };
 
 export interface Notifier {
@@ -392,6 +394,13 @@ export async function runMission(
 
   const stop = async (status: MissionStatus, reason: string): Promise<MissionOutcome> => {
     await backlog.updateMission(missionId, { status });
+    // Deliver the morning digest (M3 Trin 6) via the Notifier as the mission ends —
+    // a rollup of what's done, what's blocking + why, and the next high-risk work.
+    if (deps.notifier) {
+      const items = await backlog.listItems(missionId);
+      const digest = buildDigest({ ...mission, status }, items, deps.highRiskPatterns);
+      await deps.notifier.notify({ type: "mission_digest", missionId, digest });
+    }
     await deps.notifier?.notify({ type: "mission_stopped", missionId, status, reason });
     return { status, reason, iterations, itemsDone };
   };
@@ -630,9 +639,12 @@ export async function runMission(
 
   while (true) {
     // Kill switch / external status change: anything but `running` halts here.
+    // Route through stop() (not a bare return) so the human who clicked Stop still
+    // gets the morning digest (M3 Trin 6) — the prime "what happened?" moment. stop()
+    // re-writes the same status (a no-op) and delivers digest + stopped via the Notifier.
     mission = (await backlog.getMission(missionId)) ?? mission;
     if (mission.status !== "running") {
-      return { status: mission.status, reason: "stopped", iterations, itemsDone };
+      return stop(mission.status, "stopped");
     }
 
     // ── governors ──

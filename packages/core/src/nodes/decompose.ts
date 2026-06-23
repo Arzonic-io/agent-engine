@@ -134,6 +134,11 @@ function buildPrompt(input: DecomposeInput): string {
     mission.acceptanceCriteria.length
       ? `# Acceptance criteria\n${mission.acceptanceCriteria.map((c) => `- ${c}`).join("\n")}`
       : "",
+    // Operator guidance (M3 Trin 6): a human's steer, if set before planning — it
+    // shapes the initial backlog the same way it later shapes replans.
+    mission.guidance?.trim()
+      ? `# Operator guidance (follow this — a human is steering the mission)\n${mission.guidance.trim()}`
+      : "",
     existingTitles && existingTitles.length
       ? `# Already in the backlog (do not duplicate)\n${existingTitles.map((t) => `- ${t}`).join("\n")}`
       : "",
