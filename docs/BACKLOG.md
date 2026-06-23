@@ -49,6 +49,31 @@ Det store perspektiv — fra nu til Nordstjernen. Detaljerne lever i tiers + epi
 
 ## ✅ Senest leveret
 
+### 2026-06-23 — M3 Trin 5: Approvable diffs (se hvad motoren skrev)
+- [x] **`Differ`-søm i core** ([controller.ts](../packages/core/src/controller.ts) + `DiffResult`/`DiffFile` i
+      [mission.ts](../packages/core/src/mission.ts)): pr. item en struktureret diff — ændrede filer (status + ±linjer)
+      \+ unified patch — så et menneske kan **se** ændringen før Godkend/Afvis, især på parkerede items. Injiceret som
+      de øvrige søm; valgfrit (udeladt ⇒ præcis pre-Trin-5-adfærd).
+- [x] **Fanget på det rigtige tidspunkt:** i `runItem` på item'ets **worktree** — efter implementer + tester har
+      skrevet, men **før** Verifier kører (så build-artefakter ikke forurener diffen) og før Integratoren committer/merger.
+      Samme punkt uanset om item'et ender done eller parkeret, så diffen altid viser hvad der faktisk blev skrevet.
+      Best-effort: et git-hik efterlader bare diffen `null`, aldrig en stranded item. Persisteres på item'et i `finalize`.
+- [x] **git-impl `createGitDiffer`** ([differ.ts](../packages/shared/src/differ.ts)): `git diff HEAD` (fanger både
+      staged og unstaged), untracked filer vist via et midlertidigt `add -N` der **resettes igen** så Integratorens
+      senere commit er urørt; gitignored build-output ekskluderes; patch byte-cappet (100 KB) uden at splitte en
+      multibyte-char. Rent read-side git-plumbing — Verifier er stadig sandheden for "done".
+- [x] **DB + wire + UI:** ny `diff jsonb`-kolonne på `backlog_items` (idempotent ALTER); `BacklogItem.diff` flyder
+      gennem detail/SSE; `ApiBacklogItem.diff` i wire-typerne; dashboardet ([missions/[id]](../apps/web/app/missions/[id]/page.tsx))
+      rendrer en sammenklappelig diff pr. item (fil-liste + farvet patch), især på parkerede items.
+- [x] Bevist: [verify-differ.ts](../packages/shared/verify-differ.ts) (20 checks, rigtigt git-repo —
+      modified/added/deleted/empty/staged/gitignore-ekskludering/index-clean/multibyte-trunkering) +
+      [verify-mission.ts](../packages/core/verify-mission.ts) udvidet (diff fanget på worktree + persisteret; springes
+      over uden worktree; en kastende differ strander ikke item'et). `turbo build` grøn (6/6); integrator + øvrige
+      M3-harnesses + API-smoke stadig grønne.
+- [ ] **Follow-up (perf):** SSE-snapshottet sender alle items' patches hver 2s — uafgrænset i aggregat. Lazy-load
+      patchen pr. item ved udfold (et `GET /missions/:id/items/:itemId/diff`-endpoint), så board-frames forbliver små
+      over en natlang stream.
+
 ### 2026-06-23 — M3 Trin 4 i mål: per-projekt default-team + redigér en kørende missions team
 - [x] **Per-projekt default-team (arv ved oprettelse):** et projekt gemmer sit eget standard-team
       (`projects.settings.roleModels`); en ny mission **arver** det og fletter sine egne valg ovenpå i
@@ -668,11 +693,10 @@ Build-order (shippet + bevist pr. trin, som M1/M2). Foundation → tillid:
         standard-team (`projects.settings.roleModels`); en ny mission arver det ved oprettelse (`mergeRoleModels`), og
         `PATCH /missions/:id/role-models` re-pointer en kørende missions team (træder i kraft næste pass). Netto-præcedens:
         **mission > projekt > global > env** — uden at røre workeren. Se "Senest leveret".
-- [ ] **5. Approvable diffs (se hvad motoren skrev).** Nyt `Differ`-søm: pr. item en
-      struktureret diff (ændrede filer, ±linjer, patch) af item-branch vs. mission-branch.
-      Eksponeret i mission-API'et + vist på dashboardet — især for parkerede items, så et
-      menneske kan **se** ændringen før Godkend/Afvis. *Bevis:* differ returnerer korrekt
-      patch for en kendt ændring; API'et leverer den; dashboard rendrer diff på parkerede items.
+- [x] **5. Approvable diffs (se hvad motoren skrev).** *(leveret 2026-06-23)* `Differ`-søm: pr. item en
+      struktureret diff (ændrede filer, ±linjer, patch) — fanget på item'ets worktree før verify/merge,
+      persisteret på item'et, og vist på dashboardet (især parkerede items, så et menneske kan **se** ændringen
+      før Godkend/Afvis). Se "Senest leveret". *Rest:* lazy-load patchen pr. item så SSE-frames forbliver små.
 - [ ] **6. Morgendigest + kurskorrektion.** Rigere digest (seneste hændelser, hvad der
       blokerer, næste høj-risiko-items) leveret via `Notifier` (stub → rigtig mail/Slack), og
       et `guidance`-felt: et menneske kan sende fri-tekst til en *kørende* mission, der flyder

@@ -49,6 +49,36 @@ export const VerificationSchema = z.object({
 });
 export type Verification = z.infer<typeof VerificationSchema>;
 
+/** One changed file in an item's diff — what a human scans before approving (§ M3 Trin 5). */
+export const DiffFileSchema = z.object({
+  path: z.string(),
+  status: z.enum(["added", "modified", "deleted", "renamed"]),
+  /** Added lines in this file (0 for binary). */
+  additions: z.number().int().min(0),
+  /** Removed lines in this file (0 for binary). */
+  deletions: z.number().int().min(0),
+});
+export type DiffFile = z.infer<typeof DiffFileSchema>;
+
+/**
+ * The structured diff of the code an item authored — changed files (with ±lines)
+ * plus the unified patch — so a human can SEE the change before Godkend/Afvis,
+ * especially on parked items (M3 Trin 5). Computed from the item's worktree before
+ * integration; the `Differ` seam produces it, the controller stores it on the item.
+ */
+export const DiffResultSchema = z.object({
+  files: z.array(DiffFileSchema),
+  /** Total added lines across all files. */
+  additions: z.number().int().min(0),
+  /** Total removed lines across all files. */
+  deletions: z.number().int().min(0),
+  /** Unified patch (capped); empty when there are no changes. */
+  patch: z.string().default(""),
+  /** Whether the patch was truncated to its size cap. */
+  truncated: z.boolean().default(false),
+});
+export type DiffResult = z.infer<typeof DiffResultSchema>;
+
 export const MissionSchema = z.object({
   id: z.string(),
   projectId: z.string(),
@@ -86,6 +116,8 @@ export const BacklogItemSchema = z.object({
   /** The run that executed this item, once started — links to the transcript. */
   runId: z.string().nullable(),
   verification: VerificationSchema.nullable(),
+  /** The structured diff of the code this item authored (M3 Trin 5); null until it runs. */
+  diff: DiffResultSchema.nullable(),
   createdAt: z.string(),
   updatedAt: z.string(),
 });
@@ -120,7 +152,7 @@ export interface CreateBacklogItemInput {
 export type BacklogItemPatch = Partial<
   Pick<
     BacklogItem,
-    "title" | "detail" | "status" | "priority" | "dependsOn" | "risk" | "runId" | "verification"
+    "title" | "detail" | "status" | "priority" | "dependsOn" | "risk" | "runId" | "verification" | "diff"
   >
 >;
 

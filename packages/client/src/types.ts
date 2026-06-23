@@ -166,6 +166,25 @@ export interface ApiVerification {
   output: string;
 }
 
+/** One changed file in an item's diff (M3 Trin 5). */
+export interface ApiDiffFile {
+  path: string;
+  status: "added" | "modified" | "deleted" | "renamed";
+  additions: number;
+  deletions: number;
+}
+
+/** The structured diff of what an item authored — shown before Godkend/Afvis (§5 Trin 5). */
+export interface ApiDiff {
+  files: ApiDiffFile[];
+  additions: number;
+  deletions: number;
+  /** Unified patch (capped); empty when there are no changes. */
+  patch: string;
+  /** Whether the patch was truncated to its size cap. */
+  truncated: boolean;
+}
+
 export interface ApiBacklogItem {
   id: string;
   missionId: string;
@@ -177,6 +196,8 @@ export interface ApiBacklogItem {
   risk: Risk;
   runId: string | null;
   verification: ApiVerification | null;
+  /** The structured diff of the code this item authored; null until it runs (M3 Trin 5). */
+  diff: ApiDiff | null;
   createdAt: string;
   updatedAt: string;
 }

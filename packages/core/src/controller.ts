@@ -3,6 +3,7 @@ import type {
   BacklogItemStatus,
   BacklogStore,
   CreateBacklogItemInput,
+  DiffResult,
   Mission,
   MissionStatus,
   Risk,
@@ -215,6 +216,24 @@ export interface Integrator {
   cleanup(itemId: string): Promise<void>;
 }
 
+// ── Differ seam (M3 Trin 5: show a human what the item actually wrote) ──
+
+/**
+ * Computes the structured diff of the code an item authored — the changed files
+ * (with ±lines) plus the unified patch — so a human can SEE the change before
+ * Godkend/Afvis, especially on parked items. Pure git ops only; injected like
+ * every other seam. The controller calls it on the item's WORKTREE, where the
+ * implementer's changes are still uncommitted, BEFORE the Verifier runs (so build
+ * artifacts don't pollute the diff) and before the Integrator commits/merges — so
+ * a done item shows what merged and a parked item shows what was attempted, the
+ * same way. Best-effort: the impl should never throw (the controller also guards
+ * the call), and it must not disturb the worktree the Integrator later commits.
+ */
+export interface Differ {
+  /** Structured diff of the authored (uncommitted) changes in an item's worktree. */
+  diff(worktree: string): Promise<DiffResult>;
+}
+
 // ── Clock seam — no Date.now() in core; the runtime injects time ──
 
 export interface Clock {
@@ -278,6 +297,12 @@ export interface MissionDeps {
   clock?: Clock;
   /** Merges green items into the mission branch + re-verifies (Trin 5). Optional. */
   integrator?: Integrator;
+  /**
+   * Computes the structured diff of what an item authored, stored on the item so a
+   * human can review it before Godkend/Afvis (M3 Trin 5). Optional — omitted ⇒ no
+   * diff captured (exactly the pre-Trin-5 behaviour). Best-effort: a throw is caught.
+   */
+  differ?: Differ;
   governors?: MissionGovernors;
   /** Checks the Verifier runs per item. Default ["typecheck", "test"]. */
   checks?: string[];
@@ -397,7 +422,15 @@ export async function runMission(
   };
 
   type ItemOutcome =
-    | { kind: "ran"; item: BacklogItem; result: WorkResult; report: VerifierReport; decision: ReplanDecision }
+    | {
+        kind: "ran";
+        item: BacklogItem;
+        result: WorkResult;
+        report: VerifierReport;
+        decision: ReplanDecision;
+        /** Diff of the authored changes (M3 Trin 5), captured before verify/integrate. */
+        diff: DiffResult | null;
+      }
     | { kind: "requeue"; item: BacklogItem; reason: string }
     | { kind: "error"; item: BacklogItem; error: unknown };
 
@@ -440,11 +473,25 @@ export async function runMission(
         // runs whatever tests already exist.
       }
     }
+    // Capture the diff of the authored code (M3 Trin 5) HERE — after the
+    // implementer + test author wrote, but BEFORE the Verifier runs (so build
+    // artifacts from the checks don't pollute it) and before the Integrator
+    // commits/merges. Same capture point whether the item ends up done or parked,
+    // so a human always sees what was actually written. Best-effort: a git hiccup
+    // must not strand the item, so a throw just leaves the diff null.
+    let diff: DiffResult | null = null;
+    if (deps.differ && result.worktree) {
+      try {
+        diff = await deps.differ.diff(result.worktree);
+      } catch {
+        // Diff is for human review only — never gate the loop on it.
+      }
+    }
     // Verify the AUTHORED code where it was written: the item's worktree when the
     // runner ran write-capably (Trin 4), else the mission repo (planning runner).
     const report = await verifier.run(checks, result.worktree);
     const decision = await replanner.replan({ mission, item, result, verification: report });
-    return { kind: "ran", item, result, report, decision };
+    return { kind: "ran", item, result, report, decision, diff };
   };
 
   /**
@@ -504,7 +551,7 @@ export async function runMission(
       return;
     }
 
-    const { item, result, report, decision } = outcome;
+    const { item, result, report, decision, diff } = outcome;
     let effectiveStatus = decision.itemStatus;
     let verification = summarizeVerification(checks, report);
 
@@ -553,7 +600,14 @@ export async function runMission(
     }
 
     const finished =
-      (await backlog.updateItem(item.id, { status: effectiveStatus, verification })) ?? item;
+      (await backlog.updateItem(item.id, {
+        status: effectiveStatus,
+        verification,
+        // Persist the authored diff (M3 Trin 5) so the dashboard can show what the
+        // item wrote — most useful on a parked item awaiting Godkend/Afvis. Only
+        // overwrite when we actually captured one, never clobbering with null.
+        ...(diff ? { diff } : {}),
+      })) ?? item;
     for (const f of decision.followUps ?? []) {
       await backlog.createItem({ ...f, missionId });
     }

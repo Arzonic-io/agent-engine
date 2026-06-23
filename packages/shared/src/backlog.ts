@@ -1,4 +1,4 @@
-import type { RoleModelsConfig } from "@arzonic/agent-core";
+import type { DiffResult, RoleModelsConfig } from "@arzonic/agent-core";
 import pg from "pg";
 
 const { Pool } = pg;
@@ -63,6 +63,8 @@ export interface BacklogItem {
   risk: Risk;
   runId: string | null;
   verification: Verification | null;
+  /** Structured diff of the code this item authored (M3 Trin 5); null until it runs. */
+  diff: DiffResult | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -93,7 +95,7 @@ export interface CreateBacklogItemInput {
 export type BacklogItemPatch = Partial<
   Pick<
     BacklogItem,
-    "title" | "detail" | "status" | "priority" | "dependsOn" | "risk" | "runId" | "verification"
+    "title" | "detail" | "status" | "priority" | "dependsOn" | "risk" | "runId" | "verification" | "diff"
   >
 >;
 
@@ -140,9 +142,12 @@ export class BacklogService {
         risk         text NOT NULL DEFAULT 'low',
         run_id       text,
         verification jsonb,
+        diff         jsonb,
         created_at   timestamptz NOT NULL DEFAULT now(),
         updated_at   timestamptz NOT NULL DEFAULT now()
       )`);
+    // Add the authored-diff column (M3 Trin 5) to pre-existing backlog_items tables.
+    await this.pool.query(`ALTER TABLE backlog_items ADD COLUMN IF NOT EXISTS diff jsonb`);
     await this.pool.query(`
       CREATE INDEX IF NOT EXISTS backlog_items_mission_status_idx
       ON backlog_items (mission_id, status)`);
@@ -249,8 +254,9 @@ export class BacklogService {
       risk: "risk",
       runId: "run_id",
       verification: "verification",
+      diff: "diff",
     };
-    const json = new Set<keyof BacklogItemPatch>(["dependsOn", "verification"]);
+    const json = new Set<keyof BacklogItemPatch>(["dependsOn", "verification", "diff"]);
     const sets: string[] = [];
     const vals: unknown[] = [];
     let i = 1;
@@ -321,6 +327,7 @@ export class BacklogService {
       risk: r.risk,
       runId: r.run_id,
       verification: r.verification ?? null,
+      diff: r.diff ?? null,
       createdAt: new Date(r.created_at).toISOString(),
       updatedAt: new Date(r.updated_at).toISOString(),
     };

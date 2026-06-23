@@ -9,6 +9,7 @@
  */
 import {
   runMission,
+  type Differ,
   type Integrator,
   type MissionDeps,
   type Replanner,
@@ -63,6 +64,7 @@ function makeStore(mission: Mission, items: BacklogItem[]): BacklogStore {
         risk: input.risk ?? "low",
         runId: null,
         verification: null,
+        diff: null,
         createdAt: iso(),
         updatedAt: iso(),
       };
@@ -119,6 +121,7 @@ function item(id: string, priority: number, dependsOn: string[] = []): BacklogIt
     risk: "low",
     runId: null,
     verification: null,
+    diff: null,
     createdAt: iso(),
     updatedAt: iso(),
   };
@@ -440,6 +443,68 @@ function fakeIntegrator(opts: { conflict?: boolean } = {}) {
   );
   ok(order.indexOf("a") < order.indexOf("b"), "a dependent (b) never runs in the same batch as its parent (a)");
   ok(out.status === "done" && out.itemsDone === 3, "all items done with dependencies respected under concurrency");
+}
+
+// ── 17. differ (Trin 5): the authored diff is captured + persisted on the item ──
+{
+  const fakeDiff = {
+    files: [{ path: "src/x.ts", status: "added" as const, additions: 3, deletions: 0 }],
+    additions: 3,
+    deletions: 0,
+    patch: "diff --git a/src/x.ts b/src/x.ts\n+a\n+b\n+c\n",
+    truncated: false,
+  };
+  const seen: string[] = [];
+  const differ: Differ = {
+    async diff(worktree) {
+      seen.push(worktree);
+      return fakeDiff;
+    },
+  };
+  const store = makeStore({ ...baseMission }, [item("a", 1)]);
+  const { integrator } = fakeIntegrator();
+  const out = await runMission(
+    { backlog: store, verifier: passingVerifier, runner: worktreeRunner, integrator, differ },
+    "m1",
+  );
+  const a = (await store.listItems("m1")).find((i) => i.id === "a")!;
+  ok(out.status === "done", "mission still completes with a differ wired in");
+  ok(seen[0] === "/wt/a", "the differ was called on the item's worktree");
+  ok(JSON.stringify(a.diff) === JSON.stringify(fakeDiff), "the captured diff is persisted on the item");
+}
+
+// 18. no worktree (planning runner) ⇒ no diff captured (the guard holds).
+{
+  let called = false;
+  const differ: Differ = {
+    async diff(wt) {
+      called = true;
+      return { files: [], additions: 0, deletions: 0, patch: "", truncated: false };
+    },
+  };
+  const store = makeStore({ ...baseMission }, [item("a", 1)]);
+  const out = await runMission({ backlog: store, verifier: passingVerifier, runner, differ }, "m1");
+  const a = (await store.listItems("m1")).find((i) => i.id === "a")!;
+  ok(out.status === "done" && !called, "no worktree ⇒ the differ is never called");
+  ok(a.diff === null, "no diff is stored when the item ran without a worktree");
+}
+
+// 19. a throwing differ never strands the item (best-effort capture).
+{
+  const differ: Differ = {
+    async diff() {
+      throw new Error("git exploded");
+    },
+  };
+  const store = makeStore({ ...baseMission }, [item("a", 1)]);
+  const { integrator } = fakeIntegrator();
+  const out = await runMission(
+    { backlog: store, verifier: passingVerifier, runner: worktreeRunner, integrator, differ },
+    "m1",
+  );
+  const a = (await store.listItems("m1")).find((i) => i.id === "a")!;
+  ok(out.status === "done" && a.status === "done", "a throwing differ does not strand the item — it still completes");
+  ok(a.diff === null, "a failed diff capture leaves diff null, never a partial");
 }
 
 console.log("\nrunMission controller loop verified ✓");

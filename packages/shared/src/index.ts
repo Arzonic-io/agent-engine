@@ -25,6 +25,7 @@ export {
   ensureGitBranch,
   type GitIntegratorOptions,
 } from "./integrator.js";
+export { createGitDiffer } from "./differ.js";
 export {
   MemoryService,
   type MemoryServiceOptions,

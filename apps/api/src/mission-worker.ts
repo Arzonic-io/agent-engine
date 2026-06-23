@@ -14,6 +14,7 @@ import {
   AppSettingsService,
   buildRoleModels,
   createConsoleNotifier,
+  createGitDiffer,
   createGitIntegrator,
   createVerifier,
   createWritableRepoTools,
@@ -191,6 +192,9 @@ async function main(): Promise<void> {
         allowedChecks: env.REPO_ALLOWED_CHECKS,
       });
       const integrator = createGitIntegrator(mission.repoPath, { missionBranch, worktrees });
+      // Capture each item's authored diff (M3 Trin 5) so the dashboard can show a
+      // human what was written — especially before approving a parked item.
+      const differ = createGitDiffer();
       try {
         const outcome = await runMission(
           {
@@ -198,6 +202,7 @@ async function main(): Promise<void> {
             verifier,
             runner,
             integrator,
+            differ,
             decomposer,
             testAuthor: env.MISSION_AUTHOR_TESTS ? testAuthor : undefined,
             replanner,

@@ -2,9 +2,20 @@
 
 import Link from "next/link";
 import { use, useEffect, useRef, useState } from "react";
-import { LuArrowLeft, LuCheck, LuCircleStop, LuSave, LuUsers, LuX } from "react-icons/lu";
+import {
+  LuArrowLeft,
+  LuCheck,
+  LuChevronDown,
+  LuChevronRight,
+  LuCircleStop,
+  LuFileDiff,
+  LuSave,
+  LuUsers,
+  LuX,
+} from "react-icons/lu";
 import type {
   ApiBacklogItem,
+  ApiDiff,
   MissionDetail,
   MissionStreamEvent,
 } from "@arzonic/agent-client";
@@ -37,7 +48,16 @@ export default function MissionDashboard({ params }: { params: Promise<{ id: str
   const [teamSel, setTeamSel] = useState<TeamSelection>({});
   const [savingTeam, setSavingTeam] = useState(false);
   const [teamErr, setTeamErr] = useState<string | null>(null);
+  // Which items have their authored-diff expanded.
+  const [openDiffs, setOpenDiffs] = useState<Set<string>>(new Set());
   const esRef = useRef<EventSource | null>(null);
+
+  const toggleDiff = (itemId: string) =>
+    setOpenDiffs((prev) => {
+      const next = new Set(prev);
+      next.has(itemId) ? next.delete(itemId) : next.add(itemId);
+      return next;
+    });
 
   // Initial load + live snapshot stream.
   useEffect(() => {
@@ -288,6 +308,13 @@ export default function MissionDashboard({ params }: { params: Promise<{ id: str
                           </div>
                         )}
                       </div>
+                      {it.diff && it.diff.files.length > 0 && (
+                        <DiffView
+                          diff={it.diff}
+                          open={openDiffs.has(it.id)}
+                          onToggle={() => toggleDiff(it.id)}
+                        />
+                      )}
                     </li>
                   ))}
                 </ul>
@@ -348,6 +375,78 @@ export default function MissionDashboard({ params }: { params: Promise<{ id: str
       )}
     </div>
   );
+}
+
+/** Tailwind colour for a changed-file status letter. */
+const DIFF_STATUS: Record<ApiDiff["files"][number]["status"], { tone: string; mark: string }> = {
+  added: { tone: "text-success", mark: "A" },
+  modified: { tone: "text-warning", mark: "M" },
+  deleted: { tone: "text-error", mark: "D" },
+  renamed: { tone: "text-fg/60", mark: "R" },
+};
+
+/** Collapsible view of an item's authored diff — file list + coloured unified patch. */
+function DiffView({ diff, open, onToggle }: { diff: ApiDiff; open: boolean; onToggle: () => void }) {
+  return (
+    <div className="mt-2 border-t border-line pt-2">
+      <button
+        onClick={onToggle}
+        className="flex items-center gap-1.5 text-[11px] text-dim transition hover:text-fg"
+      >
+        {open ? <LuChevronDown className="h-3.5 w-3.5" /> : <LuChevronRight className="h-3.5 w-3.5" />}
+        <LuFileDiff className="h-3.5 w-3.5" />
+        <span className="text-fg/70">
+          {diff.files.length} {diff.files.length === 1 ? "fil" : "filer"}
+        </span>
+        <span className="font-mono text-success">+{diff.additions}</span>
+        <span className="font-mono text-error">−{diff.deletions}</span>
+        <span className="text-dim/60">{open ? "skjul ændring" : "se ændring"}</span>
+      </button>
+      {open && (
+        <div className="mt-2 space-y-2">
+          <ul className="space-y-0.5">
+            {diff.files.map((f) => {
+              const s = DIFF_STATUS[f.status];
+              return (
+                <li key={f.path} className="flex items-center gap-2 text-[11px]">
+                  <span className={`font-mono font-bold ${s.tone}`}>{s.mark}</span>
+                  <span className="truncate font-mono text-fg/80">{f.path}</span>
+                  <span className="ml-auto shrink-0 font-mono text-dim">
+                    <span className="text-success">+{f.additions}</span>{" "}
+                    <span className="text-error">−{f.deletions}</span>
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+          {diff.patch.trim() && (
+            <pre className="max-h-80 overflow-auto rounded-field border border-line bg-elev/60 p-2 text-[11px] leading-relaxed">
+              <code>
+                {diff.patch.split("\n").map((line, i) => (
+                  <span key={i} className={`block ${patchLineTone(line)}`}>
+                    {line || " "}
+                  </span>
+                ))}
+              </code>
+            </pre>
+          )}
+          {diff.truncated && (
+            <p className="text-[10px] text-dim/70">… diffen er forkortet (for stor til at vise fuldt ud).</p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Colour a unified-diff line by its leading marker. */
+function patchLineTone(line: string): string {
+  if (line.startsWith("@@")) return "text-analyst";
+  if (line.startsWith("+++") || line.startsWith("---")) return "text-dim";
+  if (line.startsWith("+")) return "text-success";
+  if (line.startsWith("-")) return "text-error";
+  if (line.startsWith("diff ") || line.startsWith("index ")) return "text-dim/60";
+  return "text-fg/70";
 }
 
 function Counter({ label, value, tone }: { label: string; value: number; tone: string }) {
