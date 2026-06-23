@@ -2,13 +2,20 @@
 
 import Link from "next/link";
 import { use, useEffect, useRef, useState } from "react";
-import { LuArrowLeft, LuCheck, LuCircleStop, LuX } from "react-icons/lu";
+import { LuArrowLeft, LuCheck, LuCircleStop, LuSave, LuUsers, LuX } from "react-icons/lu";
 import type {
   ApiBacklogItem,
   MissionDetail,
   MissionStreamEvent,
 } from "@arzonic/agent-client";
 import { ITEM_STATUS, MISSION_DOT } from "../../lib/format";
+import {
+  TEAM_ROLES,
+  TeamModelPicker,
+  roleModelsToSelection,
+  selectionToRoleModels,
+  type TeamSelection,
+} from "../../components/TeamModelPicker";
 
 /** Order the board shows status groups in — human-needed first. */
 const GROUP_ORDER: { key: ApiBacklogItem["status"]; label: string }[] = [
@@ -25,6 +32,11 @@ export default function MissionDashboard({ params }: { params: Promise<{ id: str
   const [error, setError] = useState<string | null>(null);
   const [deciding, setDeciding] = useState<string | null>(null);
   const [stopping, setStopping] = useState(false);
+  // Edit-team-on-a-running-mission state.
+  const [teamOpen, setTeamOpen] = useState(false);
+  const [teamSel, setTeamSel] = useState<TeamSelection>({});
+  const [savingTeam, setSavingTeam] = useState(false);
+  const [teamErr, setTeamErr] = useState<string | null>(null);
   const esRef = useRef<EventSource | null>(null);
 
   // Initial load + live snapshot stream.
@@ -99,6 +111,31 @@ export default function MissionDashboard({ params }: { params: Promise<{ id: str
     }
   }
 
+  function openTeam() {
+    setTeamSel(roleModelsToSelection(mission?.roleModels));
+    setTeamErr(null);
+    setTeamOpen(true);
+  }
+
+  async function saveTeam() {
+    setSavingTeam(true);
+    setTeamErr(null);
+    try {
+      const res = await fetch(`/api/missions/${id}/role-models`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ roleModels: selectionToRoleModels(teamSel) }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      setMission((await res.json()) as MissionDetail);
+      setTeamOpen(false);
+    } catch (e) {
+      setTeamErr(e instanceof Error ? e.message : "Kunne ikke gemme teamet");
+    } finally {
+      setSavingTeam(false);
+    }
+  }
+
   if (error) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-3 text-center">
@@ -145,13 +182,21 @@ export default function MissionDashboard({ params }: { params: Promise<{ id: str
               </h1>
             </div>
             {active && (
-              <button
-                onClick={() => void stop()}
-                disabled={stopping}
-                className="btn btn-sm gap-1 border-line bg-elev text-error hover:border-error/50"
-              >
-                <LuCircleStop className="h-4 w-4" /> Stop
-              </button>
+              <div className="flex shrink-0 items-center gap-2">
+                <button
+                  onClick={openTeam}
+                  className="btn btn-sm gap-1 border-line bg-elev text-dim hover:text-fg"
+                >
+                  <LuUsers className="h-4 w-4" /> Team
+                </button>
+                <button
+                  onClick={() => void stop()}
+                  disabled={stopping}
+                  className="btn btn-sm gap-1 border-line bg-elev text-error hover:border-error/50"
+                >
+                  <LuCircleStop className="h-4 w-4" /> Stop
+                </button>
+              </div>
             )}
           </div>
 
@@ -251,6 +296,56 @@ export default function MissionDashboard({ params }: { params: Promise<{ id: str
           })}
         </div>
       </div>
+
+      {/* Edit-team-on-a-running-mission modal. */}
+      {teamOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/60" onClick={() => setTeamOpen(false)} />
+          <div className="relative w-full max-w-xl rounded-box border border-line bg-panel p-5 shadow-2xl shadow-black/40">
+            <div className="mb-3 flex items-center justify-between">
+              <h2 className="flex items-center gap-2 text-base font-bold">
+                <LuUsers className="h-4 w-4 text-dim" /> Missionens team
+              </h2>
+              <button
+                onClick={() => setTeamOpen(false)}
+                className="btn btn-ghost btn-sm btn-square"
+                aria-label="Luk"
+              >
+                <LuX className="h-4 w-4" />
+              </button>
+            </div>
+            <p className="mb-3 text-xs leading-relaxed text-dim">
+              Vælg provider og model pr. stilling for denne mission. Ændringer træder i kraft ved
+              næste planlægnings-runde — ikke det punkt der kører lige nu.
+            </p>
+            <TeamModelPicker roles={TEAM_ROLES} value={teamSel} onChange={setTeamSel} />
+            <div className="mt-4 flex items-center gap-3">
+              <button
+                onClick={() => void saveTeam()}
+                disabled={savingTeam}
+                className="btn btn-primary btn-sm gap-2 normal-case"
+              >
+                {savingTeam ? (
+                  <>
+                    <span className="loading loading-spinner loading-xs" /> Gemmer…
+                  </>
+                ) : (
+                  <>
+                    <LuSave className="h-4 w-4" /> Gem team
+                  </>
+                )}
+              </button>
+              <button
+                onClick={() => setTeamOpen(false)}
+                className="btn btn-ghost btn-sm text-dim normal-case"
+              >
+                Annuller
+              </button>
+              {teamErr && <span className="text-xs text-error">{teamErr}</span>}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

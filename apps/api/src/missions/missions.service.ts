@@ -10,10 +10,13 @@ import {
   approveParkedItem,
   buildDigest,
   classifyRisk,
+  mergeRoleModels,
   rejectParkedItem,
   resumeMissionIfBlocked,
+  RoleModelsConfigSchema,
+  type RoleModelsConfig,
 } from "@arzonic/agent-core";
-import type { BacklogService } from "@arzonic/agent-shared";
+import type { BacklogService, MemoryService } from "@arzonic/agent-shared";
 import type {
   MissionDetail,
   MissionItemDecisionResponse,
@@ -22,9 +25,13 @@ import type {
   StopMissionResponse,
 } from "@arzonic/agent-client";
 import type { ApiEnv } from "../env.js";
-import { BACKLOG, ENV } from "../tokens.js";
+import { BACKLOG, ENV, MEMORY } from "../tokens.js";
+import { assertProvidersConfigured } from "../role-models.util.js";
 import { RunsService } from "../runs/runs.service.js";
 import type { CreateMissionDto, MissionItemDecisionDto } from "./missions.dto.js";
+
+/** A mission is terminal once it can no longer be fed work — its team is then frozen. */
+const TERMINAL_MISSION_STATUSES = new Set(["done", "failed", "stopped"]);
 
 /** How often the SSE stream re-reads mission state and pushes a snapshot. */
 const SNAPSHOT_INTERVAL_MS = 2000;
@@ -34,6 +41,7 @@ export class MissionsService {
   constructor(
     @Inject(BACKLOG) private readonly backlog: BacklogService | null,
     @Inject(ENV) private readonly env: ApiEnv,
+    @Inject(MEMORY) private readonly memory: MemoryService | null,
     @Inject(RunsService) private readonly runs: RunsService,
   ) {}
 
@@ -47,28 +55,27 @@ export class MissionsService {
   }
 
   /**
-   * Every provider a team-config references must have its API key set server-side,
-   * else the worker couldn't build that agent. Reject at creation for fast feedback.
+   * A project's stored default team config — the team new missions inherit.
+   * Defensively parsed: a malformed settings blob yields no default rather than
+   * a 500, and an absent memory service (no DB/embeddings) simply means none.
    */
-  private validateRoleModels(roleModels: CreateMissionDto["roleModels"]): void {
-    const keyFor: Record<string, string | undefined> = {
-      mistral: this.env.MISTRAL_API_KEY,
-      anthropic: this.env.ANTHROPIC_API_KEY,
-      google: this.env.GOOGLE_API_KEY,
-    };
-    for (const [role, spec] of Object.entries(roleModels ?? {})) {
-      if (spec && !keyFor[spec.provider]) {
-        throw new BadRequestException(
-          `Role '${role}' uses provider '${spec.provider}', but its API key is not configured on the server.`,
-        );
-      }
-    }
+  private async projectTeamDefault(projectId: string): Promise<RoleModelsConfig> {
+    if (!this.memory) return {};
+    const project = await this.memory.getProject(projectId);
+    const parsed = RoleModelsConfigSchema.safeParse(project?.settings?.roleModels ?? {});
+    return parsed.success ? (parsed.data as RoleModelsConfig) : {};
   }
 
   async create(dto: CreateMissionDto): Promise<MissionDetail> {
     const backlog = this.require();
     const repoPath = this.runs.validateRepoPath(dto.repoPath);
-    this.validateRoleModels(dto.roleModels);
+    // Creation-time inheritance (like the repo): the mission folds the project's
+    // default team under its own picks, so unpinned roles get the project default
+    // and the mission's choices win. The worker then layers the global default
+    // (DB) + env baseline below this — net precedence: mission > project > global > env.
+    const projectDefault = await this.projectTeamDefault(dto.projectId);
+    const roleModels = mergeRoleModels(projectDefault, dto.roleModels);
+    assertProvidersConfigured(this.env, roleModels);
     const mission = await backlog.createMission({
       projectId: dto.projectId,
       goal: dto.goal,
@@ -76,7 +83,7 @@ export class MissionsService {
       acceptanceCriteria: dto.acceptanceCriteria ?? [],
       budget: dto.budget ?? null,
       deadline: dto.deadline ?? null,
-      roleModels: dto.roleModels,
+      roleModels,
     });
     // Seed the initial backlog, classifying risk up front so the board shows it
     // (the controller re-checks at run-time too — this is just for visibility).
@@ -108,6 +115,26 @@ export class MissionsService {
     const items = await backlog.listItems(id);
     const digest = buildDigest(mission, items);
     return { ...mission, items, digest } as MissionDetail;
+  }
+
+  /**
+   * Re-point a non-terminal mission's team mid-flight. The worker rebuilds this
+   * mission's agents from the row on each pass, so the change takes effect on the
+   * next planning/execution round — not the item currently in flight. Providers
+   * are validated server-side exactly as at creation.
+   */
+  async updateRoleModels(id: string, roleModels: RoleModelsConfig): Promise<MissionDetail> {
+    const backlog = this.require();
+    const mission = await backlog.getMission(id);
+    if (!mission) throw new NotFoundException(`No mission ${id}`);
+    if (TERMINAL_MISSION_STATUSES.has(mission.status)) {
+      throw new ConflictException(
+        `Mission ${id} is ${mission.status} — its team can no longer be changed.`,
+      );
+    }
+    assertProvidersConfigured(this.env, roleModels);
+    await backlog.updateMission(id, { roleModels });
+    return this.detail(id);
   }
 
   /** Kill switch: the worker halts at its next checkpoint (status != running). */

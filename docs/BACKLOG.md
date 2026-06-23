@@ -49,6 +49,30 @@ Det store perspektiv — fra nu til Nordstjernen. Detaljerne lever i tiers + epi
 
 ## ✅ Senest leveret
 
+### 2026-06-23 — M3 Trin 4 i mål: per-projekt default-team + redigér en kørende missions team
+- [x] **Per-projekt default-team (arv ved oprettelse):** et projekt gemmer sit eget standard-team
+      (`projects.settings.roleModels`); en ny mission **arver** det og fletter sine egne valg ovenpå i
+      [MissionsService.create](../apps/api/src/missions/missions.service.ts) — `mergeRoleModels(projectDefault, dto.roleModels)`.
+      Workeren lægger som før global default (DB) + env nedenunder, så netto-præcedensen bliver **mission > projekt >
+      global > env** — **uden at røre mission-workeren** (projekt-laget er foldet ind i `mission.roleModels` ved oprettelse).
+- [x] **Redigér en kørende missions team:** `PATCH /missions/:id/role-models`
+      ([missions.controller.ts](../apps/api/src/missions/missions.controller.ts) + `updateRoleModels` i servicen) opdaterer en
+      **ikke-terminal** missions `roleModels`; træder i kraft ved workerens næste planlægnings-runde (den rebuilder agents
+      pr. pass). Terminal mission (done/failed/stopped) afvises med 409.
+- [x] **Pure `mergeRoleModels(...layers)`** i core ([models.ts](../packages/core/src/models.ts)) — ordnet shallow-merge,
+      senere lag vinder, `undefined`/tomme lag springes over: hele præcedens-stigen ét sted. `MissionPatch` (core + shared)
+      får `roleModels`; `backlog.updateMission` mapper `role_models` (jsonb) som de øvrige json-felter.
+- [x] **Én server-side provider-gate:** ny `assertProvidersConfigured(env, roleModels)`
+      ([role-models.util.ts](../apps/api/src/role-models.util.ts)) som mission-create/update, per-projekt-default **og** den
+      globale settings-default alle funnel'er igennem — afviser et team der bruger en provider uden nøgle. Validerer det
+      **flettede** resultat, så et dårligt projekt-default fanges ved mission-oprettelse.
+- [x] **UI:** team-vælger i [ProjectFormView](../apps/web/app/components/ProjectFormView.tsx) (projektets standard-team)
+      + "Team"-knap → modal på mission-dashboardet ([missions/[id]](../apps/web/app/missions/[id]/page.tsx)) der redigerer en
+      kørende missions team (delt `TeamModelPicker`). Ny proxy-rute + `UpdateMissionRoleModelsRequest`-wire-type.
+- [x] Bevist: [verify-role-models.ts](../packages/core/verify-role-models.ts) udvidet (merge-stigen: mission vinder,
+      projekt-/global-/env-only-roller overlever, projekt-default ved tom mission, tomme lag = intet) + shared role-models-
+      harness stadig grøn + API-smoke grøn (DI booter med MEMORY-injektion). `turbo build` grøn (6/6).
+
 ### 2026-06-23 — M3 Trin 4: Per-rolle temperatur (fx en deterministisk critic)
 - [x] **`temperature?` på `ModelSpec`** ([models.ts](../packages/core/src/models.ts), zod 0–2): hver rolle kan nu
       sætte sin egen sampling-temperatur (0 = deterministisk, fx en critic). Rent additivt — udeladt ⇒ runtime-default.
@@ -621,7 +645,7 @@ Build-order (shippet + bevist pr. trin, som M1/M2). Foundation → tillid:
       AsyncCaller-backoff, 28 checks) + [verify-drift.ts](../packages/core/verify-drift.ts)
       (transient genoptager; ikke-transient overflades; vedvarende udfald terminerer, 15 checks).
       `turbo build` grøn (6/6).
-- [🚧] **4. Per-rolle modeller + prompt-caching (cost/kvalitet).**
+- [x] **4. Per-rolle modeller + prompt-caching (cost/kvalitet).** *(i mål 2026-06-23)*
   - [x] **Per-rolle modeller (global)** *(leveret 2026-06-19)* — `MODEL_ROLES`/`pickModel`-søm i core +
         `buildRoleModels(env)` i shared (mistral/anthropic/google), env `LLM_ROLE_MODELS`. Wired i alle
         grafer + missions-stien + CLI. Bevist. Se "Senest leveret" + design-brief §3.8.
@@ -640,8 +664,10 @@ Build-order (shippet + bevist pr. trin, som M1/M2). Foundation → tillid:
         en latent bug (hardkodet `0.2` ville have crashet en Opus-4.8-rolle). UI-input pr. rolle i `TeamModelPicker`.
         *Bevist:* [verify-role-models.ts](../packages/shared/verify-role-models.ts) udvidet (critic=0 flyder, default
         0.2, Sonnet beholder, Opus 4.8 dropper + invocationParams kaster ikke).
-  - [ ] **Per-projekt default** team-config + redigér en **kørende** missions team. (Bemærk: når team-i-missioner
-        ★ lander, bliver architect/worker/lead/critic-valgene aktive i missionen.)
+  - [x] **Per-projekt default + redigér en kørende missions team** *(leveret 2026-06-23)* — projektet gemmer sit eget
+        standard-team (`projects.settings.roleModels`); en ny mission arver det ved oprettelse (`mergeRoleModels`), og
+        `PATCH /missions/:id/role-models` re-pointer en kørende missions team (træder i kraft næste pass). Netto-præcedens:
+        **mission > projekt > global > env** — uden at røre workeren. Se "Senest leveret".
 - [ ] **5. Approvable diffs (se hvad motoren skrev).** Nyt `Differ`-søm: pr. item en
       struktureret diff (ændrede filer, ±linjer, patch) af item-branch vs. mission-branch.
       Eksponeret i mission-API'et + vist på dashboardet — især for parkerede items, så et

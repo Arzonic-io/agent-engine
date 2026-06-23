@@ -26,3 +26,9 @@ export const MissionItemDecisionSchema = z.object({
   decision: z.enum(["approve", "reject"]),
 });
 export type MissionItemDecisionDto = z.infer<typeof MissionItemDecisionSchema>;
+
+/** Body of PATCH /missions/:id/role-models — re-point a running mission's team. */
+export const UpdateMissionRoleModelsSchema = z.object({
+  roleModels: RoleModelsConfigSchema,
+});
+export type UpdateMissionRoleModelsDto = z.infer<typeof UpdateMissionRoleModelsSchema>;

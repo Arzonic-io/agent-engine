@@ -78,7 +78,7 @@ export interface CreateMissionInput {
 }
 
 export type MissionPatch = Partial<
-  Pick<Mission, "status" | "spentTokens" | "deadline" | "budget">
+  Pick<Mission, "status" | "spentTokens" | "deadline" | "budget" | "roleModels">
 >;
 
 export interface CreateBacklogItemInput {
@@ -182,13 +182,17 @@ export class BacklogService {
       spentTokens: "spent_tokens",
       deadline: "deadline",
       budget: "budget",
+      roleModels: "role_models",
     };
+    // role_models is a jsonb column — stringify it like the item-side json fields.
+    const json = new Set<keyof MissionPatch>(["roleModels"]);
     const sets: string[] = [];
     const vals: unknown[] = [];
     let i = 1;
     for (const [k, v] of Object.entries(patch)) {
-      sets.push(`${cols[k as keyof MissionPatch]} = $${i++}`);
-      vals.push(v);
+      const key = k as keyof MissionPatch;
+      sets.push(`${cols[key]} = $${i++}`);
+      vals.push(json.has(key) ? JSON.stringify(v) : v);
     }
     if (sets.length === 0) return this.getMission(id);
     vals.push(id);

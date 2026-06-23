@@ -104,7 +104,7 @@ export interface CreateMissionInput {
 }
 
 export type MissionPatch = Partial<
-  Pick<Mission, "status" | "spentTokens" | "deadline" | "budget">
+  Pick<Mission, "status" | "spentTokens" | "deadline" | "budget" | "roleModels">
 >;
 
 /** Fields callers supply when adding a backlog item; the store fills the rest. */

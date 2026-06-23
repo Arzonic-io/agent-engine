@@ -7,7 +7,13 @@
 import type { BaseChatModel } from "@langchain/core/language_models/chat_models";
 import { MemorySaver } from "@langchain/langgraph";
 import { createAgentGraph, createTeamGraph } from "./src/graph.js";
-import { MODEL_ROLES, pickModel, type RoleModels } from "./src/models.js";
+import {
+  MODEL_ROLES,
+  mergeRoleModels,
+  pickModel,
+  type RoleModels,
+  type RoleModelsConfig,
+} from "./src/models.js";
 
 const ok = (c: boolean, m: string) => {
   if (!c) throw new Error(`FAIL: ${m}`);
@@ -48,4 +54,29 @@ ok(!!createTeamGraph({ model: fallback, models, checkpointer: cp() }), "team gra
 ok(!!createTeamGraph({ model: fallback, checkpointer: cp() }), "team graph compiles without models (back-compat)");
 ok(!!createAgentGraph({ model: fallback, models, checkpointer: cp() }), "single graph compiles with per-role models");
 
-console.log("\nPer-role model seam verified ✓");
+// 4. mergeRoleModels — the precedence ladder (env ‹ global ‹ project ‹ mission).
+//    Later layers win per role; orthogonal roles all survive; optionals are skipped.
+const envL: RoleModelsConfig = { implementer: { provider: "mistral" }, replan: { provider: "mistral" } };
+const globalL: RoleModelsConfig = { implementer: { provider: "anthropic" }, critic: { provider: "anthropic" } };
+const projectL: RoleModelsConfig = { implementer: { provider: "google" }, decompose: { provider: "google" } };
+const missionL: RoleModelsConfig = { implementer: { provider: "anthropic", model: "claude-opus-4-8" } };
+const merged = mergeRoleModels(envL, globalL, projectL, missionL);
+ok(
+  merged.implementer?.provider === "anthropic" && merged.implementer?.model === "claude-opus-4-8",
+  "the mission layer wins per role (implementer = its own pick over project/global/env)",
+);
+ok(merged.critic?.provider === "anthropic", "a global-only role survives the merge (critic)");
+ok(merged.decompose?.provider === "google", "a project-only role survives the merge (decompose)");
+ok(merged.replan?.provider === "mistral", "an env-only role survives the merge (replan)");
+ok(
+  mergeRoleModels(projectL, missionL).implementer?.provider === "anthropic",
+  "a mission's pick overrides the project default for the same role",
+);
+ok(
+  mergeRoleModels(projectL, {}).implementer?.provider === "google",
+  "no mission pick → the project default applies (creation-time inheritance)",
+);
+ok(mergeRoleModels(undefined, {}, undefined).replan === undefined, "empty/undefined layers contribute nothing");
+ok(Object.keys(mergeRoleModels()).length === 0, "no layers at all → an empty config");
+
+console.log("\nPer-role model seam + merge ladder verified ✓");

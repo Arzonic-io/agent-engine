@@ -5,6 +5,7 @@ import {
   Get,
   Inject,
   Param,
+  Patch,
   Post,
   Sse,
   type MessageEvent,
@@ -20,8 +21,10 @@ import { ZodValidationPipe } from "../runs/dto/runs.dto.js";
 import {
   CreateMissionSchema,
   MissionItemDecisionSchema,
+  UpdateMissionRoleModelsSchema,
   type CreateMissionDto,
   type MissionItemDecisionDto,
+  type UpdateMissionRoleModelsDto,
 } from "./missions.dto.js";
 import { MissionsService } from "./missions.service.js";
 
@@ -49,6 +52,14 @@ export class MissionsController {
   @Sse(":id/stream")
   stream(@Param("id") id: string): Observable<MessageEvent> {
     return this.missions.stream(id).pipe(map((event) => ({ data: event })));
+  }
+
+  @Patch(":id/role-models")
+  updateRoleModels(
+    @Param("id") id: string,
+    @Body(new ZodValidationPipe(UpdateMissionRoleModelsSchema)) dto: UpdateMissionRoleModelsDto,
+  ): Promise<MissionDetail> {
+    return this.missions.updateRoleModels(id, dto.roleModels);
   }
 
   @Post(":id/stop")

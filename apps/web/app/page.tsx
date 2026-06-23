@@ -3,7 +3,14 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { LuBrain, LuListTodo, LuPencil, LuRocket } from "react-icons/lu";
-import type { MissionSummary, Project, ProjectTask, RepoInfo, Rubric } from "@arzonic/agent-client";
+import type {
+  MissionSummary,
+  Project,
+  ProjectTask,
+  RepoInfo,
+  RoleModelsConfig,
+  Rubric,
+} from "@arzonic/agent-client";
 import {
   ACTIVE_PROJECT_EVENT,
   consumeNewProjectRequest,
@@ -118,7 +125,12 @@ export default function Composer() {
     return () => window.removeEventListener(ACTIVE_PROJECT_EVENT, onSwitch);
   }, []);
 
-  async function createProject(data: { name: string; brief: string; repoPath?: string }) {
+  async function createProject(data: {
+    name: string;
+    brief: string;
+    repoPath?: string;
+    roleModels?: RoleModelsConfig;
+  }) {
     if (!data.name.trim()) return;
     setSavingProject(true);
     setError(null);
@@ -144,7 +156,12 @@ export default function Composer() {
     }
   }
 
-  async function updateProject(data: { name: string; brief: string; repoPath: string }) {
+  async function updateProject(data: {
+    name: string;
+    brief: string;
+    repoPath: string;
+    roleModels: RoleModelsConfig;
+  }) {
     if (!projectId || !data.name.trim()) return;
     setSavingProject(true);
     setError(null);
@@ -153,7 +170,12 @@ export default function Composer() {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         // repoPath "" clears the bound repo; a path sets it.
-        body: JSON.stringify({ name: data.name, brief: data.brief, repoPath: data.repoPath || null }),
+        body: JSON.stringify({
+          name: data.name,
+          brief: data.brief,
+          repoPath: data.repoPath || null,
+          roleModels: data.roleModels,
+        }),
       });
       if (!res.ok) throw new Error(await res.text());
       const updated = (await res.json()) as Project;
@@ -226,7 +248,14 @@ export default function Composer() {
         repos={repos}
         error={error}
         submitting={savingProject}
-        onSubmit={(d) => void createProject({ name: d.name, brief: d.brief, repoPath: d.repoPath || undefined })}
+        onSubmit={(d) =>
+          void createProject({
+            name: d.name,
+            brief: d.brief,
+            repoPath: d.repoPath || undefined,
+            roleModels: d.roleModels,
+          })
+        }
         onCancel={() => {
           setNewOpen(false);
           setError(null);
@@ -246,6 +275,7 @@ export default function Composer() {
         initialRepo={
           typeof selected.settings?.repoPath === "string" ? (selected.settings.repoPath as string) : ""
         }
+        initialTeam={selected.settings?.roleModels as RoleModelsConfig | undefined}
         error={error}
         submitting={savingProject}
         onSubmit={updateProject}

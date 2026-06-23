@@ -210,6 +210,11 @@ export interface UpdateRoleModelsRequest {
   roleModels: RoleModelsConfig;
 }
 
+/** Body of PATCH /missions/:id/role-models — re-point a running mission's team. */
+export interface UpdateMissionRoleModelsRequest {
+  roleModels: RoleModelsConfig;
+}
+
 export interface MissionSummary {
   id: string;
   projectId: string;

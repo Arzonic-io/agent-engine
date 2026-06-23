@@ -1,9 +1,17 @@
 "use client";
 
 import { useState } from "react";
-import { LuFolderGit2 } from "react-icons/lu";
-import type { RepoInfo } from "@arzonic/agent-client";
+import { LuFolderGit2, LuUsers } from "react-icons/lu";
+import type { RepoInfo, RoleModelsConfig } from "@arzonic/agent-client";
 import { RepoPicker } from "./RepoPicker";
+import {
+  TEAM_ROLES,
+  TeamModelPicker,
+  roleModelsToSelection,
+  selectionToRoleModels,
+  teamCount,
+  type TeamSelection,
+} from "./TeamModelPicker";
 
 /**
  * Full-screen project form — used for the first-ever project, the "Nyt projekt"
@@ -20,6 +28,7 @@ export function ProjectFormView({
   initialName = "",
   initialBrief = "",
   initialRepo = "",
+  initialTeam,
   error,
   submitting,
   onSubmit,
@@ -31,19 +40,28 @@ export function ProjectFormView({
   initialName?: string;
   initialBrief?: string;
   initialRepo?: string;
+  /** The project's stored default team config (edit mode); new missions inherit it. */
+  initialTeam?: RoleModelsConfig;
   error?: string | null;
   submitting?: boolean;
-  onSubmit: (data: { name: string; brief: string; repoPath: string }) => void;
+  onSubmit: (data: {
+    name: string;
+    brief: string;
+    repoPath: string;
+    roleModels: RoleModelsConfig;
+  }) => void;
   onCancel: () => void;
 }) {
   const [name, setName] = useState(initialName);
   const [brief, setBrief] = useState(initialBrief);
   const [repo, setRepo] = useState(initialRepo);
+  const [team, setTeam] = useState<TeamSelection>(() => roleModelsToSelection(initialTeam));
+  const [showTeam, setShowTeam] = useState(false);
   const isEdit = mode === "edit";
 
   const submit = () => {
     if (!name.trim() || submitting) return;
-    onSubmit({ name, brief, repoPath: repo.trim() });
+    onSubmit({ name, brief, repoPath: repo.trim(), roleModels: selectionToRoleModels(team) });
   };
 
   return (
@@ -102,6 +120,32 @@ export function ProjectFormView({
             </span>
             <RepoPicker repos={repos} value={repo} onChange={setRepo} />
           </div>
+
+          {/* Project default team — new missions inherit it; a mission can still override. */}
+          <div className="rounded-field border border-line bg-elev/40">
+            <button
+              type="button"
+              onClick={() => setShowTeam((v) => !v)}
+              className="flex w-full items-center justify-between px-2.5 py-2 text-xs text-dim transition hover:text-fg"
+            >
+              <span className="inline-flex items-center gap-1.5">
+                <LuUsers className="h-3.5 w-3.5" /> Team-modeller (projektets standard)
+              </span>
+              <span className="text-[10px] text-fg/60">
+                {teamCount(team) > 0 ? `${teamCount(team)} valgt` : "Standard"}
+              </span>
+            </button>
+            {showTeam && (
+              <div className="border-t border-line p-2">
+                <p className="mb-2 text-[11px] leading-relaxed text-dim">
+                  Nye missioner i projektet arver disse modeller. En enkelt mission kan stadig
+                  overstyre dem i sin opsætning.
+                </p>
+                <TeamModelPicker roles={TEAM_ROLES} value={team} onChange={setTeam} />
+              </div>
+            )}
+          </div>
+
           <div className="flex items-center gap-2 pt-1">
             <button
               onClick={submit}

@@ -4,6 +4,7 @@ import type { AppSettingsService } from "@arzonic/agent-shared";
 import type { AppSettings } from "@arzonic/agent-client";
 import type { ApiEnv } from "../env.js";
 import { ENV, SETTINGS } from "../tokens.js";
+import { assertProvidersConfigured } from "../role-models.util.js";
 import type { UpdateRoleModelsDto } from "./settings.dto.js";
 
 @Injectable()
@@ -37,14 +38,8 @@ export class SettingsService {
     if (!this.settings) {
       throw new BadRequestException("Settings need a database — set SUPABASE_DB_URL.");
     }
-    const available = new Set(this.availableProviders());
-    for (const [role, spec] of Object.entries(dto.roleModels)) {
-      if (spec && !available.has(spec.provider)) {
-        throw new BadRequestException(
-          `Role '${role}' uses provider '${spec.provider}', but its API key is not configured on the server.`,
-        );
-      }
-    }
+    // Same server-side guard every door into a persisted team config funnels through.
+    assertProvidersConfigured(this.env, dto.roleModels);
     await this.settings.setRoleModels(dto.roleModels);
     return this.get();
   }

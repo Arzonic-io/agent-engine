@@ -88,3 +88,25 @@ export function pickModel(
 ): BaseChatModel {
   return models?.[role] ?? fallback;
 }
+
+/**
+ * Merge ordered role-model config layers into one, later layers winning per role.
+ * The precedence ladder a mission resolves through — env baseline ‹ global default
+ * (DB) ‹ project default ‹ the mission's own picks — is exactly this shallow merge
+ * in order. `undefined`/empty layers are skipped so callers can pass optionals
+ * straight in. Pure config data in, pure config data out (no SDK), so it lives
+ * beside `pickModel`; the runtime turns the result into live models later.
+ */
+export function mergeRoleModels(
+  ...layers: (RoleModelsConfig | undefined)[]
+): RoleModelsConfig {
+  const out: RoleModelsConfig = {};
+  for (const layer of layers) {
+    if (!layer) continue;
+    for (const role of Object.keys(layer) as ModelRole[]) {
+      const spec = layer[role];
+      if (spec) out[role] = spec;
+    }
+  }
+  return out;
+}

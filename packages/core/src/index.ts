@@ -22,6 +22,7 @@ export {
   MODEL_ROLES,
   MODEL_PROVIDERS,
   pickModel,
+  mergeRoleModels,
   ModelSpecSchema,
   RoleModelsConfigSchema,
   type ModelRole,
