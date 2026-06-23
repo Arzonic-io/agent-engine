@@ -36,7 +36,7 @@ export function MissionComposer({
 
   const noRepo = !repoPath.trim();
 
-  /** Toggle a role on/off. Off clears its model override; turning one on reveals the editor. */
+  /** Toggle a role on/off. Off clears its model override. The config panel only opens via the Konfigurér button. */
   function toggleRole(key: string) {
     const next = new Set(activeRoles);
     if (next.has(key)) {
@@ -48,7 +48,6 @@ export function MissionComposer({
       });
     } else {
       next.add(key);
-      setShowTeamConfig(true);
     }
     setActiveRoles(next);
   }

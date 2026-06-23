@@ -142,9 +142,9 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
               <div className="max-w-2xl">
                 <p className="mb-4 text-sm leading-relaxed text-dim">
                   Hvert team-medlem er en <span className="text-fg">stilling</span>, der kan køre på sin egen
-                  model. Vælg en provider — og evt. en bestemt model — pr. stilling; <span className="text-fg">Standard</span>{" "}
-                  bruger den globale provider. Gemmes med det samme og bruges på næste kørsel. En enkelt mission
-                  kan stadig vælge sit eget team i sin opsætning.
+                  model. Vælg provider og model pr. stilling — alle bruger <span className="text-fg">Mistral</span>{" "}
+                  som standard. Gemmes med det samme og bruges på næste kørsel. En enkelt mission kan stadig
+                  vælge sit eget team i sin opsætning.
                 </p>
                 <TeamModelPicker
                   roles={TEAM_ROLES}
