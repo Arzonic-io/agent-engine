@@ -84,6 +84,14 @@ export interface DecomposeInput {
   mission: Mission;
   /** Titles already in the backlog (usually empty at decompose time). */
   existingTitles?: string[];
+  /**
+   * Strategic re-plan at the idle boundary (north-star self-direction): the initial
+   * backlog drained but the goal may not be met, so the controller asks the planner
+   * for the NEXT slice of work toward the goal (or an empty list if it's truly done).
+   * Distinguishes this continuation from the one-shot initial decompose so the prompt
+   * can frame "what's still missing" instead of "plan from scratch". Default false.
+   */
+  continuation?: boolean;
 }
 
 export interface DecomposeResult {
@@ -276,6 +284,18 @@ export interface MissionGovernors {
    * nor vice-versa. Default 5.
    */
   requeueLimit?: number;
+  /**
+   * How many times the controller may STRATEGICALLY RE-DECOMPOSE when the backlog
+   * drains but the goal isn't necessarily met — feeding the goal + everything
+   * already attempted back through the `Decomposer` to grow the NEXT slice of work,
+   * instead of stopping "done" the instant the initial plan empties. This is what
+   * lets an overnight mission self-direct toward the goal rather than just draining
+   * a fixed list (design-brief §5). Bounded by this cap (and by every other
+   * governor — budget/deadline/iterations/no-progress still apply each round). A
+   * re-plan that proposes no new work ends the mission "done". Default 0 = OFF
+   * (exactly the pre-strategic-replan behaviour); requires a `Decomposer`.
+   */
+  maxStrategicReplans?: number;
 }
 
 export interface MissionDeps {
@@ -388,12 +408,20 @@ export async function runMission(
     }
   }
 
-  let iterations = 0;
+  // Seed governor counters from the persisted row so the termination guarantee
+  // survives a restart (M3 / blocker 4a): a mission that crashes and resumes
+  // continues counting iterations + no-progress instead of re-earning its full
+  // budget each restart. `itemsDone` is per-run telemetry only, so it starts at 0.
+  let iterations = mission.iterations ?? 0;
   let itemsDone = 0;
-  let noProgress = 0;
+  let noProgress = mission.noProgress ?? 0;
+  /** Strategic re-decompose count for THIS run (bounded by maxStrategicReplans). */
+  let strategicReplans = 0;
 
   const stop = async (status: MissionStatus, reason: string): Promise<MissionOutcome> => {
-    await backlog.updateMission(missionId, { status });
+    // Persist the final counters alongside the status so a resumed/inspected mission
+    // sees the true iteration + no-progress totals (blocker 4a).
+    await backlog.updateMission(missionId, { status, iterations, noProgress });
     // Deliver the morning digest (M3 Trin 6) via the Notifier as the mission ends —
     // a rollup of what's done, what's blocking + why, and the next high-risk work.
     if (deps.notifier) {
@@ -441,6 +469,7 @@ export async function runMission(
         diff: DiffResult | null;
       }
     | { kind: "requeue"; item: BacklogItem; reason: string }
+    | { kind: "aborted"; item: BacklogItem }
     | { kind: "error"; item: BacklogItem; error: unknown };
 
   /**
@@ -454,6 +483,13 @@ export async function runMission(
     try {
       return await runItem(item);
     } catch (err) {
+      // Kill switch / deadline / budget fired mid-run (blocker 2): the worker's
+      // watcher aborted the injected signal, so the in-flight run threw. This is an
+      // INTERRUPTION, not a failure — surface it as `aborted` so finalize returns
+      // the item cleanly to the queue (not a thrash failure, not an infra requeue).
+      // Checked first: an abort can surface as any error shape, and we must not
+      // mistake it for a real run-error and falsely park the item.
+      if (deps.signal?.aborted) return { kind: "aborted", item };
       if (isTransient(err)) return { kind: "requeue", item, reason: errText(err, 300) };
       return { kind: "error", item, error: err };
     }
@@ -509,6 +545,17 @@ export async function runMission(
    * sequentially across a batch — integration mutates the shared mission branch.
    */
   const finalize = async (outcome: ItemOutcome): Promise<void> => {
+    // Blocker 2 — preemptive stop: the run was interrupted by the kill switch /
+    // deadline / budget abort. Return the item to the queue (so a resume continues
+    // it) WITHOUT counting it as a thrash failure or a transient requeue, and
+    // without parking it. The loop's next top check then stops the mission with the
+    // correct reason (stopped / deadline / budget). Idempotent and crash-safe: the
+    // resume-hygiene at the top of runMission would reset a stuck in_progress too.
+    if (outcome.kind === "aborted") {
+      await backlog.updateItem(outcome.item.id, { status: "todo" });
+      return;
+    }
+
     // M3 Trin 3 — transient/infra recovery: re-queue the item (back to todo)
     // instead of failing it, bounded by requeueLimit so a persistent outage still
     // terminates. Counts as no-progress (so the no-progress governor can stop a
@@ -673,6 +720,39 @@ export async function runMission(
       const parked = items.some((i) => i.status === "blocked_needs_human");
       if (pending) return stop("blocked", "remaining items blocked on unmet dependencies");
       if (parked) return stop("blocked", "all remaining items need a human");
+
+      // Strategic re-plan (blocker 3 / north-star self-direction): the backlog
+      // drained and nothing is pending or parked — but the GOAL may not be met.
+      // Instead of stopping "done" the instant the initial plan empties, ask the
+      // Decomposer for the NEXT slice of work toward the goal, feeding it everything
+      // already attempted (existingTitles) so it won't repeat it. New items ⇒ keep
+      // looping (governors re-checked at the top); an empty re-plan ⇒ the goal is
+      // genuinely done. Bounded by maxStrategicReplans so it always terminates.
+      const maxStrategicReplans = gov.maxStrategicReplans ?? 0;
+      if (deps.decomposer && strategicReplans < maxStrategicReplans) {
+        strategicReplans++;
+        const plan = await deps.decomposer.decompose({
+          mission,
+          existingTitles: items.map((i) => i.title),
+          continuation: true,
+        });
+        if (plan.tokensUsed) {
+          mission =
+            (await backlog.updateMission(missionId, {
+              spentTokens: mission.spentTokens + plan.tokensUsed,
+            })) ?? mission;
+        }
+        const created = await createDecomposedItems(backlog, missionId, plan.items);
+        if (created.length > 0) {
+          noProgress = 0; // new goal-directed work is progress, not a stall
+          await deps.notifier?.notify({
+            type: "mission_digest",
+            missionId,
+            digest: buildDigest(mission, await backlog.listItems(missionId), deps.highRiskPatterns),
+          });
+          continue; // re-plan produced work — loop on (budget/deadline/etc re-checked)
+        }
+      }
       return stop("done", "done");
     }
 
@@ -682,5 +762,8 @@ export async function runMission(
     // mission branch and must not race.
     const outcomes = await Promise.all(batch.map((it) => runAndReplan(it)));
     for (const outcome of outcomes) await finalize(outcome);
+    // Persist the governor counters each iteration so they survive a restart
+    // (blocker 4a): `iterations` climbs in pickBatch, `noProgress` in finalize.
+    mission = (await backlog.updateMission(missionId, { iterations, noProgress })) ?? mission;
   }
 }

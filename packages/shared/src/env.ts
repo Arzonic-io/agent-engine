@@ -124,6 +124,24 @@ const EnvSchema = z
       .transform((s) => s.split(",").map((x) => x.trim()).filter(Boolean)),
     // How often the mission-worker scans for running missions to drive.
     MISSION_WORKER_POLL_MS: z.coerce.number().int().min(1000).default(5000),
+    // ── overnight trust: out-of-band notification + preemption + self-direction ──
+    // (blocker 1) Webhook the mission-worker POSTs parked-item / digest / stopped
+    // events to, so a sleeping human is actually reachable. Slack/Discord/Mattermost
+    // incoming webhooks work directly (they render the top-level `text`). Unset = off.
+    MISSION_NOTIFY_WEBHOOK_URL: z.url().optional(),
+    // (blocker 1) Push a mid-run digest of every running mission this often, so a
+    // still-running overnight mission reports before morning instead of only at the
+    // end. Unset = off (only the terminal digest fires). Min 1 min.
+    MISSION_DIGEST_INTERVAL_MS: z.coerce.number().int().min(60_000).optional(),
+    // (blocker 2) How often the worker's watcher re-reads mission status/deadline/
+    // budget to ABORT an in-flight run, so Stop + the deadline actually preempt
+    // work mid-item instead of only biting between batches.
+    MISSION_ABORT_POLL_MS: z.coerce.number().int().min(500).default(3000),
+    // (blocker 3) How many times a mission may strategically re-decompose when its
+    // backlog drains but the goal isn't met — letting an overnight run self-direct
+    // toward the goal instead of stopping the instant the initial plan empties.
+    // 0 = off (drain-and-stop). Every other governor still bounds the run.
+    MISSION_MAX_STRATEGIC_REPLANS: z.coerce.number().int().min(0).default(3),
   })
   .superRefine((env, ctx) => {
     // Every provider actually in use — the default plus any per-role override —

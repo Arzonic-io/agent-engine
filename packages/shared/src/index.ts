@@ -59,7 +59,9 @@ export {
 export { createVerifier, type VerifierOptions } from "./verifier.js";
 export {
   createConsoleNotifier,
+  createWebhookNotifier,
   type ConsoleNotifierOptions,
+  type WebhookNotifierOptions,
 } from "./notifier.js";
 export {
   runCheckProcess,

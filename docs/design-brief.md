@@ -361,4 +361,26 @@ MISSION_REVIEW_ROUNDS=1              # ★ critic↔implementer revision cycles 
 MISSION_AUTHOR_TESTS=false          # Trin 2: author a test exercising each item before verify (green = strong truth)
 MISSION_LLM_MAX_RETRIES=6           # Trin 3: transient-error retries per model call (exp backoff + jitter)
 MISSION_REQUEUE_LIMIT=2             # Trin 3: re-queues of a transiently-failing item before parking it
+# overnight trust (nordstjerne-gap, 2026-06-24):
+MISSION_NOTIFY_WEBHOOK_URL=        # blocker 1: out-of-band webhook (Slack/Discord/Mattermost/custom) for parked/digest/stopped
+MISSION_DIGEST_INTERVAL_MS=        # blocker 1: push a mid-run digest this often (ms, min 60000); empty = only at end
+MISSION_ABORT_POLL_MS=3000         # blocker 2: how often the worker re-reads status/deadline/budget to abort in-flight work
+MISSION_MAX_STRATEGIC_REPLANS=3    # blocker 3: strategic re-decompose rounds when the backlog drains (0 = drain-and-stop)
 ```
+
+> **As-built (nordstjerne-gap closed, 2026-06-24):** four blockers between "M3 ticked"
+> and "trust it unattended overnight", found by auditing the code (not the checkboxes),
+> are now closed. (1) **Out-of-band notification** — `createWebhookNotifier` (shared)
+> POSTs the human-actionable events to a webhook via the Notifier's `also` fan-out,
+> plus a scheduled mid-run digest, so a sleeping overseer is actually reachable.
+> (2) **Preemptive stop** — the worker builds an `AbortController` + a watcher that
+> aborts the in-flight run the moment the kill switch / deadline / budget trips; core
+> gained a clean `aborted` outcome that re-queues the item (never a false park).
+> (3) **Strategic self-direction** — when the backlog drains the controller re-invokes
+> the `Decomposer` with `continuation:true` (goal + everything attempted) for the next
+> slice, converging on an empty re-plan; bounded by `MISSION_MAX_STRATEGIC_REPLANS`.
+> (4) **Durable termination** — `iterations`/`no_progress` persist on the mission row,
+> so a thrashing mission can't re-earn its budget on every PM2 restart. *Proven:*
+> [verify-blockers.ts](../packages/core/verify-blockers.ts) +
+> [verify-notifier.ts](../packages/shared/verify-notifier.ts) (hermetic), with
+> [smoke-mission-full.ts](../packages/core/smoke-mission-full.ts) as the live full-stack run.

@@ -28,8 +28,14 @@ export function MissionComposer({
   const [criteria, setCriteria] = useState("");
   const [items, setItems] = useState("");
   const [budget, setBudget] = useState("");
+  const [deadline, setDeadline] = useState("");
   const [team, setTeam] = useState<TeamSelection>({});
-  const [activeRoles, setActiveRoles] = useState<Set<string>>(new Set());
+  // The whole team is active by default — every member works the mission unless you
+  // turn one off. An active-but-uncustomised role inherits the default team (Settings
+  // / project), so this never silently overrides your default models with Mistral.
+  const [activeRoles, setActiveRoles] = useState<Set<string>>(
+    () => new Set(TEAM_ROLES.map((r) => r.key)),
+  );
   const [showTeamConfig, setShowTeamConfig] = useState(false);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -66,6 +72,10 @@ export function MissionComposer({
           repoPath,
           acceptanceCriteria: criteria.split("\n").map((s) => s.trim()).filter(Boolean),
           budget: budget.trim() ? Number(budget) : null,
+          // Wall-clock "stop by" rail (blocker 2). datetime-local is local time with
+          // no zone; toISOString normalises it to the UTC ISO the API expects. Empty
+          // ⇒ no deadline (only budget / no-progress / iterations bound the run).
+          deadline: deadline.trim() ? new Date(deadline).toISOString() : null,
           items: items
             .split("\n")
             .map((s) => s.trim())
@@ -136,7 +146,7 @@ export function MissionComposer({
         <div className="mb-2 flex items-center gap-2 text-xs">
           <LuUsers className="h-3.5 w-3.5 text-dim" />
           <span className="font-medium text-fg">Team</span>
-          <span className="text-dim/70">slå en stilling til for at give den sin egen model</span>
+          <span className="text-dim/70">hele teamet er aktivt — slå en stilling fra du ikke vil bruge, eller giv en sin egen model</span>
           <button
             type="button"
             onClick={() => setShowTeamConfig((s) => !s)}
@@ -187,17 +197,28 @@ export function MissionComposer({
         )}
       </div>
 
-      <div className="mt-3 flex items-center justify-between gap-3 border-t border-line pt-3">
-        <label className="flex items-center gap-2 text-xs text-dim">
-          Token-budget
-          <input
-            value={budget}
-            onChange={(e) => setBudget(e.target.value.replace(/[^0-9]/g, ""))}
-            inputMode="numeric"
-            placeholder="ubegrænset"
-            className="input input-sm w-32 border-line bg-elev"
-          />
-        </label>
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-3 border-t border-line pt-3">
+        <div className="flex flex-wrap items-center gap-4">
+          <label className="flex items-center gap-2 text-xs text-dim">
+            Token-budget
+            <input
+              value={budget}
+              onChange={(e) => setBudget(e.target.value.replace(/[^0-9]/g, ""))}
+              inputMode="numeric"
+              placeholder="ubegrænset"
+              className="input input-sm w-32 border-line bg-elev"
+            />
+          </label>
+          <label className="flex items-center gap-2 text-xs text-dim">
+            Deadline <span className="text-dim/60">(stop senest)</span>
+            <input
+              type="datetime-local"
+              value={deadline}
+              onChange={(e) => setDeadline(e.target.value)}
+              className="input input-sm border-line bg-elev"
+            />
+          </label>
+        </div>
         <button
           onClick={() => void start()}
           disabled={creating || noRepo || !goal.trim()}

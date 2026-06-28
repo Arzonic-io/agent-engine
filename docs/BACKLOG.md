@@ -49,6 +49,45 @@ Det store perspektiv — fra nu til Nordstjernen. Detaljerne lever i tiers + epi
 
 ## ✅ Senest leveret
 
+### 2026-06-24 — 🌙 Nordstjerne-gap lukket: de 4 "stol-på-den-natten-over"-blockere
+Et multi-agent audit (verificeret mod kildekoden, ikke backlog-afkrydsningerne) fandt fire
+blokerende huller mellem "M3 afkrydset" og "kører uovervåget natten over". Alle fire er nu lukket:
+- [x] **Blocker 1 — out-of-band notifikation (overvågeren kan nås mens den sover).** Ny
+      `createWebhookNotifier` ([notifier.ts](../packages/shared/src/notifier.ts)): POSTer `{ text, event }`
+      pr. event (Slack/Discord/Mattermost incoming webhooks virker direkte; `text`-feltet). Default kun de
+      menneske-relevante events (`item_parked` / `mission_digest` / `mission_stopped`), best-effort (en
+      leveringsfejl kastes aldrig ind i loopet). Wired i workeren via `createConsoleNotifier({ also: [...] })`
+      bag `MISSION_NOTIFY_WEBHOOK_URL`. Plus en **planlagt mid-run digest** (`MISSION_DIGEST_INTERVAL_MS`) på
+      egen timer — en mission der stadig kører om morgenen rapporterer *før* den slutter, ikke kun ved exit.
+- [x] **Blocker 2 — preemptiv kill switch/deadline.** Workeren bygger nu en `AbortController` pr. mission +
+      en **watcher** ([mission-worker.ts](../apps/api/src/mission-worker.ts)) der hvert `MISSION_ABORT_POLL_MS`
+      genlæser status/deadline/budget og **aborter den igangværende kørsel** — signalet flyder gennem
+      `runMission → runner → graf-modelkald` (sømmet fandtes, var bare aldrig wired). Core fik en ren
+      `aborted`-outcome ([controller.ts](../packages/core/src/controller.ts)): et afbrudt item **re-queues til
+      todo** (resume-sikkert), parkeres aldrig som fejl, og loopets næste top stopper missionen med rigtig grund.
+      Stop kan ikke længere kun bide mellem batches. **UI:** deadline-felt i
+      [MissionComposer](../apps/web/app/components/MissionComposer.tsx) (var kun token-budget før).
+- [x] **Blocker 3 — strategisk re-decompose (missionen selv-dirigerer).** Når backloggen tømmes men målet
+      måske ikke er nået, kalder controlleren nu `Decomposer` igen med `continuation: true` + alle hidtidige
+      titler ([controller.ts](../packages/core/src/controller.ts) / [decompose.ts](../packages/core/src/nodes/decompose.ts)) —
+      planlægger næste skive arbejde mod målet, eller returnerer **tom** liste ⇒ ægte "done". Bounded af
+      `MISSION_MAX_STRATEGIC_REPLANS` (+ alle øvrige governors). Default 0 i core (off, bagudkompat); workeren
+      slår den til. Før: en drænet backlog endte straks "done", uanset målet.
+- [x] **Blocker 4a — termineringsgaranti overlever genstart.** `iterations` + `no_progress` persisteres nu på
+      `missions`-rækken ([backlog.ts](../packages/shared/src/backlog.ts) + [mission.ts](../packages/core/src/mission.ts));
+      controlleren seeder dem fra rækken ved resume og skriver dem tilbage hver runde. Før: in-memory tællere
+      nulstilledes ved hver PM2-genstart, så en thrashing mission gen-tjente hele sit budget i det uendelige.
+- [x] **Blocker 4b — fuld-stak live E2E (artefakt).** [smoke-mission-full.ts](../packages/core/smoke-mission-full.ts)
+      driver den *præcise* produktions-stak (decompose-fra-tom → team m. kritiker → tester → integrate → differ →
+      strategic re-plan) med en live model mod et throwaway-repo — den komposition der aldrig var kørt samlet
+      (gamle [smoke-mission.ts](../packages/core/smoke-mission.ts) kørte den nøgne implementer). Live-harness
+      (kræver API-nøgle, koster tokens) ⇒ ikke i CI; **køres manuelt** for at omsætte "alle søm grønne" til
+      "stakken bærer vand".
+- [x] Bevist (hermetisk): [verify-blockers.ts](../packages/core/verify-blockers.ts) (14 checks — abort-requeue
+      vs. park-kontrast, strategic re-plan konvergerer + er off ved 0, tæller-persistens over simuleret genstart)
+      \+ [verify-notifier.ts](../packages/shared/verify-notifier.ts) (10 checks — webhook-payload, event-filter,
+      fejl-swallow, `also`-fan-out). `turbo build` grøn (6/6); alle controller-harnesses (mission/decompose/drift/replan) stadig grønne.
+
 ### 2026-06-23 — M3 Trin 6: Morgendigest + kurskorrektion (M3 i mål 🎉)
 - [x] **Guidance (kurskorrektion ud over Stop):** nyt `guidance`-felt på missionen
       ([mission.ts](../packages/core/src/mission.ts) + DB-kolonne). `PATCH /missions/:id/guidance`

@@ -1,4 +1,5 @@
 import {
+  buildDigest,
   createImplementerGraph,
   createMissionTeamGraph,
   createWorktreeWorkRunner,
@@ -17,6 +18,7 @@ import {
   createGitDiffer,
   createGitIntegrator,
   createVerifier,
+  createWebhookNotifier,
   createWritableRepoTools,
   createWorktreeManager,
   ensureGitBranch,
@@ -54,7 +56,24 @@ async function main(): Promise<void> {
   const checkpointer = await createCheckpointer(env);
   const backlog = await createBacklog(env);
   const memory = await createMemory(env);
-  const notifier = createConsoleNotifier();
+  // Console first, plus an out-of-band webhook (blocker 1) when configured — so a
+  // parked high-risk item or the morning digest actually reaches a sleeping human
+  // instead of sitting only in PM2 logs. Best-effort: a webhook failure is logged,
+  // never thrown into the loop.
+  const notifier = createConsoleNotifier({
+    also: env.MISSION_NOTIFY_WEBHOOK_URL
+      ? [
+          createWebhookNotifier({
+            url: env.MISSION_NOTIFY_WEBHOOK_URL,
+            onError: (err) =>
+              console.warn(
+                "[mission-worker] notify webhook failed:",
+                err instanceof Error ? err.message : err,
+              ),
+          }),
+        ]
+      : [],
+  });
   // Global default team config, editable at runtime from the settings UI. Read
   // fresh each scan so a change is picked up within a poll cycle.
   const settings = new AppSettingsService({ connectionString: env.SUPABASE_DB_URL });
@@ -72,6 +91,9 @@ async function main(): Promise<void> {
     thrashLimit: env.MISSION_THRASH_LIMIT,
     concurrency: env.MISSION_CONCURRENCY,
     requeueLimit: env.MISSION_REQUEUE_LIMIT,
+    // Self-direction (blocker 3): when the backlog drains the controller re-decomposes
+    // toward the goal up to this many times instead of stopping "done" immediately.
+    maxStrategicReplans: env.MISSION_MAX_STRATEGIC_REPLANS,
   };
 
   const roleSummary = Object.entries(env.LLM_ROLE_MODELS ?? {})
@@ -91,16 +113,53 @@ async function main(): Promise<void> {
       } | ` +
       `concurrency: ${env.MISSION_CONCURRENCY} | ` +
       `retries: ${env.MISSION_LLM_MAX_RETRIES} llm / ${env.MISSION_REQUEUE_LIMIT} requeue | ` +
-      `poll: ${env.MISSION_WORKER_POLL_MS}ms`,
+      `poll: ${env.MISSION_WORKER_POLL_MS}ms | ` +
+      `notify: ${env.MISSION_NOTIFY_WEBHOOK_URL ? "console+webhook" : "console"} | ` +
+      `digest: ${
+        env.MISSION_DIGEST_INTERVAL_MS
+          ? `every ${Math.round(env.MISSION_DIGEST_INTERVAL_MS / 60000)}m`
+          : "on-stop"
+      } | ` +
+      `strategic-replan: ${env.MISSION_MAX_STRATEGIC_REPLANS} | ` +
+      `abort-poll: ${env.MISSION_ABORT_POLL_MS}ms`,
   );
 
   let stopping = false;
+  // Scheduled mid-run digest (blocker 1): runs on its own timer, independent of the
+  // serial mission scan, so a mission that legitimately runs for hours still pushes
+  // "here's what happened" before morning — not only its terminal digest.
+  let digestTimer: ReturnType<typeof setInterval> | undefined;
   const shutdown = () => {
     stopping = true;
+    if (digestTimer) clearInterval(digestTimer);
     console.log("[mission-worker] shutdown requested — finishing current mission, then exiting.");
   };
   process.on("SIGTERM", shutdown);
   process.on("SIGINT", shutdown);
+
+  if (env.MISSION_DIGEST_INTERVAL_MS) {
+    digestTimer = setInterval(() => {
+      void (async () => {
+        try {
+          const live = (await backlog.listMissions()).filter((m) => m.status === "running");
+          for (const m of live) {
+            const items = await backlog.listItems(m.id);
+            await notifier.notify({
+              type: "mission_digest",
+              missionId: m.id,
+              digest: buildDigest(m, items, env.MISSION_HIGH_RISK_PATTERNS),
+            });
+          }
+        } catch (err) {
+          console.warn(
+            "[mission-worker] scheduled digest failed:",
+            err instanceof Error ? err.message : err,
+          );
+        }
+      })();
+    }, env.MISSION_DIGEST_INTERVAL_MS);
+    digestTimer.unref?.();
+  }
 
   while (!stopping) {
     const running = (await backlog.listMissions()).filter((m) => m.status === "running");
@@ -195,6 +254,28 @@ async function main(): Promise<void> {
       // Capture each item's authored diff (M3 Trin 5) so the dashboard can show a
       // human what was written — especially before approving a parked item.
       const differ = createGitDiffer();
+      // Preemptive stop (blocker 2): a watcher re-reads the mission while it runs
+      // and ABORTS the in-flight work the moment the kill switch flips status, the
+      // wall-clock deadline passes, or the budget is exceeded — so Stop/deadline no
+      // longer have to wait for the current batch to finish. The signal is forwarded
+      // through runMission → runner → the graph's model calls; an aborted run is
+      // re-queued cleanly (the controller's `aborted` path), and the loop's next top
+      // check stops the mission with the right reason.
+      const abort = new AbortController();
+      const watcher = setInterval(() => {
+        void (async () => {
+          try {
+            const m = await backlog.getMission(mission.id);
+            if (!m) return;
+            const overBudget = m.budget != null && m.spentTokens >= m.budget;
+            const pastDeadline = m.deadline != null && Date.now() >= Date.parse(m.deadline);
+            if (m.status !== "running" || overBudget || pastDeadline) abort.abort();
+          } catch {
+            // A transient DB blip — just try again on the next tick.
+          }
+        })();
+      }, env.MISSION_ABORT_POLL_MS);
+      watcher.unref?.();
       try {
         const outcome = await runMission(
           {
@@ -215,6 +296,7 @@ async function main(): Promise<void> {
             isTransientError: isTransientLlmError,
             checks: env.MISSION_CHECKS,
             highRiskPatterns: env.MISSION_HIGH_RISK_PATTERNS,
+            signal: abort.signal,
           },
           mission.id,
         );
@@ -227,12 +309,15 @@ async function main(): Promise<void> {
           `[mission-worker] mission ${mission.id} crashed:`,
           err instanceof Error ? err.message : err,
         );
+      } finally {
+        clearInterval(watcher);
       }
     }
     if (stopping) break;
     await new Promise((r) => setTimeout(r, env.MISSION_WORKER_POLL_MS));
   }
 
+  if (digestTimer) clearInterval(digestTimer);
   await checkpointer.close();
   await backlog.end();
   await settings.end();

@@ -52,3 +52,62 @@ export function createConsoleNotifier(options: ConsoleNotifierOptions = {}): Not
     },
   };
 }
+
+/** Event types worth pushing out-of-band by default — the human-actionable ones. */
+const DEFAULT_WEBHOOK_EVENTS: MissionEvent["type"][] = [
+  "item_parked",
+  "mission_digest",
+  "mission_stopped",
+];
+
+export interface WebhookNotifierOptions {
+  /** Endpoint that receives a JSON POST per event (Slack/Discord/Mattermost incoming webhook, or any custom sink). */
+  url: string;
+  /**
+   * Which event types to deliver. Default: the human-actionable ones
+   * (parked items, the digest, mission stop) — NOT the noisy per-item start/finish/retry
+   * chatter, which would spam an overnight channel. Pass an explicit list to widen/narrow.
+   */
+  events?: MissionEvent["type"][];
+  /** Injectable fetch, for tests. Defaults to the global `fetch`. */
+  fetchImpl?: typeof fetch;
+  /**
+   * Called when delivery throws (network down, 5xx). A transport MUST NOT throw into
+   * the mission loop — a failed notification can never crash a run — so errors are
+   * swallowed and surfaced here for logging only.
+   */
+  onError?: (err: unknown, event: MissionEvent) => void;
+}
+
+/**
+ * Out-of-band Notifier (blocker 1 — the async overseer must be reachable while
+ * asleep). POSTs `{ text, event }` to a webhook per event: `text` is the same
+ * human-readable line the console logs (so Slack/Discord/Mattermost incoming
+ * webhooks, which render a top-level `text` field, work out of the box), and the
+ * full structured `event` rides along for custom consumers. Best-effort: delivery
+ * failures are caught and reported via `onError`, never thrown into the loop. Wire
+ * it into the console notifier's `also` fan-out so a parked high-risk item at 3am
+ * actually reaches a human instead of sitting silently in PM2 logs.
+ */
+export function createWebhookNotifier(options: WebhookNotifierOptions): Notifier {
+  const events = new Set(options.events ?? DEFAULT_WEBHOOK_EVENTS);
+  const doFetch = options.fetchImpl ?? fetch;
+  return {
+    async notify(event: MissionEvent): Promise<void> {
+      if (!events.has(event.type)) return;
+      const text = `[mission ${event.missionId}] ${describe(event)}`;
+      try {
+        const res = await doFetch(options.url, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ text, event }),
+        });
+        if (!res.ok) {
+          options.onError?.(new Error(`webhook responded ${res.status}`), event);
+        }
+      } catch (err) {
+        options.onError?.(err, event);
+      }
+    },
+  };
+}

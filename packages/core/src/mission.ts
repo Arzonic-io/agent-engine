@@ -105,6 +105,16 @@ export const MissionSchema = z.object({
    * planning round until a human changes or clears it (set to empty). Null = none.
    */
   guidance: z.string().nullable(),
+  /**
+   * Governor counters PERSISTED across restarts so the termination guarantee
+   * survives a PM2 restart (a thrashing mission re-earning its full iteration /
+   * no-progress budget every restart would loop forever otherwise). `iterations`
+   * is the backstop iteration count; `noProgress` is the consecutive
+   * no-newly-done-item count. The controller seeds these from the row on resume
+   * and writes them back each loop iteration. Default 0 for a fresh mission.
+   */
+  iterations: z.number().int().min(0).default(0),
+  noProgress: z.number().int().min(0).default(0),
   createdAt: z.string(),
 });
 export type Mission = z.infer<typeof MissionSchema>;
@@ -145,7 +155,17 @@ export interface CreateMissionInput {
 }
 
 export type MissionPatch = Partial<
-  Pick<Mission, "status" | "spentTokens" | "deadline" | "budget" | "roleModels" | "guidance">
+  Pick<
+    Mission,
+    | "status"
+    | "spentTokens"
+    | "deadline"
+    | "budget"
+    | "roleModels"
+    | "guidance"
+    | "iterations"
+    | "noProgress"
+  >
 >;
 
 /** Fields callers supply when adding a backlog item; the store fills the rest. */

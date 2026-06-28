@@ -128,11 +128,18 @@ export function applyDecomposeGuards(
 }
 
 function buildPrompt(input: DecomposeInput): string {
-  const { mission, existingTitles } = input;
+  const { mission, existingTitles, continuation } = input;
   return [
     `# Mission goal\n${mission.goal}`,
     mission.acceptanceCriteria.length
       ? `# Acceptance criteria\n${mission.acceptanceCriteria.map((c) => `- ${c}`).join("\n")}`
+      : "",
+    // Strategic re-plan (blocker 3): the initial backlog has been worked but the
+    // goal may not be fully met. Ask for the NEXT slice toward the goal, or an
+    // explicit empty list when the acceptance criteria are genuinely satisfied —
+    // that empty result is how the mission converges to "done" instead of churning.
+    continuation
+      ? `# Continuation — the backlog so far has been worked\nReview the goal and acceptance criteria against what has already been attempted (listed below). Propose ONLY new, concrete, goal-relevant items that are still needed to reach the goal — gaps, missing pieces, follow-through. If the goal and every acceptance criterion are already satisfied, return an EMPTY items list (do not invent busywork).`
       : "",
     // Operator guidance (M3 Trin 6): a human's steer, if set before planning — it
     // shapes the initial backlog the same way it later shapes replans.

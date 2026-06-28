@@ -51,6 +51,10 @@ export interface Mission {
   roleModels: RoleModelsConfig;
   /** Free-text course-correction from a human (M3 Trin 6); flows into the next replan. Null = none. */
   guidance: string | null;
+  /** Persisted backstop iteration count — survives a restart so termination still holds (blocker 4a). */
+  iterations: number;
+  /** Persisted consecutive no-progress count — survives a restart (blocker 4a). */
+  noProgress: number;
   createdAt: string;
 }
 
@@ -83,7 +87,17 @@ export interface CreateMissionInput {
 }
 
 export type MissionPatch = Partial<
-  Pick<Mission, "status" | "spentTokens" | "deadline" | "budget" | "roleModels" | "guidance">
+  Pick<
+    Mission,
+    | "status"
+    | "spentTokens"
+    | "deadline"
+    | "budget"
+    | "roleModels"
+    | "guidance"
+    | "iterations"
+    | "noProgress"
+  >
 >;
 
 export interface CreateBacklogItemInput {
@@ -128,6 +142,8 @@ export class BacklogService {
         deadline            timestamptz,
         role_models         jsonb NOT NULL DEFAULT '{}',
         guidance            text,
+        iterations          bigint NOT NULL DEFAULT 0,
+        no_progress         integer NOT NULL DEFAULT 0,
         created_at          timestamptz NOT NULL DEFAULT now()
       )`);
     // Add the per-mission team-config column to pre-existing missions tables.
@@ -136,6 +152,14 @@ export class BacklogService {
     );
     // Add the operator-guidance column (M3 Trin 6) to pre-existing missions tables.
     await this.pool.query(`ALTER TABLE missions ADD COLUMN IF NOT EXISTS guidance text`);
+    // Add the persisted governor counters (blocker 4a) to pre-existing tables, so a
+    // mission's iteration/no-progress budget survives a PM2 restart.
+    await this.pool.query(
+      `ALTER TABLE missions ADD COLUMN IF NOT EXISTS iterations bigint NOT NULL DEFAULT 0`,
+    );
+    await this.pool.query(
+      `ALTER TABLE missions ADD COLUMN IF NOT EXISTS no_progress integer NOT NULL DEFAULT 0`,
+    );
     await this.pool.query(`
       CREATE TABLE IF NOT EXISTS backlog_items (
         id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -196,6 +220,8 @@ export class BacklogService {
       budget: "budget",
       roleModels: "role_models",
       guidance: "guidance",
+      iterations: "iterations",
+      noProgress: "no_progress",
     };
     // role_models is a jsonb column — stringify it like the item-side json fields.
     const json = new Set<keyof MissionPatch>(["roleModels"]);
@@ -320,6 +346,8 @@ export class BacklogService {
       deadline: r.deadline ? new Date(r.deadline).toISOString() : null,
       roleModels: r.role_models ?? {},
       guidance: r.guidance ?? null,
+      iterations: Number(r.iterations ?? 0),
+      noProgress: Number(r.no_progress ?? 0),
       createdAt: new Date(r.created_at).toISOString(),
     };
   }
