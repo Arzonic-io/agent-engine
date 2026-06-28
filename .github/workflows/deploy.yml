@@ -37,6 +37,10 @@ jobs:
           # incl. exec_mode — always take effect. A ~1s restart is fine for an
           # internal API, and in-memory run state resets on any restart anyway
           # until the Supabase checkpointer is wired in.
-          pm2 delete agent-api 2>/dev/null || true
+          # Delete our three apps BY NAME (never `pm2 delete all` — the VPS also
+          # runs ranky/arzonic processes). agent-web MUST restart too: the build
+          # above rewrites .next, and a stale `next start` serving the old build
+          # throws ChunkLoadError / missing-chunk 500s until it's restarted.
+          pm2 delete agent-api agent-mission-worker agent-web 2>/dev/null || true
           pm2 start ecosystem.config.cjs --update-env
           pm2 save
