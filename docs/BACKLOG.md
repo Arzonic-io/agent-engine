@@ -49,6 +49,27 @@ Det store perspektiv — fra nu til Nordstjernen. Detaljerne lever i tiers + epi
 
 ## ✅ Senest leveret
 
+### 2026-06-28 — Gemini via Vertex AI (ADC, ingen API-nøgle) + konkrete team-modeller
+- [x] **Gemini uden API-nøgle (Vertex AI + ADC).** `buildModel` ([llm.ts](../packages/shared/src/llm.ts))
+      router nu `provider=google` gennem `ChatVertexAI` (`@langchain/google-vertexai`) når
+      `GOOGLE_CLOUD_PROJECT` er sat — autentificeret via Application Default Credentials
+      (`gcloud auth application-default login` / service-account), **ingen nøgle**. Falder tilbage til
+      den nøgle-baserede `ChatGoogleGenerativeAI` når kun `GOOGLE_API_KEY` er sat. Begge er
+      `BaseChatModel`'er der ruter gennem `this.caller`, så retry-policy + per-rolle-temperatur +
+      structured-output/ReAct-wiring er identiske uanset rute.
+- [x] **Env + gates.** Ny `GOOGLE_CLOUD_PROJECT` + `GOOGLE_CLOUD_LOCATION` (default `europe-west4`)
+      i [env.ts](../packages/shared/src/env.ts); superRefine accepterer en google-rolle hvis **enten**
+      nøgle **eller** projekt er sat. Server-side provider-gates ([role-models.util.ts](../apps/api/src/role-models.util.ts),
+      [settings.service.ts](../apps/api/src/settings/settings.service.ts)) og [SettingsModal](../apps/web/app/components/SettingsModal.tsx)
+      ("Mangler nøgle eller ADC") afspejler det. Default google-model løftet `gemini-2.0-flash` → `gemini-2.5-flash`.
+- [x] **Konkrete team-modeller (ingen implicit "Standard").** [TeamModelPicker](../apps/web/app/components/TeamModelPicker.tsx)
+      gemmer altid et konkret model-id — at vælge en provider vælger dens anbefalede (først-listede) model,
+      så det du ser er præcis det der kører. Gammel config uden pinned model falder pænt tilbage til provider-anbefalingen.
+- [x] **Team-roster opdateret** ([format.ts](../apps/web/app/lib/format.ts)): Udvikler/Kritiker (core) +
+      Planlægger/Arkitekt/Tester/Lead/Koordinator (extra) — matcher de faktiske mission-roller.
+- [x] Bevist (live): [verify-vertex-live.ts](../packages/shared/verify-vertex-live.ts) — et rigtigt Vertex-kald via
+      ADC (skipper rent uden `GOOGLE_CLOUD_PROJECT`). `turbo build` grøn (6/6).
+
 ### 2026-06-24 — 🌙 Nordstjerne-gap lukket: de 4 "stol-på-den-natten-over"-blockere
 Et multi-agent audit (verificeret mod kildekoden, ikke backlog-afkrydsningerne) fandt fire
 blokerende huller mellem "M3 afkrydset" og "kører uovervåget natten over". Alle fire er nu lukket:

@@ -49,6 +49,12 @@ const EnvSchema = z
     MISTRAL_API_KEY: z.string().min(1).optional(),
     ANTHROPIC_API_KEY: z.string().min(1).optional(),
     GOOGLE_API_KEY: z.string().min(1).optional(),
+    // Vertex AI via Application Default Credentials (ADC) — set a GCP project to use
+    // Gemini WITHOUT an API key (gcloud auth). When GOOGLE_CLOUD_PROJECT is set the
+    // google provider routes through Vertex (@langchain/google-vertexai); otherwise
+    // it uses the API-key Gemini SDK.
+    GOOGLE_CLOUD_PROJECT: z.string().min(1).optional(),
+    GOOGLE_CLOUD_LOCATION: z.string().min(1).default("europe-west4"),
     SUPABASE_URL: z.url().optional(),
     SUPABASE_SERVICE_KEY: z.string().min(1).optional(),
     SUPABASE_DB_URL: z.string().min(1).optional(),
@@ -157,6 +163,19 @@ const EnvSchema = z
       google: { key: "GOOGLE_API_KEY", value: env.GOOGLE_API_KEY },
     };
     for (const provider of used) {
+      // Gemini works via EITHER an API key (google-genai) OR Vertex AI ADC
+      // (GOOGLE_CLOUD_PROJECT, no key). Accept the role as long as one is present.
+      if (provider === "google") {
+        if (!env.GOOGLE_API_KEY && !env.GOOGLE_CLOUD_PROJECT) {
+          ctx.addIssue({
+            code: "custom",
+            path: ["GOOGLE_CLOUD_PROJECT"],
+            message:
+              "When a role uses provider=google, set GOOGLE_CLOUD_PROJECT (Vertex AI / ADC, no key) or GOOGLE_API_KEY",
+          });
+        }
+        continue;
+      }
       const { key, value } = keyFor[provider];
       if (!value) {
         ctx.addIssue({

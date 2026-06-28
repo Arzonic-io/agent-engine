@@ -19,7 +19,8 @@ export class SettingsService {
     const keyFor: Record<ModelProvider, string | undefined> = {
       mistral: this.env.MISTRAL_API_KEY,
       anthropic: this.env.ANTHROPIC_API_KEY,
-      google: this.env.GOOGLE_API_KEY,
+      // Gemini is available via EITHER an API key OR Vertex AI / ADC (a GCP project).
+      google: this.env.GOOGLE_API_KEY ?? this.env.GOOGLE_CLOUD_PROJECT,
     };
     return MODEL_PROVIDERS.filter((p) => keyFor[p]);
   }

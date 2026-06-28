@@ -182,8 +182,8 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
             ) : section === "providers" ? (
               <div className="max-w-2xl">
                 <p className="mb-4 text-sm leading-relaxed text-dim">
-                  Providers er aktiveret server-side via API-nøgler i miljøet. Kun aktiverede providers kan
-                  vælges i Team-modeller.
+                  Providers aktiveres server-side via API-nøgler i miljøet — eller for Gemini via Vertex AI
+                  med ADC (GOOGLE_CLOUD_PROJECT, ingen nøgle). Kun aktiverede providers kan vælges i Team-modeller.
                 </p>
                 <ul className="space-y-1.5">
                   {(["mistral", "anthropic", "google"] as ModelProvider[]).map((p) => {
@@ -195,7 +195,7 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
                       >
                         <span className="text-fg">{PROVIDER_LABEL[p]}</span>
                         <span className={`text-xs ${on ? "text-builder" : "text-dim"}`}>
-                          {on ? "Aktiveret ✓" : "Mangler nøgle"}
+                          {on ? "Aktiveret ✓" : p === "google" ? "Mangler nøgle eller ADC" : "Mangler nøgle"}
                         </span>
                       </li>
                     );

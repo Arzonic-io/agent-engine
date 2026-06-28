@@ -36,30 +36,31 @@ const PROVIDERS: { value: ModelProvider; label: string }[] = [
   { value: "google", label: "Gemini" },
 ];
 
-/** Mistral is the default provider for a freshly-shown role (no inherit anymore). */
+/** The provider a freshly-shown role starts on (you then pick a concrete model). */
 const DEFAULT_PROVIDER: ModelProvider = "mistral";
 
-/** Default model per provider — the runtime fallback when no model is pinned (mirrors buildModel). */
-const DEFAULT_MODELS: Record<ModelProvider, string> = {
-  mistral: "mistral-large-latest",
-  anthropic: "claude-sonnet-4-6",
-  google: "gemini-2.0-flash",
-};
-
-/** Selectable models per provider, most-capable first. The empty model = the provider default above. */
+/**
+ * Selectable models per provider — the FIRST entry is the recommended pick a role
+ * gets when you choose that provider. There is no implicit "Standard"/default model:
+ * the picker always stores a concrete id, so what you select is exactly what runs.
+ * (Gemini runs via Vertex AI / ADC when GOOGLE_CLOUD_PROJECT is set — no API key.)
+ */
 const MODELS_BY_PROVIDER: Record<ModelProvider, string[]> = {
   mistral: ["mistral-large-latest", "mistral-medium-latest", "mistral-small-latest", "codestral-latest"],
-  anthropic: ["claude-opus-4-8", "claude-sonnet-4-6", "claude-haiku-4-5"],
-  google: ["gemini-2.0-flash", "gemini-2.5-pro", "gemini-2.5-flash"],
+  anthropic: ["claude-sonnet-4-6", "claude-opus-4-8", "claude-haiku-4-5"],
+  google: ["gemini-2.5-flash", "gemini-2.5-pro"],
 };
 
-/** Collapse a selection into the wire shape, dropping "Standard" (inherit). */
+/** The recommended (first-listed) model for a provider — used when you pick a provider. */
+const firstModel = (provider: ModelProvider): string => MODELS_BY_PROVIDER[provider][0]!;
+
+/** Collapse a selection into the wire shape; every pinned role carries a concrete model. */
 export function selectionToRoleModels(sel: TeamSelection): RoleModelsConfig {
   const out: RoleModelsConfig = {};
   for (const [role, s] of Object.entries(sel)) {
     if (!s.provider) continue;
-    const spec: ModelSpec = { provider: s.provider as ModelProvider };
-    if (s.model.trim()) spec.model = s.model.trim();
+    const provider = s.provider as ModelProvider;
+    const spec: ModelSpec = { provider, model: s.model.trim() || firstModel(provider) };
     const t = s.temperature?.trim();
     if (t) {
       const n = Number(t);
@@ -114,10 +115,13 @@ export function TeamModelPicker({
   return (
     <div className="space-y-2">
       {roles.map((role) => {
-        const sel = value[role.key] ?? { provider: DEFAULT_PROVIDER, model: "" };
+        const sel = value[role.key] ?? { provider: DEFAULT_PROVIDER, model: firstModel(DEFAULT_PROVIDER) };
         const provider = (sel.provider || DEFAULT_PROVIDER) as ModelProvider;
         const models = MODELS_BY_PROVIDER[provider] ?? [];
-        const tempIgnored = ignoresTemperature(provider, sel.model);
+        // Always a concrete model — fall back to the provider's recommended pick if a
+        // stored config predates this (no implicit default anymore).
+        const model = sel.model || firstModel(provider);
+        const tempIgnored = ignoresTemperature(provider, model);
         return (
           <div
             key={role.key}
@@ -132,12 +136,14 @@ export function TeamModelPicker({
             </span>
             <select
               value={provider}
-              onChange={(e) =>
+              onChange={(e) => {
+                const next = e.target.value as ModelProvider;
                 onChange({
                   ...value,
-                  [role.key]: { provider: e.target.value, model: "", temperature: sel.temperature },
-                })
-              }
+                  // Picking a provider selects its recommended model — always concrete.
+                  [role.key]: { provider: next, model: firstModel(next), temperature: sel.temperature },
+                });
+              }}
               className="select select-xs w-28 border-line bg-elev text-xs"
             >
               {PROVIDERS.map((p) => {
@@ -145,26 +151,23 @@ export function TeamModelPicker({
                 return (
                   <option key={p.value} value={p.value} disabled={disabled}>
                     {p.label}
-                    {disabled ? " (ingen nøgle)" : ""}
+                    {disabled ? " (ikke konfigureret)" : ""}
                   </option>
                 );
               })}
             </select>
             <select
-              value={sel.model}
+              value={model}
               onChange={(e) =>
                 onChange({ ...value, [role.key]: { provider, model: e.target.value, temperature: sel.temperature } })
               }
               className="select select-xs flex-1 border-line bg-elev text-xs"
             >
-              <option value="">{DEFAULT_MODELS[provider]}</option>
-              {models
-                .filter((m) => m !== DEFAULT_MODELS[provider])
-                .map((m) => (
-                  <option key={m} value={m}>
-                    {m}
-                  </option>
-                ))}
+              {models.map((m) => (
+                <option key={m} value={m}>
+                  {m}
+                </option>
+              ))}
             </select>
             <input
               type="number"

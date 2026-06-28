@@ -30,13 +30,15 @@ export const ITEM_STATUS: Record<string, { dot: string; label: string }> = {
 
 /** The standing team a project hands work to. Core runs always; the rest join on team-mode tasks. */
 export const TEAM_CORE = [
-  { label: "Builder", dot: "bg-builder" },
+  { label: "Udvikler", dot: "bg-builder" },
   { label: "Kritiker", dot: "bg-critic" },
 ];
 export const TEAM_EXTRA = [
+  { label: "Planlægger", dot: "bg-analyst" },
   { label: "Arkitekt", dot: "bg-lead" },
-  { label: "Arbejdere", dot: "bg-analyst" },
+  { label: "Tester", dot: "bg-success" },
   { label: "Lead", dot: "bg-human" },
+  { label: "Koordinator", dot: "bg-warning" },
 ];
 export const TEAM_ALL = [...TEAM_CORE, ...TEAM_EXTRA];
 

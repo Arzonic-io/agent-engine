@@ -337,6 +337,7 @@ the autonomous-missions direction. The original phased briefs are merged into th
 
 ```
 LLM_PROVIDER=mistral|anthropic|google # default provider; + MISTRAL_API_KEY / ANTHROPIC_API_KEY / GOOGLE_API_KEY
+GOOGLE_CLOUD_PROJECT= / GOOGLE_CLOUD_LOCATION=europe-west4 # Gemini via Vertex AI + ADC (no API key); set project to use it
 LLM_MODEL=                            # optional explicit default model id
 LLM_ROLE_MODELS=                      # JSON role→{provider,model?}: per-role "team member" models (§3.8)
 SUPABASE_DB_URL=                      # Postgres + pgvector → checkpointer + memory + missions

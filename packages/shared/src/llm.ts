@@ -1,6 +1,7 @@
 import { ChatAnthropic } from "@langchain/anthropic";
 import type { BaseChatModel } from "@langchain/core/language_models/chat_models";
 import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
+import { ChatVertexAI } from "@langchain/google-vertexai";
 import { ChatMistralAI } from "@langchain/mistralai";
 import {
   MODEL_ROLES,
@@ -15,7 +16,7 @@ import { llmRetryOnFailedAttempt, routeCompletionThroughTransientRetry } from ".
 const DEFAULT_MODELS: Record<LlmProvider, string> = {
   mistral: "mistral-large-latest",
   anthropic: "claude-sonnet-4-6", // "Claude" for building
-  google: "gemini-2.0-flash", // "Gemini Flash" for cheap, fast roles
+  google: "gemini-2.5-flash", // "Gemini Flash" for cheap, fast roles (Vertex/ADC)
 };
 
 /**
@@ -98,6 +99,21 @@ export function buildModel(env: Env, spec: RoleModelSpec): BaseChatModel {
         env.MISSION_LLM_MAX_RETRIES,
       );
     case "google":
+      // Two ways to reach Gemini. Prefer Vertex AI via Application Default
+      // Credentials (ADC) when a GCP project is configured — NO API key needed
+      // (`gcloud auth application-default login` + a service account/ADC). Falls back
+      // to the API-key Gemini SDK (`@langchain/google-genai`) when only GOOGLE_API_KEY
+      // is set. Both are BaseChatModels routing through this.caller, so the retry
+      // policy + per-role temperature + structured-output/ReAct wiring are identical.
+      if (env.GOOGLE_CLOUD_PROJECT) {
+        return new ChatVertexAI({
+          model,
+          temperature,
+          location: env.GOOGLE_CLOUD_LOCATION,
+          authOptions: { projectId: env.GOOGLE_CLOUD_PROJECT },
+          ...retry,
+        });
+      }
       return new ChatGoogleGenerativeAI({ apiKey: env.GOOGLE_API_KEY, model, temperature, ...retry });
   }
 }

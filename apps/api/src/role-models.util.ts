@@ -15,7 +15,8 @@ export function assertProvidersConfigured(
   const keyFor: Record<ModelProvider, string | undefined> = {
     mistral: env.MISTRAL_API_KEY,
     anthropic: env.ANTHROPIC_API_KEY,
-    google: env.GOOGLE_API_KEY,
+    // Gemini is configured via EITHER an API key OR Vertex AI / ADC (a GCP project).
+    google: env.GOOGLE_API_KEY ?? env.GOOGLE_CLOUD_PROJECT,
   };
   for (const [role, spec] of Object.entries(roleModels ?? {})) {
     if (spec && !keyFor[spec.provider]) {
