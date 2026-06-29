@@ -148,6 +148,25 @@ const EnvSchema = z
     // toward the goal instead of stopping the instant the initial plan empties.
     // 0 = off (drain-and-stop). Every other governor still bounds the run.
     MISSION_MAX_STRATEGIC_REPLANS: z.coerce.number().int().min(0).default(3),
+    // ── overnight trust "del b": publish the work as a reviewable PR ──
+    // Fine-grained GitHub PAT (Contents + Pull-requests: write on the target repos).
+    // When set (and MISSION_PUBLISH_PR is on), a finished mission pushes its
+    // integration branch to `origin` and opens a PR against the default branch.
+    // Unset = no publish (work stays on the local branch). The token is embedded in
+    // the push URL + REST header and SCRUBBED from every log line.
+    GITHUB_TOKEN: z.string().min(1).optional(),
+    // Master switch for the publish step — on by default, so a present token
+    // publishes. Set false to keep the token configured but pause publishing.
+    MISSION_PUBLISH_PR: z
+      .enum(["true", "false"])
+      .default("true")
+      .transform((v) => v === "true"),
+    // Open the PR as a draft (default true): CI can run while a human reviews and
+    // marks it ready. False opens a ready-for-review PR immediately.
+    MISSION_PR_DRAFT: z
+      .enum(["true", "false"])
+      .default("true")
+      .transform((v) => v === "true"),
   })
   .superRefine((env, ctx) => {
     // Every provider actually in use — the default plus any per-role override —

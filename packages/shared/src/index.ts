@@ -17,6 +17,16 @@ export {
 } from "./repoTools.js";
 export { discoverRepos, type RepoInfo } from "./repos.js";
 export {
+  listGitHubRepos,
+  type GitHubRepo,
+  type ListGitHubReposOptions,
+} from "./github.js";
+export {
+  ensureWorkspace,
+  type EnsureWorkspaceOptions,
+  type EnsureWorkspaceResult,
+} from "./workspace.js";
+export {
   createWorktreeManager,
   type WorktreeManagerOptions,
 } from "./worktree.js";
@@ -26,6 +36,11 @@ export {
   type GitIntegratorOptions,
 } from "./integrator.js";
 export { createGitDiffer } from "./differ.js";
+export {
+  createGitHubPublisher,
+  parseGitHubRemote,
+  type GitHubPublisherOptions,
+} from "./publisher.js";
 export {
   MemoryService,
   type MemoryServiceOptions,

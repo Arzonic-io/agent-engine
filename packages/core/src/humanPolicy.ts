@@ -138,6 +138,15 @@ export interface MissionDigest {
   nextHighRisk: string[];
   /** Most-recently-updated items — recent activity at a glance (Trin 6). */
   recent: DigestRecent[];
+  /**
+   * The pull-request URL opened for this mission's work, set by the controller
+   * after a successful publish (overnight-trust "del b"). Undefined when there was
+   * nothing to publish or no remote/Publisher configured. Not produced by
+   * `buildDigest` — the controller attaches it to the terminal digest.
+   */
+  prUrl?: string;
+  /** Why there's no `prUrl` (no remote, push failed, …), or which PR was reused — for the digest line. */
+  publishNote?: string;
 }
 
 /** How many items the "recent activity" rollup surfaces. */

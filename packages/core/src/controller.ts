@@ -9,6 +9,7 @@ import type {
   Risk,
 } from "./mission.js";
 import { buildDigest, classifyRisk, type MissionDigest } from "./humanPolicy.js";
+import type { Publisher } from "./publisher.js";
 import type { WorkResult, WorkRunner } from "./runner.js";
 import type { Verifier, VerifierReport } from "./verifier.js";
 
@@ -326,6 +327,19 @@ export interface MissionDeps {
    */
   differ?: Differ;
   governors?: MissionGovernors;
+  /**
+   * Pushes the mission's integration branch and opens a pull request when the
+   * mission ends (overnight-trust "del b"). Optional — omitted ⇒ no publish (the
+   * work stays on the local branch, exactly the pre-publish behaviour). Best-effort:
+   * the controller guards the call, so a publish failure never crashes the mission.
+   */
+  publisher?: Publisher;
+  /**
+   * The integration branch the Publisher pushes (e.g. `mission/<id>/integration`).
+   * Supplied by the runtime alongside the Integrator (which merges items into it).
+   * Required for publishing; without it the Publisher is skipped.
+   */
+  integrationBranch?: string;
   /** Checks the Verifier runs per item. Default ["typecheck", "test"]. */
   checks?: string[];
   /** Extra patterns that force an item to high-risk (from MISSION_HIGH_RISK_PATTERNS). */
@@ -427,6 +441,27 @@ export async function runMission(
     if (deps.notifier) {
       const items = await backlog.listItems(missionId);
       const digest = buildDigest({ ...mission, status }, items, deps.highRiskPatterns);
+      // Publish (overnight-trust "del b"): push the integration branch and open a
+      // PR so the night's work is reviewable in the morning. Done BEFORE the digest
+      // goes out so the PR URL rides along in it. Best-effort — a publish failure is
+      // recorded in the digest, never thrown into the stop path (the digest must
+      // always be delivered). Whether to publish is decided by the Publisher from
+      // git (is the branch ahead of the default branch?), NOT from this run's
+      // `itemsDone` — which resets to 0 on resume and would miss work merged in a
+      // crashed prior run.
+      if (deps.publisher && deps.integrationBranch) {
+        try {
+          const published = await deps.publisher.publish({
+            mission: { ...mission, status },
+            branch: deps.integrationBranch,
+            digest,
+          });
+          if (published.url) digest.prUrl = published.url;
+          digest.publishNote = published.note;
+        } catch (err) {
+          digest.publishNote = `publish failed: ${errText(err, 300)}`;
+        }
+      }
       await deps.notifier.notify({ type: "mission_digest", missionId, digest });
     }
     await deps.notifier?.notify({ type: "mission_stopped", missionId, status, reason });

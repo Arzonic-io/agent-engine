@@ -16,6 +16,7 @@ import {
   buildRoleModels,
   createConsoleNotifier,
   createGitDiffer,
+  createGitHubPublisher,
   createGitIntegrator,
   createVerifier,
   createWebhookNotifier,
@@ -74,6 +75,16 @@ async function main(): Promise<void> {
         ]
       : [],
   });
+  // Publish step (overnight-trust "del b"): when a GitHub token is configured and
+  // publishing is on, a finished mission pushes its integration branch and opens a
+  // (draft) PR against the default branch — so the night's work is reviewable in the
+  // morning. Stateless, so build once and reuse across missions. Unset token ⇒
+  // undefined ⇒ no publish (work stays on the local branch).
+  const publisher =
+    env.GITHUB_TOKEN && env.MISSION_PUBLISH_PR
+      ? createGitHubPublisher({ token: env.GITHUB_TOKEN, draft: env.MISSION_PR_DRAFT })
+      : undefined;
+
   // Global default team config, editable at runtime from the settings UI. Read
   // fresh each scan so a change is picked up within a poll cycle.
   const settings = new AppSettingsService({ connectionString: env.SUPABASE_DB_URL });
@@ -121,7 +132,8 @@ async function main(): Promise<void> {
           : "on-stop"
       } | ` +
       `strategic-replan: ${env.MISSION_MAX_STRATEGIC_REPLANS} | ` +
-      `abort-poll: ${env.MISSION_ABORT_POLL_MS}ms`,
+      `abort-poll: ${env.MISSION_ABORT_POLL_MS}ms | ` +
+      `publish: ${publisher ? (env.MISSION_PR_DRAFT ? "draft PR" : "ready PR") : "off"}`,
   );
 
   let stopping = false;
@@ -283,6 +295,10 @@ async function main(): Promise<void> {
             verifier,
             runner,
             integrator,
+            // Push the mission branch + open a PR when it ends (best-effort; a
+            // publish failure is recorded in the digest, never crashes the mission).
+            publisher,
+            integrationBranch: missionBranch,
             differ,
             decomposer,
             testAuthor: env.MISSION_AUTHOR_TESTS ? testAuthor : undefined,

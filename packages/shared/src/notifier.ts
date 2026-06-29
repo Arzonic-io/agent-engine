@@ -35,6 +35,8 @@ function describe(e: MissionEvent): string {
       }
       if (d.nextHighRisk.length) lines.push(`  next high-risk: ${d.nextHighRisk.join("; ")}`);
       if (d.next.length) lines.push(`  next up: ${d.next.slice(0, 5).join("; ")}`);
+      if (d.prUrl) lines.push(`  🔀 PR: ${d.prUrl}`);
+      else if (d.publishNote) lines.push(`  publish: ${d.publishNote}`);
       return lines.join("\n");
     }
     case "mission_stopped":

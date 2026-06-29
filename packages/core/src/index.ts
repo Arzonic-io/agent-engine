@@ -73,6 +73,7 @@ export {
   type BacklogItemPatch,
 } from "./mission.js";
 export type { Verifier, VerifierReport } from "./verifier.js";
+export type { Publisher, PublishInput, PublishResult } from "./publisher.js";
 export {
   createGraphWorkRunner,
   createWorktreeWorkRunner,
