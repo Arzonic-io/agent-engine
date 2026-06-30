@@ -6,6 +6,7 @@ import {
   Inject,
   Injectable,
   NotFoundException,
+  ServiceUnavailableException,
   type OnModuleDestroy,
 } from "@nestjs/common";
 import { ReplaySubject, type Observable } from "rxjs";
@@ -23,6 +24,9 @@ import {
 import {
   createRepoTools,
   discoverRepos,
+  ensureWorkspace,
+  listGitHubRepos,
+  type GitHubRepo,
   type MemoryService,
   type RepoInfo,
 } from "@arzonic/agent-shared";
@@ -205,6 +209,44 @@ export class RunsService implements OnModuleDestroy {
   /** Repos the worker can be pointed at — discovered under REPO_ALLOWED_ROOTS. */
   listRepos(): Promise<RepoInfo[]> {
     return discoverRepos(this.env.REPO_ALLOWED_ROOTS);
+  }
+
+  /**
+   * The GitHub repos the configured token can push to — for the "pick a repo,
+   * not a path" project picker. Throws a clear 503 when no token is configured so
+   * the UI can fall back to the local-path picker.
+   */
+  listGitHubRepos(): Promise<GitHubRepo[]> {
+    if (!this.env.GITHUB_TOKEN) {
+      throw new ServiceUnavailableException(
+        "GITHUB_TOKEN is not configured — set it to pick GitHub repos.",
+      );
+    }
+    return listGitHubRepos({ token: this.env.GITHUB_TOKEN });
+  }
+
+  /**
+   * Ensure a managed working clone of `owner/repo` exists under
+   * MISSION_WORKSPACE_ROOT and return its absolute path — what a project stores as
+   * its repoPath. Clones on first bind, fetches+fast-forwards on later binds. The
+   * path is server-generated, so it bypasses the client-path REPO_ALLOWED_ROOTS gate.
+   */
+  async ensureGitHubWorkspace(
+    owner: string,
+    repo: string,
+  ): Promise<{ path: string; defaultBranch: string }> {
+    if (!this.env.GITHUB_TOKEN) {
+      throw new ServiceUnavailableException(
+        "GITHUB_TOKEN is not configured — cannot bind a GitHub repo.",
+      );
+    }
+    const ws = await ensureWorkspace({
+      root: resolve(this.env.MISSION_WORKSPACE_ROOT),
+      owner,
+      repo,
+      token: this.env.GITHUB_TOKEN,
+    });
+    return { path: ws.path, defaultBranch: ws.defaultBranch };
   }
 
   start(dto: StartRunDto): StartRunResponse {

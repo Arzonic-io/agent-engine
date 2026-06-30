@@ -80,6 +80,18 @@ export interface RepoInfo {
   path: string;
 }
 
+/** A GitHub repo the configured token can push to — for the "pick a repo, not a path" picker. */
+export interface GitHubRepo {
+  owner: string;
+  repo: string;
+  /** `owner/repo`. */
+  fullName: string;
+  /** The repo's default branch (the base a mission's PR targets). */
+  defaultBranch: string;
+  /** Whether the repo is private (for a UI badge). */
+  private: boolean;
+}
+
 /** Rollups the composer shows alongside a project. */
 export interface ProjectStats {
   /** Remembered items — non-brief project_memory rows. */

@@ -20,6 +20,7 @@ import {
 } from "./lib/activeProject";
 import { relTime, repoLabel } from "./lib/format";
 import { ProjectFormView } from "./components/ProjectFormView";
+import type { GitHubRepoRef } from "./components/GitHubRepoPicker";
 import { DefinitionOfDone } from "./components/DefinitionOfDone";
 import { MissionComposer } from "./components/MissionComposer";
 import { ProjectMissions } from "./components/ProjectMissions";
@@ -129,16 +130,26 @@ export default function Composer() {
     name: string;
     brief: string;
     repoPath?: string;
+    githubRepo?: GitHubRepoRef | null;
     roleModels?: RoleModelsConfig;
   }) {
     if (!data.name.trim()) return;
     setSavingProject(true);
     setError(null);
     try {
+      // A GitHub binding wins; otherwise an optional local path. Never send
+      // githubRepo:null — the API field is optional (rejects null).
+      const body: Record<string, unknown> = {
+        name: data.name,
+        brief: data.brief,
+        roleModels: data.roleModels,
+      };
+      if (data.githubRepo) body.githubRepo = data.githubRepo;
+      else if (data.repoPath) body.repoPath = data.repoPath;
       const res = await fetch("/api/projects", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(data),
+        body: JSON.stringify(body),
       });
       if (!res.ok) throw new Error(await res.text());
       const project = (await res.json()) as Project;
@@ -160,22 +171,25 @@ export default function Composer() {
     name: string;
     brief: string;
     repoPath: string;
+    githubRepo: GitHubRepoRef | null;
     roleModels: RoleModelsConfig;
   }) {
     if (!projectId || !data.name.trim()) return;
     setSavingProject(true);
     setError(null);
     try {
+      // A GitHub binding wins; otherwise repoPath ("" clears the bound repo).
+      const body: Record<string, unknown> = {
+        name: data.name,
+        brief: data.brief,
+        roleModels: data.roleModels,
+      };
+      if (data.githubRepo) body.githubRepo = data.githubRepo;
+      else body.repoPath = data.repoPath || null;
       const res = await fetch(`/api/projects/${projectId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        // repoPath "" clears the bound repo; a path sets it.
-        body: JSON.stringify({
-          name: data.name,
-          brief: data.brief,
-          repoPath: data.repoPath || null,
-          roleModels: data.roleModels,
-        }),
+        body: JSON.stringify(body),
       });
       if (!res.ok) throw new Error(await res.text());
       const updated = (await res.json()) as Project;
@@ -253,6 +267,7 @@ export default function Composer() {
             name: d.name,
             brief: d.brief,
             repoPath: d.repoPath || undefined,
+            githubRepo: d.githubRepo,
             roleModels: d.roleModels,
           })
         }
@@ -274,6 +289,9 @@ export default function Composer() {
         initialBrief={selected.brief}
         initialRepo={
           typeof selected.settings?.repoPath === "string" ? (selected.settings.repoPath as string) : ""
+        }
+        initialGithubRepo={
+          (selected.settings?.githubRepo as GitHubRepoRef | undefined) ?? null
         }
         initialTeam={selected.settings?.roleModels as RoleModelsConfig | undefined}
         error={error}

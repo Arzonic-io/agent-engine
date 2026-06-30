@@ -20,10 +20,21 @@ import { ZodValidationPipe } from "../runs/dto/runs.dto.js";
 import { RunsService } from "../runs/runs.service.js";
 import { ProjectsService } from "./projects.service.js";
 
+/**
+ * Bind a GitHub repo instead of a raw path (the "pick a repo, not a path" flow):
+ * the backend clones it to a managed workspace and uses that as repoPath. Takes
+ * precedence over `repoPath` when both are sent.
+ */
+const GitHubRepoBindSchema = z.object({
+  owner: z.string().min(1).max(120),
+  repo: z.string().min(1).max(140),
+});
+
 const CreateProjectSchema = z.object({
   name: z.string().min(1).max(200),
   brief: z.string().max(20_000).optional().default(""),
   repoPath: z.string().min(1).optional(),
+  githubRepo: GitHubRepoBindSchema.optional(),
   /** The project's default team — new missions inherit it for roles they don't pin. */
   roleModels: RoleModelsConfigSchema.optional(),
 });
@@ -34,6 +45,7 @@ const UpdateProjectSchema = z.object({
   name: z.string().min(1).max(200).optional(),
   brief: z.string().max(20_000).optional(),
   repoPath: z.string().min(1).nullable().optional(),
+  githubRepo: GitHubRepoBindSchema.optional(),
   /** The project's default team config; new missions inherit it. */
   roleModels: RoleModelsConfigSchema.optional(),
 });
@@ -62,11 +74,18 @@ export class ProjectsController {
   }
 
   @Post()
-  create(
+  async create(
     @Body(new ZodValidationPipe(CreateProjectSchema)) dto: CreateProjectDto,
   ): Promise<Project> {
     const settings: Record<string, unknown> = {};
-    if (dto.repoPath) settings.repoPath = this.runs.validateRepoPath(dto.repoPath);
+    if (dto.githubRepo) {
+      // Clone the GitHub repo to a managed workspace and bind that path.
+      const ws = await this.runs.ensureGitHubWorkspace(dto.githubRepo.owner, dto.githubRepo.repo);
+      settings.repoPath = ws.path;
+      settings.githubRepo = { ...dto.githubRepo, defaultBranch: ws.defaultBranch };
+    } else if (dto.repoPath) {
+      settings.repoPath = this.runs.validateRepoPath(dto.repoPath);
+    }
     if (dto.roleModels) {
       assertProvidersConfigured(this.env, dto.roleModels);
       settings.roleModels = dto.roleModels;
@@ -85,9 +104,18 @@ export class ProjectsController {
       updated = await this.projects.update(id, { name: dto.name, brief: dto.brief });
     }
 
-    if (dto.repoPath !== undefined) {
+    if (dto.githubRepo) {
+      // Re-bind to a GitHub repo: clone/refresh the workspace and store both the
+      // path and the repo identity (so the UI shows owner/repo, not a path).
+      const ws = await this.runs.ensureGitHubWorkspace(dto.githubRepo.owner, dto.githubRepo.repo);
+      updated = await this.projects.updateSettings(id, {
+        repoPath: ws.path,
+        githubRepo: { ...dto.githubRepo, defaultBranch: ws.defaultBranch },
+      });
+    } else if (dto.repoPath !== undefined) {
+      // Setting a raw path (or clearing) drops any prior GitHub identity.
       const repoPath = dto.repoPath ? this.runs.validateRepoPath(dto.repoPath) : null;
-      updated = await this.projects.updateSettings(id, { repoPath });
+      updated = await this.projects.updateSettings(id, { repoPath, githubRepo: null });
     }
 
     if (dto.roleModels !== undefined) {

@@ -167,6 +167,12 @@ const EnvSchema = z
       .enum(["true", "false"])
       .default("true")
       .transform((v) => v === "true"),
+    // Base dir for managed GitHub workspace clones (the "pick a repo, not a path"
+    // model). When a project binds a GitHub repo, the backend clones it under here
+    // (`<root>/<owner>/<repo>`) and uses that path as the project's repoPath —
+    // invisible to the user. Resolved to absolute by the consumer. Default
+    // ".workspaces" (relative to the repo root on the VPS).
+    MISSION_WORKSPACE_ROOT: z.string().min(1).default(".workspaces"),
   })
   .superRefine((env, ctx) => {
     // Every provider actually in use — the default plus any per-role override —
