@@ -115,6 +115,22 @@ export const MissionSchema = z.object({
    */
   iterations: z.number().int().min(0).default(0),
   noProgress: z.number().int().min(0).default(0),
+  /**
+   * WHY the mission last stopped (machine-readable: done | budget | deadline |
+   * max-iterations | no-progress | stopped | blocked-…). Written by the
+   * controller's stop() so the dashboard can explain the end state, not just
+   * show it. Null while running / never stopped; overwritten on each stop.
+   */
+  stopReason: z.string().nullable(),
+  /**
+   * The pull-request URL the Publisher opened for this mission's integration
+   * branch (overnight-trust "del b"), persisted HERE so the dashboard can link
+   * the night's work after any restart — the digest that also carries it is
+   * transient. Null until a publish succeeds.
+   */
+  prUrl: z.string().nullable(),
+  /** One-line publish outcome (which PR was opened/reused, or why none). */
+  publishNote: z.string().nullable(),
   createdAt: z.string(),
 });
 export type Mission = z.infer<typeof MissionSchema>;
@@ -165,6 +181,9 @@ export type MissionPatch = Partial<
     | "guidance"
     | "iterations"
     | "noProgress"
+    | "stopReason"
+    | "prUrl"
+    | "publishNote"
   >
 >;
 

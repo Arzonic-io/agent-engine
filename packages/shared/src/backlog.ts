@@ -55,6 +55,12 @@ export interface Mission {
   iterations: number;
   /** Persisted consecutive no-progress count — survives a restart (blocker 4a). */
   noProgress: number;
+  /** WHY the mission last stopped (machine-readable reason); null while running. */
+  stopReason: string | null;
+  /** PR opened for the mission's integration branch; persisted so the dashboard can link it. */
+  prUrl: string | null;
+  /** One-line publish outcome (which PR was opened/reused, or why none). */
+  publishNote: string | null;
   createdAt: string;
 }
 
@@ -97,6 +103,9 @@ export type MissionPatch = Partial<
     | "guidance"
     | "iterations"
     | "noProgress"
+    | "stopReason"
+    | "prUrl"
+    | "publishNote"
   >
 >;
 
@@ -144,6 +153,9 @@ export class BacklogService {
         guidance            text,
         iterations          bigint NOT NULL DEFAULT 0,
         no_progress         integer NOT NULL DEFAULT 0,
+        stop_reason         text,
+        pr_url              text,
+        publish_note        text,
         created_at          timestamptz NOT NULL DEFAULT now()
       )`);
     // Add the per-mission team-config column to pre-existing missions tables.
@@ -160,6 +172,11 @@ export class BacklogService {
     await this.pool.query(
       `ALTER TABLE missions ADD COLUMN IF NOT EXISTS no_progress integer NOT NULL DEFAULT 0`,
     );
+    // Morning-review columns: WHY the mission stopped + the published PR — so the
+    // dashboard can explain the end state and link the night's work after a restart.
+    await this.pool.query(`ALTER TABLE missions ADD COLUMN IF NOT EXISTS stop_reason text`);
+    await this.pool.query(`ALTER TABLE missions ADD COLUMN IF NOT EXISTS pr_url text`);
+    await this.pool.query(`ALTER TABLE missions ADD COLUMN IF NOT EXISTS publish_note text`);
     await this.pool.query(`
       CREATE TABLE IF NOT EXISTS backlog_items (
         id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -222,6 +239,9 @@ export class BacklogService {
       guidance: "guidance",
       iterations: "iterations",
       noProgress: "no_progress",
+      stopReason: "stop_reason",
+      prUrl: "pr_url",
+      publishNote: "publish_note",
     };
     // role_models is a jsonb column — stringify it like the item-side json fields.
     const json = new Set<keyof MissionPatch>(["roleModels"]);
@@ -348,6 +368,9 @@ export class BacklogService {
       guidance: r.guidance ?? null,
       iterations: Number(r.iterations ?? 0),
       noProgress: Number(r.no_progress ?? 0),
+      stopReason: r.stop_reason ?? null,
+      prUrl: r.pr_url ?? null,
+      publishNote: r.publish_note ?? null,
       createdAt: new Date(r.created_at).toISOString(),
     };
   }

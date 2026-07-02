@@ -22,6 +22,7 @@ import type {
   CreateBacklogItemInput,
   Mission,
 } from "./src/mission.js";
+import type { Publisher } from "./src/publisher.js";
 import type { WorkRunner } from "./src/runner.js";
 import type { Verifier, VerifierReport } from "./src/verifier.js";
 
@@ -108,6 +109,12 @@ const baseMission: Mission = {
   budget: null,
   spentTokens: 0,
   deadline: null,
+  guidance: null,
+  iterations: 0,
+  noProgress: 0,
+  stopReason: null,
+  prUrl: null,
+  publishNote: null,
   createdAt: iso(),
 };
 
@@ -517,6 +524,66 @@ function fakeIntegrator(opts: { conflict?: boolean } = {}) {
   const a = (await store.listItems("m1")).find((i) => i.id === "a")!;
   ok(out.status === "done" && a.status === "done", "a throwing differ does not strand the item — it still completes");
   ok(a.diff === null, "a failed diff capture leaves diff null, never a partial");
+}
+
+// ── 20. publish ("del b"): fires WITHOUT a notifier; PR URL + stop reason persist on the ROW ──
+{
+  const publishedBranches: string[] = [];
+  const publisher: Publisher = {
+    async publish({ branch }) {
+      publishedBranches.push(branch);
+      return { url: "https://github.com/arzonic/x/pull/9", note: "opened draft PR #9" };
+    },
+  };
+  const store = makeStore({ ...baseMission }, [item("a", 1)]);
+  const { integrator } = fakeIntegrator();
+  const out = await runMission(
+    {
+      backlog: store,
+      verifier: passingVerifier,
+      runner: worktreeRunner,
+      integrator,
+      publisher,
+      integrationBranch: "mission/m1/integration",
+      // Deliberately NO notifier: the PR is the review artifact, notification is
+      // only the messenger — publishing must never be hostage to it.
+    },
+    "m1",
+  );
+  const m = (await store.getMission("m1"))!;
+  ok(out.status === "done", "mission completes with publisher but no notifier");
+  ok(publishedBranches[0] === "mission/m1/integration", "the publisher fired WITHOUT a notifier (decoupled)");
+  ok(m.prUrl === "https://github.com/arzonic/x/pull/9", "the PR URL is persisted on the mission ROW (survives restarts)");
+  ok(m.publishNote === "opened draft PR #9", "the publish note is persisted on the row");
+  ok(m.stopReason === "done", "the stop reason is persisted on the row (dashboard can say WHY)");
+}
+
+// 21. a throwing publisher records the failure on the row and never crashes the stop path.
+{
+  const publisher: Publisher = {
+    async publish() {
+      throw new Error("remote said no");
+    },
+  };
+  const store = makeStore({ ...baseMission }, [item("a", 1)]);
+  const { integrator } = fakeIntegrator();
+  const out = await runMission(
+    {
+      backlog: store,
+      verifier: passingVerifier,
+      runner: worktreeRunner,
+      integrator,
+      publisher,
+      integrationBranch: "mission/m1/integration",
+    },
+    "m1",
+  );
+  const m = (await store.getMission("m1"))!;
+  ok(out.status === "done", "a throwing publisher never crashes the stop path");
+  ok(
+    m.prUrl === null && /publish failed: remote said no/.test(m.publishNote ?? ""),
+    "the publish failure is recorded on the row (visible in the morning)",
+  );
 }
 
 console.log("\nrunMission controller loop verified ✓");

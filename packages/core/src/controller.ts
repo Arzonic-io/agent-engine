@@ -433,22 +433,24 @@ export async function runMission(
   let strategicReplans = 0;
 
   const stop = async (status: MissionStatus, reason: string): Promise<MissionOutcome> => {
-    // Persist the final counters alongside the status so a resumed/inspected mission
-    // sees the true iteration + no-progress totals (blocker 4a).
-    await backlog.updateMission(missionId, { status, iterations, noProgress });
-    // Deliver the morning digest (M3 Trin 6) via the Notifier as the mission ends —
-    // a rollup of what's done, what's blocking + why, and the next high-risk work.
-    if (deps.notifier) {
+    // Persist the final counters + WHY alongside the status: a resumed/inspected
+    // mission sees the true iteration + no-progress totals (blocker 4a), and the
+    // dashboard can explain the end state instead of just showing it.
+    await backlog.updateMission(missionId, { status, iterations, noProgress, stopReason: reason });
+    // The terminal digest (M3 Trin 6) — built when anything consumes it: the
+    // Publisher summarises it into the PR body, the Notifier delivers it.
+    if (deps.notifier || (deps.publisher && deps.integrationBranch)) {
       const items = await backlog.listItems(missionId);
       const digest = buildDigest({ ...mission, status }, items, deps.highRiskPatterns);
       // Publish (overnight-trust "del b"): push the integration branch and open a
-      // PR so the night's work is reviewable in the morning. Done BEFORE the digest
-      // goes out so the PR URL rides along in it. Best-effort — a publish failure is
-      // recorded in the digest, never thrown into the stop path (the digest must
-      // always be delivered). Whether to publish is decided by the Publisher from
-      // git (is the branch ahead of the default branch?), NOT from this run's
-      // `itemsDone` — which resets to 0 on resume and would miss work merged in a
-      // crashed prior run.
+      // PR so the night's work is reviewable in the morning — INDEPENDENT of the
+      // notifier (the PR is the review artifact; notification is only the
+      // messenger). Done BEFORE the digest goes out so the PR URL rides along in
+      // it. Best-effort — a publish failure is recorded, never thrown into the
+      // stop path. Whether to publish is decided by the Publisher from git (is
+      // the branch ahead of the default branch?), NOT from this run's `itemsDone`
+      // — which resets to 0 on resume and would miss work merged in a crashed
+      // prior run.
       if (deps.publisher && deps.integrationBranch) {
         try {
           const published = await deps.publisher.publish({
@@ -461,8 +463,17 @@ export async function runMission(
         } catch (err) {
           digest.publishNote = `publish failed: ${errText(err, 300)}`;
         }
+        // Persist the outcome on the ROW: the digest is transient (webhook/log),
+        // the row is what the dashboard reads after any restart — so the PR link
+        // survives. Overwritten on a later stop (idempotent publisher ⇒ same PR).
+        await backlog.updateMission(missionId, {
+          prUrl: digest.prUrl ?? null,
+          publishNote: digest.publishNote ?? null,
+        });
       }
-      await deps.notifier.notify({ type: "mission_digest", missionId, digest });
+      if (deps.notifier) {
+        await deps.notifier.notify({ type: "mission_digest", missionId, digest });
+      }
     }
     await deps.notifier?.notify({ type: "mission_stopped", missionId, status, reason });
     return { status, reason, iterations, itemsDone };

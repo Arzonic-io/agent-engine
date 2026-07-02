@@ -10,6 +10,7 @@ import {
   LuCircleStop,
   LuCompass,
   LuFileDiff,
+  LuGitPullRequest,
   LuSave,
   LuTriangleAlert,
   LuUsers,
@@ -38,6 +39,41 @@ const GROUP_ORDER: { key: ApiBacklogItem["status"]; label: string }[] = [
   { key: "done", label: "Færdig" },
   { key: "failed", label: "Fejlet" },
 ];
+
+/** Human text for the controller's machine-readable stop reason. */
+const STOP_REASON_TEXT: Record<string, string> = {
+  done: "Missionen er færdig — målet er nået.",
+  budget: "Stoppet: token-budgettet er brugt op.",
+  deadline: "Stoppet: deadline blev nået.",
+  "max-iterations": "Stoppet: iterations-loftet blev nået.",
+  "no-progress": "Stoppet: ingen fremskridt i flere runder i træk.",
+  stopped: "Stoppet manuelt (kill switch).",
+  "remaining items blocked on unmet dependencies":
+    "Blokeret: resterende punkter venter på uopfyldte afhængigheder.",
+  "all remaining items need a human": "Blokeret: alle resterende punkter afventer din beslutning.",
+};
+
+/** Explain a terminal mission's end state; falls back to the raw reason / status. */
+function stopReasonText(m: MissionDetail): string {
+  const r = m.stopReason ?? "";
+  if (STOP_REASON_TEXT[r]) return STOP_REASON_TEXT[r];
+  if (r) return `Stoppet: ${r}`;
+  // Missions from before stop_reason existed — explain from the status alone.
+  const byStatus: Partial<Record<MissionDetail["status"], string>> = {
+    done: "Missionen er færdig.",
+    failed: "Missionen fejlede.",
+    stopped: "Missionen blev stoppet.",
+    blocked: "Missionen afventer dig.",
+  };
+  return byStatus[m.status] ?? m.status;
+}
+
+/** Banner tone per terminal status. */
+function stopTone(status: MissionDetail["status"]): string {
+  if (status === "done") return "border-success/40 bg-success/10 text-success";
+  if (status === "blocked") return "border-warning/40 bg-warning/10 text-warning";
+  return "border-error/40 bg-error/10 text-error"; // failed | stopped
+}
 
 export default function MissionDashboard({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
@@ -262,24 +298,58 @@ export default function MissionDashboard({ params }: { params: Promise<{ id: str
                 {mission.goal}
               </h1>
             </div>
-            {active && (
-              <div className="flex shrink-0 items-center gap-2">
-                <button
-                  onClick={openTeam}
-                  className="btn btn-sm gap-1 border-line bg-elev text-dim hover:text-fg"
+            <div className="flex shrink-0 items-center gap-2">
+              {mission.prUrl && (
+                <a
+                  href={mission.prUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  title={mission.publishNote ?? undefined}
+                  className="btn btn-sm gap-1 border-line bg-elev text-builder hover:border-builder/50"
                 >
-                  <LuUsers className="h-4 w-4" /> Team
-                </button>
-                <button
-                  onClick={() => void stop()}
-                  disabled={stopping}
-                  className="btn btn-sm gap-1 border-line bg-elev text-error hover:border-error/50"
-                >
-                  <LuCircleStop className="h-4 w-4" /> Stop
-                </button>
-              </div>
-            )}
+                  <LuGitPullRequest className="h-4 w-4" /> Se PR
+                </a>
+              )}
+              {active && (
+                <>
+                  <button
+                    onClick={openTeam}
+                    className="btn btn-sm gap-1 border-line bg-elev text-dim hover:text-fg"
+                  >
+                    <LuUsers className="h-4 w-4" /> Team
+                  </button>
+                  <button
+                    onClick={() => void stop()}
+                    disabled={stopping}
+                    className="btn btn-sm gap-1 border-line bg-elev text-error hover:border-error/50"
+                  >
+                    <LuCircleStop className="h-4 w-4" /> Stop
+                  </button>
+                </>
+              )}
+            </div>
           </div>
+
+          {/* terminal end-state: WHY it ended + how publishing went (M3 morgen-review) */}
+          {!active && (
+            <div
+              className={`mt-3 flex items-start gap-2 rounded-field border px-3 py-2 text-sm ${stopTone(mission.status)}`}
+            >
+              {mission.status === "done" ? (
+                <LuCheck className="mt-0.5 h-4 w-4 shrink-0" />
+              ) : mission.status === "blocked" ? (
+                <LuTriangleAlert className="mt-0.5 h-4 w-4 shrink-0" />
+              ) : (
+                <LuCircleStop className="mt-0.5 h-4 w-4 shrink-0" />
+              )}
+              <div className="min-w-0">
+                <p>{stopReasonText(mission)}</p>
+                {!mission.prUrl && mission.publishNote && (
+                  <p className="mt-0.5 text-xs opacity-75">Publicering: {mission.publishNote}</p>
+                )}
+              </div>
+            </div>
+          )}
 
           {/* budget burn */}
           <div className="mt-4">

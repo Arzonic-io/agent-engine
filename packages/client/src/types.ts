@@ -262,6 +262,12 @@ export interface MissionSummary {
   roleModels: RoleModelsConfig;
   /** Free-text operator course-correction; flows into the next replan (M3 Trin 6). Null = none. */
   guidance: string | null;
+  /** WHY the mission last stopped (machine-readable reason); null while running. */
+  stopReason: string | null;
+  /** PR opened for the mission's work; persisted so the dashboard can link it after a restart. */
+  prUrl: string | null;
+  /** One-line publish outcome (which PR was opened/reused, or why none). */
+  publishNote: string | null;
   createdAt: string;
 }
 
@@ -294,6 +300,10 @@ export interface MissionDigest {
   nextHighRisk: string[];
   /** Most-recently-updated items — recent activity. */
   recent: DigestRecent[];
+  /** PR opened for the mission's work (attached by the controller after publish). */
+  prUrl?: string;
+  /** Why there's no prUrl (no remote, push failed, …), or which PR was reused. */
+  publishNote?: string;
 }
 
 export interface MissionDetail extends MissionSummary {

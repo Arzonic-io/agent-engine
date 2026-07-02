@@ -37,6 +37,9 @@ const mission: Mission = {
   guidance: null,
   iterations: 3,
   noProgress: 0,
+  stopReason: null,
+  prUrl: null,
+  publishNote: null,
   createdAt: new Date(1_700_000_000_000).toISOString(),
 };
 const digest = buildDigest(mission, []);
