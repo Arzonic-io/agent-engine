@@ -144,6 +144,10 @@ Everything is env-driven (`.env`, zod-validated at boot). Highlights — full li
   (pnpm scripts the Verifier may run), `REPO_ALLOWED_COMMANDS` (executables a mission may run,
   no shell — `&&`/pipe/`$(…)` are inert).
 - **API** — `AGENT_API_KEY` (≥16 chars), `API_PORT` (8787), `API_CORS_ORIGINS`.
+- **Web** — `WEB_LOCAL_REPOS=off` (recommended on the cloud deploy) hides local-path repo
+  binding entirely: the browser can never reach your own machine's disk, and binding
+  missions to VPS paths (incl. the live deployment repo) is a footgun — GitHub picking is
+  the only binding there. Local dev leaves it on: there the API *is* your machine.
 - **Tracing** — `LANGSMITH_TRACING` + `LANGSMITH_API_KEY` (off by default).
 
 ## Architecture
@@ -236,7 +240,8 @@ push→main → a self-hosted runner ([.github/workflows/deploy.yml](.github/wor
 reset → build → restart all three by name. Put the API behind the reverse proxy on
 `API_PORT` (internal-only or a non-discoverable subdomain), set `API_CORS_ORIGINS` to the
 exact consumer origins, and note the API's CORS allows only GET/POST — the web app reaches
-PATCH/DELETE through its own server-side proxy routes. All secrets via the repo-root `.env`.
+PATCH/DELETE through its own server-side proxy routes. Set `WEB_LOCAL_REPOS=off` so the UI
+offers GitHub repo picking only (no VPS filesystem paths). All secrets via the repo-root `.env`.
 
 ## Consuming from Ranky / Bravy
 

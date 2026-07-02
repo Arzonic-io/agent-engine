@@ -26,6 +26,7 @@ export function ProjectFormView({
   mode,
   firstEver = false,
   repos,
+  localRepos = true,
   initialName = "",
   initialBrief = "",
   initialRepo = "",
@@ -39,6 +40,13 @@ export function ProjectFormView({
   mode: "create" | "edit";
   firstEver?: boolean;
   repos: RepoInfo[];
+  /**
+   * Whether local-path repo binding is offered at all. Off on the cloud deploy
+   * (WEB_LOCAL_REPOS=off): the browser can't reach the user's disk, and server
+   * paths are a footgun — GitHub picking is the only binding there. A legacy
+   * path-bound project still shows its path so it can be seen/cleared.
+   */
+  localRepos?: boolean;
   initialName?: string;
   initialBrief?: string;
   initialRepo?: string;
@@ -64,6 +72,9 @@ export function ProjectFormView({
   // Local-path picker is the advanced fallback; default open only if a path is
   // pre-set without a GitHub binding (e.g. an older project bound by path).
   const [showLocal, setShowLocal] = useState(!!initialRepo && !initialGithubRepo);
+  // With local binding disabled (cloud), only a legacy path-bound project still
+  // gets the fold-out — so the existing path can be inspected and cleared.
+  const allowLocal = localRepos || !!initialRepo;
   const [team, setTeam] = useState<TeamSelection>(() => roleModelsToSelection(initialTeam));
   const [showTeam, setShowTeam] = useState(false);
   const isEdit = mode === "edit";
@@ -144,16 +155,19 @@ export function ProjectFormView({
                 }}
               />
             </div>
-            {/* Advanced fallback: a local/discovered path (dev, or no GITHUB_TOKEN). */}
-            <button
-              type="button"
-              onClick={() => setShowLocal((v) => !v)}
-              className="ml-[3.25rem] inline-flex items-center gap-1 text-[11px] text-dim transition hover:text-fg"
-            >
-              <LuHardDrive className="h-3 w-3" />
-              {showLocal ? "Skjul lokal sti" : "…eller en lokal sti"}
-            </button>
-            {showLocal && (
+            {/* Advanced fallback: a local/discovered path (dev, or no GITHUB_TOKEN).
+                Hidden entirely on the cloud deploy (allowLocal) — GitHub only. */}
+            {allowLocal && (
+              <button
+                type="button"
+                onClick={() => setShowLocal((v) => !v)}
+                className="ml-[3.25rem] inline-flex items-center gap-1 text-[11px] text-dim transition hover:text-fg"
+              >
+                <LuHardDrive className="h-3 w-3" />
+                {showLocal ? "Skjul lokal sti" : "…eller en lokal sti"}
+              </button>
+            )}
+            {allowLocal && showLocal && (
               <div className="ml-[3.25rem]">
                 <RepoPicker
                   repos={repos}

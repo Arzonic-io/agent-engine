@@ -34,6 +34,9 @@ export default function Composer() {
   const router = useRouter();
   const [task, setTask] = useState("");
   const [repos, setRepos] = useState<RepoInfo[]>([]);
+  // Local-path repo binding is hidden on the cloud deploy (WEB_LOCAL_REPOS=off):
+  // the browser can't reach the user's disk, and server paths are a footgun.
+  const [localRepos, setLocalRepos] = useState(true);
   const [projects, setProjects] = useState<Project[]>([]);
   const [projectId, setProjectId] = useActiveProject();
   const [rubric, setRubric] = useState<Rubric | null>(null);
@@ -69,7 +72,10 @@ export default function Composer() {
           const cur = getActiveProject();
           if ((!cur || !list.some((x) => x.id === cur)) && list[0]) setProjectId(list[0].id);
         }
-        if (r.ok) setRepos((await r.json()) as RepoInfo[]);
+        if (r.ok) {
+          setRepos((await r.json()) as RepoInfo[]);
+          setLocalRepos(r.headers.get("x-local-repos") !== "off");
+        }
         if (rb.ok) setRubric((await rb.json()) as Rubric);
       } catch {
         /* API still booting — the empty state handles it */
@@ -260,6 +266,7 @@ export default function Composer() {
         mode="create"
         firstEver={projects.length === 0}
         repos={repos}
+        localRepos={localRepos}
         error={error}
         submitting={savingProject}
         onSubmit={(d) =>
@@ -285,6 +292,7 @@ export default function Composer() {
       <ProjectFormView
         mode="edit"
         repos={repos}
+        localRepos={localRepos}
         initialName={selected.name}
         initialBrief={selected.brief}
         initialRepo={
@@ -358,6 +366,7 @@ export default function Composer() {
           <div className="mt-3">
             <RepoMenu
               repos={repos}
+              localRepos={localRepos}
               value={projectRepo}
               onChange={saveProjectRepo}
               saving={savingRepo}

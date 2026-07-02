@@ -67,6 +67,13 @@ Det store perspektiv — fra nu til Nordstjernen. Detaljerne lever i tiers + epi
 - [x] Bevist: [verify-mission](../packages/core/verify-mission.ts) scenario 20–21 — publisher fyrer UDEN
       notifier; PR-URL/note/stop-grund står på rækken; kastende publisher crasher aldrig stop-stien.
       `turbo build` grøn (6/6); publish/blockers-harnesses + API-smoke grønne.
+- [x] **Cloud-UI: lokal-sti-binding gated** (`WEB_LOCAL_REPOS=off` på VPS'en): browseren kan aldrig nå
+      brugerens egen disk, og VPS-stier (inkl. det live deployment-repo!) er en fælde at binde missioner
+      til. [/api/repos-proxyen](../apps/web/app/api/repos/route.ts) signalerer "off"; ProjectFormView
+      skjuler lokal-fold-out'en (legacy sti-bundne projekter kan stadig ses/ryddes) og RepoMenu viser
+      en GitHub-henvisning i stedet for liste + custom sti. Dev (lokal API) er uændret. Electron-som-
+      lokal-app genbesøgt og fravalgt igen: always-on-autonomi + server-side secrets; `pnpm dev` ER
+      den lokale mode, git/PR er broen (jf. hosting-beslutningen 2026-06-28).
 
 ### 2026-06-30 — (backfill) Publisher: draft-PRs + GitHub-repo-picker (workspaces)
 - [x] **Missioner publicerer** (overnight-trust "del b"): `Publisher`-søm i core
