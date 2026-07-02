@@ -4,7 +4,7 @@
 > komme. Opdatér den løbende: kryds af, flyt punkter mellem sektioner, og log
 > leverede ting under **Senest leveret**.
 
-**Sidst opdateret:** 2026-06-23
+**Sidst opdateret:** 2026-07-02
 
 ## 🌙 Nordstjerne — Autonome missioner
 
@@ -48,6 +48,36 @@ Det store perspektiv — fra nu til Nordstjernen. Detaljerne lever i tiers + epi
 ---
 
 ## ✅ Senest leveret
+
+### 2026-07-02 — Morgen-flowet lukket: PR-link + stop-grund på dashboardet
+- [x] **Publish afkoblet fra notifier** ([controller.ts](../packages/core/src/controller.ts) `stop()`):
+      publish-kaldet lå inde i `if (deps.notifier)` — PR'en er review-artefaktet, notifikation kun
+      budbringeren. Digesten bygges nu når *nogen* konsumerer den (publisher **eller** notifier);
+      publish fyrer uafhængigt, stadig best-effort.
+- [x] **Persisteret udfald:** nye kolonner `stop_reason` / `pr_url` / `publish_note` på missions-rækken
+      ([backlog.ts](../packages/shared/src/backlog.ts), idempotente ALTERs). `stop()` skriver stop-grunden
+      ved hver afslutning og publish-udfaldet efter publish — PR-linket overlever enhver genstart
+      (digesten er transient, rækken er ikke).
+- [x] **UI ([missions/[id]](../apps/web/app/missions/[id]/page.tsx)):** "Se PR"-knap i headeren når
+      `prUrl` findes + terminal-banner der forklarer HVORFOR missionen endte (budget/deadline/
+      no-progress/kill switch/blokeret — dansk mapping, rå fallback) + publish-noten når ingen PR.
+- [x] **Hermetik-fix:** [shared verify-role-models](../packages/shared/verify-role-models.ts) var **rød**
+      på enhver maskine med `GOOGLE_CLOUD_PROJECT` i `.env` (Vertex-ruten lækkede ind). `setEnv` pinner
+      nu alle LLM-nøgler til `""` (dotenv udfylder kun *fraværende* nøgler) + ny case beviser Vertex-ruten.
+- [x] Bevist: [verify-mission](../packages/core/verify-mission.ts) scenario 20–21 — publisher fyrer UDEN
+      notifier; PR-URL/note/stop-grund står på rækken; kastende publisher crasher aldrig stop-stien.
+      `turbo build` grøn (6/6); publish/blockers-harnesses + API-smoke grønne.
+
+### 2026-06-30 — (backfill) Publisher: draft-PRs + GitHub-repo-picker (workspaces)
+- [x] **Missioner publicerer** (overnight-trust "del b"): `Publisher`-søm i core
+      ([publisher.ts](../packages/core/src/publisher.ts)) + `createGitHubPublisher` i shared
+      ([publisher.ts](../packages/shared/src/publisher.ts) — GitHub REST over `fetch`, ingen octokit).
+      Push af `mission/<id>/integration` + draft-PR mod default branch; **idempotent** (genbruger åben PR);
+      token-scrubbet fra alle fejl; gated af `GITHUB_TOKEN` + `MISSION_PUBLISH_PR`/`MISSION_PR_DRAFT`.
+      Bevist hermetisk: [verify-publish.ts](../packages/core/verify-publish.ts).
+- [x] **GitHub-repo-picker + workspaces** (commit `80740be`): vælg et GitHub-repo i stedet for at taste
+      en sti — klones/opdateres ind i `MISSION_WORKSPACE_ROOT` (default `.workspaces`) via
+      [workspace.ts](../packages/shared/src/workspace.ts); token aldrig persisteret i `.git/config`.
 
 ### 2026-06-28 — Gemini via Vertex AI (ADC, ingen API-nøgle) + konkrete team-modeller
 - [x] **Gemini uden API-nøgle (Vertex AI + ADC).** `buildModel` ([llm.ts](../packages/shared/src/llm.ts))
@@ -549,9 +579,13 @@ Ting der er i stykker, blokerer brug, eller mangler for at appen hænger sammen.
 - [x] **Opdatér README/docs.** *(leveret 2026-06-23)* [README.md](../README.md) skrevet om: Opgave/Mission-modes,
       hele team-rosteren, missions-motoren (M1–M3), web-appen, projekter/hukommelse, per-rolle/per-projekt/per-mission
       modeller, fuld API-rute-tabel, setup (docker compose Postgres) + run (web/worker/CLI), verify-harnesses og PM2.
-- [ ] **Slet/omdøb projekt fra UI.** Backend har `DELETE /projects/:id` + `PATCH`,
-      men der er ingen knap i web-appen endnu.
-- [ ] **Rediger projekt-brief/navn i UI.** I dag kun ved oprettelse.
+- [ ] **Slet projekt: synlig knap.** *(delvist leveret — opdaget ved audit 2026-07-02)* Slet findes
+      allerede via **højreklik** på projektet i railen ([LeftRail](../apps/web/app/components/LeftRail.tsx))
+      med bekræftelses-modal — men det er uopdageligt. Rest: en synlig "Slet projekt"-knap i
+      edit-formen (ProjectFormView) + bekræftelse på task-/mission-slet (i dag optimistisk uden varsel).
+- [x] **Rediger projekt-brief/navn i UI.** *(leveret — verificeret ved audit 2026-07-02)*
+      [ProjectFormView](../apps/web/app/components/ProjectFormView.tsx) har fuld edit-mode (navn/brief/
+      repo/team) via "Rediger"-knappen på composer-siden.
 - [x] **Kerne-tests.** *(leveret 2026-06-23)* De tre flaggede huller er dækket hermetisk i
       [verify-graph-nodes.ts](../packages/core/verify-graph-nodes.ts) (25 checks, fake-model + fake-memory):
       critic'ens **deterministiske rubric pass-regel** (alle required mødt + score ≥ threshold, kan ikke passes ved
@@ -600,15 +634,16 @@ Forbedringer og fremtid.
 - [ ] Keyboard-shortcuts cheat-sheet (A/R/G, J/K, ⌘↵).
 - [ ] Fuld i18n-toggle (dansk/engelsk) i stedet for hårdkodet dansk.
 - [ ] Tema / lys-mode.
-- [ ] Slack/Mattermost-relay af SSE-streamen.
+- [ ] Slack/Mattermost-relay af SSE-streamen (opgave-kørsler). *(Missions-delen er leveret:
+      `MISSION_NOTIFY_WEBHOOK_URL` sender parked/digest/stopped out-of-band — se 2026-06-24.)*
 - [ ] Realtime-dashboard via Supabase Realtime.
 
 ---
 
 ## 🐛 Kendte issues / teknisk gæld
 
-- [ ] **Dev-shell Node-mismatch.** `pnpm`/corepack crasher på Node 18 i shellen;
-      `turbo run dev` skal køre på Node 22. Pin Node (`.nvmrc`/`engines`) eller dokumentér.
+- [x] **Dev-shell Node-mismatch.** *(leveret 2026-07-02)* Node er nu pinnet via [.nvmrc](../.nvmrc)
+      (`22`, `nvm use`); `engines`-gulvet forbliver ≥ 20. README-setup nævner det.
 - [ ] **API-dev har ingen watch.** `apps/api` kører via `tsx src/main.ts` uden watch —
       ændringer i api/shared kræver manuel genstart. Overvej `tsx watch`.
 - [ ] **CORS-metoder.** `main.ts` tillader kun `GET, POST` — `PATCH`/`DELETE` virker kun

@@ -53,7 +53,8 @@ mission — most-specific wins: **mission > project > global default (DB) > env*
 
 ## Setup
 
-Requires **Node ≥ 20** and **pnpm**.
+Requires **Node 22** (pinned in [.nvmrc](.nvmrc) — `nvm use`; the engine floor is ≥ 20)
+and **pnpm**.
 
 ```bash
 pnpm install
@@ -85,8 +86,10 @@ pnpm dev      # web on http://localhost:3400, API on http://localhost:8787
 ```
 
 `pnpm dev` runs the API and the web app together (and `predev` starts the local Postgres
-and frees the ports). Open the web app, create a project, pick its repo, and choose
-**Opgave** (Task) or **Mission**.
+and frees the ports). Open the web app, create a project, pick its repo — a searchable
+**GitHub repo picker** when `GITHUB_TOKEN` is set (the repo is auto-cloned into a managed
+workspace under `MISSION_WORKSPACE_ROOT`), or a local path — and choose **Opgave** (Task)
+or **Mission**.
 
 ### Mission worker
 
@@ -115,6 +118,8 @@ Everything is env-driven (`.env`, zod-validated at boot). Highlights — full li
 - **Providers & models** — `LLM_PROVIDER` (mistral | anthropic | google), per-provider keys,
   `LLM_MODEL`, and `LLM_ROLE_MODELS` (per-role `{provider, model?, temperature?}` JSON).
   `LLM_PROMPT_CACHE` (default on) caches Claude's stable prompt prefix at ~0.1×.
+  Gemini also runs **key-less via Vertex AI/ADC**: set `GOOGLE_CLOUD_PROJECT`
+  (+ `GOOGLE_CLOUD_LOCATION`, default `europe-west4`) instead of `GOOGLE_API_KEY`.
 - **Persistence** — `SUPABASE_DB_URL` (Postgres checkpointer + memory + backlog),
   `SUPABASE_URL` / `SUPABASE_SERVICE_KEY`.
 - **Task guardrails** — `MAX_ROUNDS`, `RUN_TOKEN_BUDGET`, `RUN_TIMEOUT_MS`.
@@ -122,7 +127,19 @@ Everything is env-driven (`.env`, zod-validated at boot). Highlights — full li
   `MISSION_NOPROGRESS_LIMIT`, `MISSION_THRASH_LIMIT`, `MISSION_CONCURRENCY`,
   `MISSION_REQUEUE_LIMIT`, `MISSION_LLM_MAX_RETRIES`, `MISSION_REVIEW_ROUNDS`,
   `MISSION_AUTHOR_TESTS`, `MISSION_CHECKS`, `MISSION_HIGH_RISK_PATTERNS`,
-  `MISSION_WORKER_POLL_MS`.
+  `MISSION_WORKER_POLL_MS`, `MISSION_ABORT_POLL_MS` (preemptive kill-switch/deadline
+  watcher), `MISSION_MAX_STRATEGIC_REPLANS` (re-decompose toward the goal when the
+  backlog drains).
+- **Notifications** — `MISSION_NOTIFY_WEBHOOK_URL` (Slack/Discord/Mattermost incoming
+  webhooks work directly) delivers parked-item alerts, the morning digest, and stop
+  events out-of-band; `MISSION_DIGEST_INTERVAL_MS` adds a mid-run digest on a timer so a
+  mission still running in the morning reports *before* it ends.
+- **GitHub: repo picker + publishing** — `GITHUB_TOKEN` (fine-grained PAT with
+  Contents + Pull-requests read/write) enables the searchable repo picker (clones live
+  under `MISSION_WORKSPACE_ROOT`, default `.workspaces`) and lets a finished mission push
+  its integration branch and open a PR against the default branch: `MISSION_PUBLISH_PR`
+  (default on), `MISSION_PR_DRAFT` (default draft). The PR URL + stop reason are
+  persisted on the mission and linked from the dashboard.
 - **Repo sandbox** — `REPO_ALLOWED_ROOTS` (which dirs the picker lists), `REPO_ALLOWED_CHECKS`
   (pnpm scripts the Verifier may run), `REPO_ALLOWED_COMMANDS` (executables a mission may run,
   no shell — `&&`/pipe/`$(…)` are inert).
@@ -160,10 +177,15 @@ backlog item it:
 
 Governors (budget, deadline, iterations, no-progress, thrash, concurrency, requeue) guarantee
 termination; transient infra blips are retried/re-queued, real failures are surfaced and
-parked — never swallowed. When the mission stops it delivers a **morning digest** (what's
-done, what's blocking and why, the next high-risk work) via the notifier. A human can drop
-free-text **guidance** onto a running mission at any time; it flows into the next planning
-round (course-correction beyond Stop).
+parked — never swallowed. When the mission stops it **publishes**: the integration branch
+is pushed and a (draft) PR opened against the repo's default branch (idempotent — an open
+PR is reused), and the PR URL + the machine-readable stop reason are persisted on the
+mission row, so the dashboard links the night's work and explains why it ended. It then
+delivers a **morning digest** (what's done, what's blocking and why, the next high-risk
+work, the PR link) via the notifier — to the console and, with `MISSION_NOTIFY_WEBHOOK_URL`,
+out-of-band to Slack/Discord/Mattermost. A human can drop free-text **guidance** onto a
+running mission at any time; it flows into the next planning round (course-correction
+beyond Stop).
 
 Everything the loop touches is an **injected seam** (BacklogStore, Verifier, WorkRunner,
 WorktreeManager, Integrator, Differ, Decomposer, Replanner, TestAuthor, Notifier, Clock,
@@ -206,12 +228,15 @@ team graph, integrator, worktree, role-models, prompt-cache, differ, human-polic
 
 ```bash
 pnpm install && pnpm build
-pm2 start ecosystem.config.cjs   # starts agent-api + agent-mission-worker
+pm2 start ecosystem.config.cjs   # starts agent-api + agent-mission-worker + agent-web (:3400)
 ```
 
-Both are single-fork processes sharing the VPS's native Postgres. Put the API behind the
-reverse proxy on `API_PORT` (internal-only or a non-discoverable subdomain), and set
-`API_CORS_ORIGINS` to the exact consumer origins. All secrets via the repo-root `.env`.
+All three are single-fork processes sharing the VPS's native Postgres. Deploys run
+push→main → a self-hosted runner ([.github/workflows/deploy.yml](.github/workflows/deploy.yml)):
+reset → build → restart all three by name. Put the API behind the reverse proxy on
+`API_PORT` (internal-only or a non-discoverable subdomain), set `API_CORS_ORIGINS` to the
+exact consumer origins, and note the API's CORS allows only GET/POST — the web app reaches
+PATCH/DELETE through its own server-side proxy routes. All secrets via the repo-root `.env`.
 
 ## Consuming from Ranky / Bravy
 
