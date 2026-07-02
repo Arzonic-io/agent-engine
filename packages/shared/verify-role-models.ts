@@ -23,10 +23,20 @@ const LLM_KEYS = [
   "MISTRAL_API_KEY",
   "ANTHROPIC_API_KEY",
   "GOOGLE_API_KEY",
+  // Vertex/ADC route toggles — MUST be neutralised too, or a developer's real
+  // .env (GOOGLE_CLOUD_PROJECT set) flips provider=google to ChatVertexAI and
+  // breaks the ChatGoogleGenerativeAI assertions below.
+  "GOOGLE_CLOUD_PROJECT",
+  "GOOGLE_CLOUD_LOCATION",
 ];
-/** Set only the LLM-related env (deleting any leftover) so each case is hermetic. */
+/**
+ * Pin the LLM-related env for one hermetic case. Keys are set to "" (NOT deleted):
+ * `loadEnv()` re-reads the repo-root .env via dotenv, which fills in any ABSENT
+ * key — so a deleted key would leak the developer's real value back in. An
+ * existing "" blocks the dotenv fill and `cleanEnv` treats it as unset.
+ */
 function setEnv(vars: Record<string, string>) {
-  for (const k of LLM_KEYS) delete process.env[k];
+  for (const k of LLM_KEYS) process.env[k] = "";
   for (const [k, v] of Object.entries(vars)) process.env[k] = v;
 }
 
@@ -156,5 +166,24 @@ try {
   invocThrew = true;
 }
 ok(!invocThrew, "building Opus 4.8 with the default temperature no longer throws at invocation (latent bug fixed)");
+
+// 8. Vertex/ADC route: GOOGLE_CLOUD_PROJECT set (no API key) routes provider=google
+//    through ChatVertexAI — and the key-based route stays ChatGoogleGenerativeAI.
+//    Instantiation only (ADC credentials are first touched at call time); the live
+//    call is proven separately in verify-vertex-live.ts.
+const { ChatVertexAI } = await import("@langchain/google-vertexai");
+setEnv({
+  LLM_PROVIDER: "mistral",
+  MISTRAL_API_KEY: "dummy-mistral",
+  GOOGLE_CLOUD_PROJECT: "dummy-project",
+  LLM_ROLE_MODELS: JSON.stringify({ critic: { provider: "google" } }),
+});
+const env6 = loadEnv();
+const vertexRoles = buildRoleModels(env6);
+ok(vertexRoles.critic instanceof ChatVertexAI, "GOOGLE_CLOUD_PROJECT (no key) → google routes through Vertex/ADC");
+ok(
+  !(vertexRoles.critic instanceof ChatGoogleGenerativeAI),
+  "the Vertex route does NOT instantiate the key-based Gemini SDK",
+);
 
 console.log("\nPer-role + per-mission + settings precedence + temperature verified ✓");
