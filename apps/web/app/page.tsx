@@ -475,11 +475,11 @@ export default function Composer() {
                     ? `→ grundet i projektets repo (${repoLabel(projectRepo, repos)})`
                     : "→ router vælger single / team"}
                 </span>
-                <div className="aura aura-dual text-primary">
+                <div className={starting || !task.trim() ? "inline-block" : "aura aura-dual text-primary"}>
                   <button
                     onClick={() => void run()}
                     disabled={starting || !task.trim()}
-                    className="btn btn-primary display gap-2 font-bold normal-case"
+                    className="btn bg-white text-black hover:bg-white/90 disabled:bg-base-300 disabled:text-dim display gap-2 font-bold normal-case"
                   >
                     {starting ? (
                       <span className="skeleton skeleton-text">Starter opgaven…</span>

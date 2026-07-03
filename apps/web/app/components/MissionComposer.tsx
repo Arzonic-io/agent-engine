@@ -303,11 +303,11 @@ export function MissionComposer({
       </div>
 
       <div className="mt-3 flex justify-end">
-        <div className="aura aura-dual text-primary">
+        <div className={creating || noRepo || !goal.trim() ? "inline-block" : "aura aura-dual text-primary"}>
           <button
             onClick={() => void start()}
             disabled={creating || noRepo || !goal.trim()}
-            className="btn btn-primary display gap-2 font-bold normal-case"
+            className="btn bg-white text-black hover:bg-white/90 disabled:bg-base-300 disabled:text-dim display gap-2 font-bold normal-case"
           >
             {creating ? (
               <span className="skeleton skeleton-text">Starter missionen…</span>

@@ -5,8 +5,18 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
-import { LuFolderGit2, LuFolderPlus, LuRocket, LuSettings, LuTrash2 } from "react-icons/lu";
-import type { MissionSummary, Project, RecentTask } from "@arzonic/agent-client";
+import {
+  LuFolderGit2,
+  LuFolderPlus,
+  LuRocket,
+  LuSettings,
+  LuTrash2,
+} from "react-icons/lu";
+import type {
+  MissionSummary,
+  Project,
+  RecentTask,
+} from "@arzonic/agent-client";
 import { SettingsModal } from "./SettingsModal";
 import {
   getActiveProject,
@@ -48,13 +58,20 @@ export function LeftRail({ onNavigate }: { onNavigate?: () => void } = {}) {
   const [filter, setFilter] = useState<Filter>("all");
   const [menu, setMenu] = useState<MenuTarget | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
-  const [confirmProject, setConfirmProject] = useState<{ id: string; name: string } | null>(null);
+  const [confirmProject, setConfirmProject] = useState<{
+    id: string;
+    name: string;
+  } | null>(null);
   const [confirmEntry, setConfirmEntry] = useState<MenuTarget | null>(null);
   const [showSettings, setShowSettings] = useState(false);
   const toast = useToast();
 
-  const activeId = pathname.startsWith("/runs/") ? pathname.split("/")[2] : null;
-  const activeMissionId = pathname.startsWith("/missions/") ? pathname.split("/")[2] : null;
+  const activeId = pathname.startsWith("/runs/")
+    ? pathname.split("/")[2]
+    : null;
+  const activeMissionId = pathname.startsWith("/missions/")
+    ? pathname.split("/")[2]
+    : null;
 
   /** projectId → project name, for labelling missions (which carry only the id). */
   const projectName = useMemo(() => {
@@ -69,10 +86,13 @@ export function LeftRail({ onNavigate }: { onNavigate?: () => void } = {}) {
       try {
         const res = await fetch("/api/projects");
         if (!res.ok || !alive) return;
-        const list = ((await res.json()) as Project[]).filter((p) => p.name !== "Scratch");
+        const list = ((await res.json()) as Project[]).filter(
+          (p) => p.name !== "Scratch",
+        );
         setProjects(list);
         const cur = getActiveProject();
-        if ((!cur || !list.some((p) => p.id === cur)) && list[0]) setActiveProject(list[0].id);
+        if ((!cur || !list.some((p) => p.id === cur)) && list[0])
+          setActiveProject(list[0].id);
       } catch {
         /* best-effort */
       }
@@ -110,7 +130,8 @@ export function LeftRail({ onNavigate }: { onNavigate?: () => void } = {}) {
     const load = async () => {
       try {
         const res = await fetch("/api/missions");
-        if (res.ok && alive) setMissions((await res.json()) as MissionSummary[]);
+        if (res.ok && alive)
+          setMissions((await res.json()) as MissionSummary[]);
       } catch {
         /* best-effort */
       }
@@ -126,7 +147,9 @@ export function LeftRail({ onNavigate }: { onNavigate?: () => void } = {}) {
   const filtered = useMemo(() => {
     if (filter === "all") return tasks;
     if (filter === "done")
-      return tasks.filter((t) => t.status === "accepted" || t.status === "rejected");
+      return tasks.filter(
+        (t) => t.status === "accepted" || t.status === "rejected",
+      );
     return tasks.filter((t) => t.status === filter);
   }, [tasks, filter]);
 
@@ -139,15 +162,24 @@ export function LeftRail({ onNavigate }: { onNavigate?: () => void } = {}) {
     setConfirmEntry(null);
     setDeleting(target.id);
     // optimistic removal from the relevant feed
-    if (target.kind === "task") setTasks((prev) => prev.filter((t) => t.id !== target.id));
+    if (target.kind === "task")
+      setTasks((prev) => prev.filter((t) => t.id !== target.id));
     else setMissions((prev) => prev.filter((m) => m.id !== target.id));
     try {
-      const path = target.kind === "task" ? `/api/runs/${target.id}` : `/api/missions/${target.id}`;
+      const path =
+        target.kind === "task"
+          ? `/api/runs/${target.id}`
+          : `/api/missions/${target.id}`;
       const res = await fetch(path, { method: "DELETE" });
       if (!res.ok) throw new Error(await res.text());
       toast(target.kind === "task" ? "Opgave slettet" : "Mission slettet");
     } catch {
-      toast(target.kind === "task" ? "Kunne ikke slette opgaven" : "Kunne ikke slette missionen", "error");
+      toast(
+        target.kind === "task"
+          ? "Kunne ikke slette opgaven"
+          : "Kunne ikke slette missionen",
+        "error",
+      );
     } finally {
       setDeleting(null);
       const wasActive =
@@ -226,11 +258,18 @@ export function LeftRail({ onNavigate }: { onNavigate?: () => void } = {}) {
   // J / K navigation between tasks
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLInputElement) return;
+      if (
+        e.target instanceof HTMLTextAreaElement ||
+        e.target instanceof HTMLInputElement
+      )
+        return;
       if (e.key !== "j" && e.key !== "k") return;
       if (filtered.length === 0) return;
       const idx = filtered.findIndex((t) => t.id === activeId);
-      const next = e.key === "j" ? Math.min(filtered.length - 1, idx + 1) : Math.max(0, idx - 1);
+      const next =
+        e.key === "j"
+          ? Math.min(filtered.length - 1, idx + 1)
+          : Math.max(0, idx - 1);
       const target = filtered[next === -1 ? 0 : next];
       if (target) router.push(`/runs/${target.id}`);
     }
@@ -242,23 +281,31 @@ export function LeftRail({ onNavigate }: { onNavigate?: () => void } = {}) {
     <aside className="flex h-full w-full flex-col border-r border-line bg-panel">
       <div className="flex items-center gap-2.5 px-5 py-4">
         <span className="pulse-dot inline-block h-2.5 w-2.5 rounded-full bg-builder" />
-        <span className="font-display text-base font-extrabold tracking-tight">Multi Agent Team</span>
+        <span className="font-display text-base font-extrabold tracking-tight">
+          Multi Agent Team
+        </span>
       </div>
 
       {/* ── Projects ── */}
       <div className="px-4 pb-1.5">
-        <span className="text-[11px] uppercase tracking-[0.28em] text-dim">Projekter</span>
+        <span className="text-[11px] uppercase tracking-[0.28em] text-dim">
+          Projekter
+        </span>
       </div>
 
       <div className="max-h-[32%] overflow-y-auto px-2 pb-1">
         {projects.length === 0 ? (
-          <p className="px-3 py-3 text-center text-xs text-dim">Ingen projekter endnu.</p>
+          <p className="px-3 py-3 text-center text-xs text-dim">
+            Ingen projekter endnu.
+          </p>
         ) : (
           <ul className="space-y-0.5">
             {projects.map((p) => {
               const active = p.id === activeProject;
               const repo =
-                typeof p.settings?.repoPath === "string" ? (p.settings.repoPath as string) : "";
+                typeof p.settings?.repoPath === "string"
+                  ? (p.settings.repoPath as string)
+                  : "";
               const remembered = p.stats?.memoryCount ?? 0;
               return (
                 <li key={p.id}>
@@ -266,7 +313,13 @@ export function LeftRail({ onNavigate }: { onNavigate?: () => void } = {}) {
                     onClick={() => switchProject(p.id)}
                     onContextMenu={(e) => {
                       e.preventDefault();
-                      setMenu({ x: e.clientX, y: e.clientY, kind: "project", id: p.id, label: p.name });
+                      setMenu({
+                        x: e.clientX,
+                        y: e.clientY,
+                        kind: "project",
+                        id: p.id,
+                        label: p.name,
+                      });
                     }}
                     className={`block w-full rounded-field px-3 py-2 text-left transition ${
                       active ? "bg-elev" : "hover:bg-elev/60"
@@ -276,7 +329,9 @@ export function LeftRail({ onNavigate }: { onNavigate?: () => void } = {}) {
                       <span
                         className={`h-1.5 w-1.5 shrink-0 rounded-full ${active ? "bg-builder" : "bg-dim"}`}
                       />
-                      <span className="truncate text-sm text-fg/90">{p.name}</span>
+                      <span className="truncate text-sm text-fg/90">
+                        {p.name}
+                      </span>
                     </div>
                     <div className="mt-0.5 flex items-center gap-1.5 pl-3.5 text-[11px] text-dim">
                       {repo && (
@@ -286,7 +341,9 @@ export function LeftRail({ onNavigate }: { onNavigate?: () => void } = {}) {
                           <span>·</span>
                         </>
                       )}
-                      <span className="shrink-0">{remembered > 0 ? `${remembered} husket` : "ny"}</span>
+                      <span className="shrink-0">
+                        {remembered > 0 ? `${remembered} husket` : "ny"}
+                      </span>
                     </div>
                   </button>
                 </li>
@@ -298,7 +355,9 @@ export function LeftRail({ onNavigate }: { onNavigate?: () => void } = {}) {
 
       {/* ── Recent tasks (all projects) ── */}
       <div className="flex items-center justify-between border-t border-line px-4 pb-1.5 pt-3">
-        <span className="text-[11px] uppercase tracking-[0.28em] text-dim">Seneste opgaver</span>
+        <span className="text-[11px] uppercase tracking-[0.28em] text-dim">
+          Seneste opgaver
+        </span>
         {awaitingCount > 0 && (
           <span className="rounded-full bg-warning/15 px-1.5 py-0.5 text-[10px] font-semibold text-warning">
             {awaitingCount} ved gaten
@@ -321,7 +380,9 @@ export function LeftRail({ onNavigate }: { onNavigate?: () => void } = {}) {
 
       <div className="max-h-60 overflow-y-auto px-2 py-1">
         {filtered.length === 0 ? (
-          <p className="px-3 py-8 text-center text-xs text-dim">Ingen opgaver endnu.</p>
+          <p className="px-3 py-8 text-center text-xs text-dim">
+            Ingen opgaver endnu.
+          </p>
         ) : (
           <ul className="space-y-0.5">
             {filtered.map((t) => {
@@ -333,7 +394,13 @@ export function LeftRail({ onNavigate }: { onNavigate?: () => void } = {}) {
                     onClick={onNavigate}
                     onContextMenu={(e) => {
                       e.preventDefault();
-                      setMenu({ x: e.clientX, y: e.clientY, kind: "task", id: t.id, label: t.task });
+                      setMenu({
+                        x: e.clientX,
+                        y: e.clientY,
+                        kind: "task",
+                        id: t.id,
+                        label: t.task,
+                      });
                     }}
                     className={`block rounded-field px-3 py-2.5 transition ${
                       active ? "bg-elev" : "hover:bg-elev/60"
@@ -345,10 +412,14 @@ export function LeftRail({ onNavigate }: { onNavigate?: () => void } = {}) {
                           t.status === "running" ? "pulse-dot" : ""
                         }`}
                       />
-                      <span className="truncate text-sm text-fg/90">{t.task}</span>
+                      <span className="truncate text-sm text-fg/90">
+                        {t.task}
+                      </span>
                     </div>
                     <div className="mt-1 flex items-center gap-1.5 pl-3.5 text-[11px] text-dim">
-                      <span className="truncate text-fg/55">{t.projectName}</span>
+                      <span className="truncate text-fg/55">
+                        {t.projectName}
+                      </span>
                       <span>·</span>
                       <span className="shrink-0 uppercase tracking-wide">
                         {t.status.replace("_", " ")}
@@ -369,7 +440,9 @@ export function LeftRail({ onNavigate }: { onNavigate?: () => void } = {}) {
         <>
           <div className="flex items-center gap-1.5 border-t border-line px-4 pb-1.5 pt-3">
             <LuRocket className="h-3.5 w-3.5 text-dim" />
-            <span className="text-[11px] uppercase tracking-[0.28em] text-dim">Seneste missioner</span>
+            <span className="text-[11px] uppercase tracking-[0.28em] text-dim">
+              Seneste missioner
+            </span>
           </div>
           <div className="max-h-60 overflow-y-auto px-2 pb-1">
             <ul className="space-y-0.5">
@@ -382,7 +455,13 @@ export function LeftRail({ onNavigate }: { onNavigate?: () => void } = {}) {
                       onClick={onNavigate}
                       onContextMenu={(e) => {
                         e.preventDefault();
-                        setMenu({ x: e.clientX, y: e.clientY, kind: "mission", id: m.id, label: m.goal });
+                        setMenu({
+                          x: e.clientX,
+                          y: e.clientY,
+                          kind: "mission",
+                          id: m.id,
+                          label: m.goal,
+                        });
                       }}
                       className={`block rounded-field px-3 py-2.5 transition ${
                         active ? "bg-elev" : "hover:bg-elev/60"
@@ -394,14 +473,22 @@ export function LeftRail({ onNavigate }: { onNavigate?: () => void } = {}) {
                             m.status === "running" ? "pulse-dot" : ""
                           }`}
                         />
-                        <span className="truncate text-sm text-fg/90">{m.goal}</span>
+                        <span className="truncate text-sm text-fg/90">
+                          {m.goal}
+                        </span>
                       </div>
                       <div className="mt-1 flex items-center gap-1.5 pl-3.5 text-[11px] text-dim">
-                        <span className="truncate text-fg/55">{projectName(m.projectId)}</span>
+                        <span className="truncate text-fg/55">
+                          {projectName(m.projectId)}
+                        </span>
                         <span>·</span>
-                        <span className="shrink-0 uppercase tracking-wide">{m.status}</span>
+                        <span className="shrink-0 uppercase tracking-wide">
+                          {m.status}
+                        </span>
                         <span>·</span>
-                        <span className="shrink-0">{relShort(m.createdAt)}</span>
+                        <span className="shrink-0">
+                          {relShort(m.createdAt)}
+                        </span>
                       </div>
                     </Link>
                   </li>
@@ -415,10 +502,10 @@ export function LeftRail({ onNavigate }: { onNavigate?: () => void } = {}) {
       <div className="min-h-4 flex-1" />
 
       <div className="border-t border-line px-4 py-3">
-        <div className="aura aura-dual block w-full text-builder">
+        <div className="aura aura-dual w-full text-builder">
           <button
             onClick={newProject}
-            className="btn w-full gap-1.5 border-builder/30 bg-builder/10 font-semibold text-builder normal-case hover:border-builder/50 hover:bg-builder/20"
+            className="btn btn-secondary btn-soft w-full"
           >
             <LuFolderPlus className="h-4 w-4" /> Nyt projekt
           </button>
@@ -426,7 +513,13 @@ export function LeftRail({ onNavigate }: { onNavigate?: () => void } = {}) {
       </div>
 
       <div className="flex items-center gap-2.5 border-t border-line px-5 py-3.5 text-sm text-dim">
-        <Image src="/image.png" alt="Arzonic" width={24} height={24} className="rounded-sm opacity-80" />
+        <Image
+          src="/image.png"
+          alt="Arzonic"
+          width={24}
+          height={24}
+          className="rounded-sm opacity-80"
+        />
         <span className="opacity-70">Arzonic · internt værktøj</span>
         <button
           onClick={() => setShowSettings(true)}
@@ -445,11 +538,16 @@ export function LeftRail({ onNavigate }: { onNavigate?: () => void } = {}) {
           className="fixed z-50 w-40 overflow-hidden rounded-box border border-line bg-elev py-1 shadow-xl shadow-black/40"
           style={{
             top: menu.y,
-            left: Math.min(menu.x, (typeof window !== "undefined" ? window.innerWidth : 9999) - 168),
+            left: Math.min(
+              menu.x,
+              (typeof window !== "undefined" ? window.innerWidth : 9999) - 168,
+            ),
           }}
           onClick={(e) => e.stopPropagation()}
         >
-          <p className="truncate px-3 py-1.5 text-[11px] text-dim">{menu.label}</p>
+          <p className="truncate px-3 py-1.5 text-[11px] text-dim">
+            {menu.label}
+          </p>
           <button
             onClick={() => {
               if (menu.kind === "project") {
@@ -481,8 +579,9 @@ export function LeftRail({ onNavigate }: { onNavigate?: () => void } = {}) {
             <div className="modal-box border border-line bg-panel">
               <h3 className="text-base font-bold">Slet projekt?</h3>
               <p className="py-3 text-sm leading-relaxed text-dim">
-                <span className="text-fg">{confirmProject.name}</span> slettes permanent — sammen med
-                alle dets opgaver, missioner og hukommelse. Dette kan ikke fortrydes.
+                <span className="text-fg">{confirmProject.name}</span> slettes
+                permanent — sammen med alle dets opgaver, missioner og
+                hukommelse. Dette kan ikke fortrydes.
               </p>
               <div className="modal-action">
                 <button
@@ -499,7 +598,10 @@ export function LeftRail({ onNavigate }: { onNavigate?: () => void } = {}) {
                 </button>
               </div>
             </div>
-            <div className="modal-backdrop bg-black/60" onClick={() => setConfirmProject(null)} />
+            <div
+              className="modal-backdrop bg-black/60"
+              onClick={() => setConfirmProject(null)}
+            />
           </div>,
           document.body,
         )}
@@ -511,11 +613,13 @@ export function LeftRail({ onNavigate }: { onNavigate?: () => void } = {}) {
           <div className="modal modal-open z-[110]">
             <div className="modal-box border border-line bg-panel">
               <h3 className="text-base font-bold">
-                {confirmEntry.kind === "task" ? "Slet opgave?" : "Slet mission?"}
+                {confirmEntry.kind === "task"
+                  ? "Slet opgave?"
+                  : "Slet mission?"}
               </h3>
               <p className="py-3 text-sm leading-relaxed text-dim">
-                <span className="text-fg">{confirmEntry.label}</span> slettes permanent. Dette kan
-                ikke fortrydes.
+                <span className="text-fg">{confirmEntry.label}</span> slettes
+                permanent. Dette kan ikke fortrydes.
               </p>
               <div className="modal-action">
                 <button
@@ -529,11 +633,16 @@ export function LeftRail({ onNavigate }: { onNavigate?: () => void } = {}) {
                   className="btn btn-error btn-sm gap-1.5 normal-case"
                 >
                   <LuTrash2 className="h-4 w-4" />{" "}
-                  {confirmEntry.kind === "task" ? "Slet opgave" : "Slet mission"}
+                  {confirmEntry.kind === "task"
+                    ? "Slet opgave"
+                    : "Slet mission"}
                 </button>
               </div>
             </div>
-            <div className="modal-backdrop bg-black/60" onClick={() => setConfirmEntry(null)} />
+            <div
+              className="modal-backdrop bg-black/60"
+              onClick={() => setConfirmEntry(null)}
+            />
           </div>,
           document.body,
         )}

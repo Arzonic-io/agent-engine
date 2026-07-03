@@ -128,11 +128,11 @@ export function ProjectFormView({
           />
 
           <div className="flex items-center gap-2 pt-1">
-            <div className="aura aura-dual flex-1 text-primary">
+            <div className={!name.trim() || submitting ? "flex-1" : "aura aura-dual flex-1 text-primary"}>
               <button
                 onClick={submit}
                 disabled={!name.trim() || submitting}
-                className="btn btn-primary btn-sm w-full font-bold normal-case"
+                className="btn btn-sm bg-white text-black hover:bg-white/90 disabled:bg-base-300 disabled:text-dim w-full font-bold normal-case"
               >
                 {submitting ? (
                   <span className="skeleton skeleton-text">
