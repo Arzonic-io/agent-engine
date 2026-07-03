@@ -479,7 +479,7 @@ export default function Composer() {
                   <button
                     onClick={() => void run()}
                     disabled={starting || !task.trim()}
-                    className="btn bg-white text-black hover:bg-white/90 disabled:bg-base-300 disabled:text-dim display gap-2 font-bold normal-case"
+                    className="btn btn-soft bg-white/10 text-white hover:bg-white/20 disabled:text-dim display gap-2 font-bold normal-case"
                   >
                     {starting ? (
                       <span className="skeleton skeleton-text">Starter opgaven…</span>
