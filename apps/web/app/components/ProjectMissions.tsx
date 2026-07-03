@@ -2,16 +2,34 @@
 
 import Link from "next/link";
 import type { MissionSummary } from "@arzonic/agent-client";
-import { MISSION_DOT, relTime } from "../lib/format";
+import { estCost, MISSION_DOT, relTime, tokenCount } from "../lib/format";
 
 /** The active project's missions — long-running, autonomous, observed (not gated). */
-export function ProjectMissions({ missions }: { missions: MissionSummary[] }) {
+export function ProjectMissions({
+  missions,
+  costPerMtok = null,
+}: {
+  missions: MissionSummary[];
+  costPerMtok?: number | null;
+}) {
   const recent = missions.slice(0, 4);
   if (recent.length === 0) return null;
 
+  // Project-level spend rollup across every mission (not just the shown 4).
+  const totalTokens = missions.reduce((sum, m) => sum + (m.spentTokens ?? 0), 0);
+  const cost = estCost(totalTokens, costPerMtok);
+
   return (
     <div className="rise mt-7" style={{ animationDelay: "90ms" }}>
-      <p className="mb-2 text-xs uppercase tracking-[0.28em] text-dim">Missioner</p>
+      <div className="mb-2 flex items-baseline justify-between">
+        <p className="text-xs uppercase tracking-[0.28em] text-dim">Missioner</p>
+        {totalTokens > 0 && (
+          <p className="text-[11px] text-dim">
+            {missions.length} i alt · <span className="font-mono text-fg/70">{tokenCount(totalTokens)}</span> tokens
+            {cost && <span className="text-dim/70"> ≈ {cost}</span>}
+          </p>
+        )}
+      </div>
       <ul className="space-y-0.5">
         {recent.map((m) => (
           <li key={m.id}>

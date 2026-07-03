@@ -47,6 +47,26 @@ export function repoLabel(path: string, repos: RepoInfo[]): string {
   return repos.find((r) => r.path === path)?.name ?? path.split("/").filter(Boolean).pop() ?? path;
 }
 
+/** Compact token count for dense readouts ("1.2M", "34k", "812"). */
+export function tokenCount(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(n >= 100_000 ? 0 : 1)}k`;
+  return `${n}`;
+}
+
+/**
+ * Estimated USD cost from a total token count and a blended $/1M-token rate.
+ * Returns null when no rate is configured (the UI then shows tokens only). This
+ * is approximate: we track total tokens, not the input/output split real pricing
+ * uses — so it's always shown as "≈ $X", never an exact bill.
+ */
+export function estCost(tokens: number, ratePerMtok: number | null): string | null {
+  if (ratePerMtok == null || ratePerMtok <= 0) return null;
+  const usd = (tokens / 1_000_000) * ratePerMtok;
+  if (usd === 0) return "$0.00";
+  return usd < 0.01 ? "<$0.01" : `$${usd.toFixed(2)}`;
+}
+
 /** Danish relative time, verbose ("5 min siden"). */
 export function relTime(ts: string | null): string {
   if (!ts) return "aldrig";

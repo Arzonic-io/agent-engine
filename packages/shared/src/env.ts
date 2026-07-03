@@ -86,6 +86,10 @@ const EnvSchema = z
       .default("false")
       .transform((v) => v === "true"),
     LANGSMITH_API_KEY: z.string().min(1).optional(),
+    // Optional blended $/1M-token rate for an ESTIMATED cost readout in the UI.
+    // We track total tokens (not input/output split), so this is approximate —
+    // one rate across all roles. Unset ⇒ the UI shows tokens only, no cost.
+    LLM_COST_PER_MTOK: z.coerce.number().min(0).optional(),
     // ── autonomous missions (§5 / §10) ──
     MISSION_TOKEN_BUDGET: z.coerce.number().int().min(1).optional(),
     MISSION_MAX_ITERATIONS: z.coerce.number().int().min(1).optional(),

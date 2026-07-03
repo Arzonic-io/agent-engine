@@ -22,7 +22,7 @@ import type {
   MissionDetail,
   MissionStreamEvent,
 } from "@arzonic/agent-client";
-import { ITEM_STATUS, MISSION_DOT } from "../../lib/format";
+import { estCost, ITEM_STATUS, MISSION_DOT } from "../../lib/format";
 import {
   TEAM_ROLES,
   TeamModelPicker,
@@ -98,6 +98,18 @@ export default function MissionDashboard({ params }: { params: Promise<{ id: str
   const [guidanceErr, setGuidanceErr] = useState<string | null>(null);
   const guidanceSeeded = useRef(false);
   const esRef = useRef<EventSource | null>(null);
+  // Blended $/1M-token rate for an estimated cost readout (null = tokens only).
+  const [costPerMtok, setCostPerMtok] = useState<number | null>(null);
+  useEffect(() => {
+    void (async () => {
+      try {
+        const res = await fetch("/api/status");
+        if (res.ok) setCostPerMtok(((await res.json()) as { costPerMtok?: number | null }).costPerMtok ?? null);
+      } catch {
+        /* best-effort — cost readout just stays token-only */
+      }
+    })();
+  }, []);
 
   // Seed the guidance box from the mission once (SSE snapshots must not clobber typing).
   useEffect(() => {
@@ -273,6 +285,7 @@ export default function MissionDashboard({ params }: { params: Promise<{ id: str
 
   const active = mission.status === "running" || mission.status === "paused";
   const burn = mission.budget ? Math.min(100, (mission.spentTokens / mission.budget) * 100) : null;
+  const estCostText = estCost(mission.spentTokens, costPerMtok);
   const d = mission.digest;
 
   return (
@@ -358,15 +371,27 @@ export default function MissionDashboard({ params }: { params: Promise<{ id: str
               <span className="font-mono text-fg/80">
                 {mission.spentTokens.toLocaleString("da-DK")}
                 {mission.budget ? ` / ${mission.budget.toLocaleString("da-DK")}` : ""} tokens
+                {estCostText && <span className="text-dim/80"> · ≈ {estCostText}</span>}
               </span>
             </div>
             {burn !== null && (
               <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-elev">
                 <div
-                  className={`h-full rounded-full ${burn > 90 ? "bg-error" : "bg-builder"}`}
+                  className={`h-full rounded-full ${burn > 90 ? "bg-error" : burn > 80 ? "bg-warning" : "bg-builder"}`}
                   style={{ width: `${burn}%` }}
                 />
               </div>
+            )}
+            {/* Live budget warning while running — before it hard-stops at 100%. */}
+            {active && burn !== null && burn >= 80 && (
+              <p
+                className={`mt-1.5 flex items-center gap-1.5 text-[11px] ${burn >= 100 ? "text-error" : "text-warning"}`}
+              >
+                <LuTriangleAlert className="h-3 w-3 shrink-0" />
+                {burn >= 100
+                  ? "Budgettet er brugt op — missionen stopper ved næste checkpoint."
+                  : `Budgettet er ${Math.round(burn)}% brugt.`}
+              </p>
             )}
           </div>
 

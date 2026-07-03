@@ -13,6 +13,8 @@ export type ApiStatus = {
   missions: boolean;
   /** Tracing is on when LANGSMITH_TRACING=true + an API key is set. */
   tracing: boolean;
+  /** Blended $/1M-token rate for an estimated cost readout, or null if unconfigured. */
+  costPerMtok: number | null;
   checks: {
     /** Named pnpm scripts a mission may run (REPO_ALLOWED_CHECKS). */
     allowed: string[];
@@ -35,6 +37,7 @@ export class StatusController {
       memory: this.memory !== null,
       missions: this.backlog !== null,
       tracing: this.env.LANGSMITH_TRACING === true && !!this.env.LANGSMITH_API_KEY,
+      costPerMtok: this.env.LLM_COST_PER_MTOK ?? null,
       checks: { allowed: this.env.REPO_ALLOWED_CHECKS, default: this.env.MISSION_CHECKS },
     };
   }

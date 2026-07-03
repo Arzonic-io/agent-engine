@@ -53,6 +53,8 @@ export default function Composer() {
   // Verification-check allowlist + default, for the mission composer's checks picker.
   const [allowedChecks, setAllowedChecks] = useState<string[]>([]);
   const [defaultChecks, setDefaultChecks] = useState<string[]>([]);
+  // Blended $/1M-token rate for an estimated cost readout (null = show tokens only).
+  const [costPerMtok, setCostPerMtok] = useState<number | null>(null);
   const [newOpen, setNewOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [savingProject, setSavingProject] = useState(false);
@@ -82,10 +84,12 @@ export default function Composer() {
           const s = (await st.json()) as {
             memory: boolean;
             missions: boolean;
+            costPerMtok?: number | null;
             checks?: { allowed: string[]; default: string[] };
           };
           setMemoryOff(!s.memory);
           setMissionsOn(s.missions);
+          setCostPerMtok(s.costPerMtok ?? null);
           if (s.checks) {
             setAllowedChecks(s.checks.allowed);
             setDefaultChecks(s.checks.default);
@@ -551,7 +555,7 @@ export default function Composer() {
         )}
 
         <RecentTasks tasks={tasks} />
-        <ProjectMissions missions={missions} />
+        <ProjectMissions missions={missions} costPerMtok={costPerMtok} />
 
         <p className="rise mt-6 text-xs leading-relaxed text-dim" style={{ animationDelay: "120ms" }}>
           Opgaver hører til et projekt og bygger på dets hukommelse. En router afgør om en hurtig
