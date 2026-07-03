@@ -24,6 +24,7 @@ import type {
   MissionStreamEvent,
 } from "@arzonic/agent-client";
 import { estCost, ITEM_STATUS, MISSION_DOT } from "../../lib/format";
+import { ErrorState, LoadingState } from "../../components/StateViews";
 import {
   TEAM_ROLES,
   TeamModelPicker,
@@ -273,20 +274,19 @@ export default function MissionDashboard({ params }: { params: Promise<{ id: str
 
   if (error) {
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-3 text-center">
-        <p className="text-sm text-error">{error}</p>
-        <Link href="/missions" className="btn btn-ghost btn-sm gap-1 text-dim">
-          <LuArrowLeft className="h-4 w-4" /> Tilbage
-        </Link>
-      </div>
+      <ErrorState
+        title="Kunne ikke indlæse missionen"
+        hint={error}
+        action={
+          <Link href="/missions" className="btn btn-ghost btn-sm gap-1 text-dim">
+            <LuArrowLeft className="h-4 w-4" /> Alle missioner
+          </Link>
+        }
+      />
     );
   }
   if (!mission) {
-    return (
-      <div className="flex h-full items-center justify-center">
-        <span className="loading loading-spinner loading-md text-dim" />
-      </div>
-    );
+    return <LoadingState label="Indlæser mission…" />;
   }
 
   const active = mission.status === "running" || mission.status === "paused";

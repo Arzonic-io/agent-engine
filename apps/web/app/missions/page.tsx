@@ -6,6 +6,7 @@ import { useEffect, useMemo, useState } from "react";
 import { LuRocket, LuTarget } from "react-icons/lu";
 import type { MissionDetail, MissionSummary, Project, RepoInfo } from "@arzonic/agent-client";
 import { MISSION_DOT, relTime } from "../lib/format";
+import { EmptyState, LoadingState } from "../components/StateViews";
 
 export default function MissionsPage() {
   const router = useRouter();
@@ -96,11 +97,7 @@ export default function MissionsPage() {
   }
 
   if (!loaded) {
-    return (
-      <div className="flex h-full items-center justify-center">
-        <span className="loading loading-spinner loading-md text-dim" />
-      </div>
-    );
+    return <LoadingState label="Indlæser missioner…" />;
   }
 
   return (
@@ -221,9 +218,13 @@ export default function MissionsPage() {
         {/* list */}
         <h2 className="mt-8 mb-2 text-[11px] uppercase tracking-[0.28em] text-dim">Kørende & tidligere</h2>
         {missions.length === 0 ? (
-          <p className="rounded-box border border-line bg-panel/50 px-4 py-8 text-center text-sm text-dim">
-            Ingen missioner endnu — start din første ovenfor.
-          </p>
+          <div className="rounded-box border border-line bg-panel/50">
+            <EmptyState
+              icon={<LuRocket className="h-5 w-5" />}
+              title="Ingen missioner endnu"
+              hint="Start din første mission ovenfor — den planlægger selv sin backlog og arbejder mod målet."
+            />
+          </div>
         ) : (
           <ul className="space-y-2">
             {missions.map((m) => (

@@ -23,6 +23,7 @@ import { ProjectFormView } from "./components/ProjectFormView";
 import { type GitHubRepoRef } from "./components/GitHubRepoPicker";
 import { DefinitionOfDone } from "./components/DefinitionOfDone";
 import { MemoryDisabled } from "./components/MemoryDisabled";
+import { LoadingState } from "./components/StateViews";
 import { MissionComposer } from "./components/MissionComposer";
 import { ProjectMissions } from "./components/ProjectMissions";
 import { RecentTasks } from "./components/RecentTasks";
@@ -325,11 +326,7 @@ export default function Composer() {
   }
 
   if (!loaded) {
-    return (
-      <div className="flex h-full items-center justify-center">
-        <span className="loading loading-spinner loading-md text-dim" />
-      </div>
-    );
+    return <LoadingState label="Indlæser…" />;
   }
 
   // Memory is off (no DB/keys) → the create-form can't save anyway; show how to
