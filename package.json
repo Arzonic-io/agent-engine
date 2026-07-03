@@ -11,6 +11,7 @@
     "predev": "docker compose up -d >/dev/null 2>&1 || true; (lsof -ti tcp:8787; lsof -ti tcp:3400) 2>/dev/null | xargs kill -9 2>/dev/null || true",
     "dev": "turbo run dev",
     "typecheck": "turbo run typecheck",
+    "mission": "node scripts/launch-mission.mjs",
     "agent": "turbo run build --output-logs=errors-only && pnpm --filter @arzonic/agent-cli run agent",
     "api": "turbo run build --output-logs=errors-only && pnpm --filter @arzonic/agent-api run start",
     "analyze": "turbo run build --filter @arzonic/agent-core --filter @arzonic/agent-shared --output-logs=errors-only && pnpm --filter @arzonic/agent-cli run analyze"
