@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { LuBrain, LuFolderGit2, LuListTodo, LuPencil, LuRocket } from "react-icons/lu";
+import { LuBrain, LuListTodo, LuPencil, LuRocket } from "react-icons/lu";
 import type {
   MissionSummary,
   Project,
@@ -20,13 +20,13 @@ import {
 } from "./lib/activeProject";
 import { relTime, repoLabel } from "./lib/format";
 import { ProjectFormView } from "./components/ProjectFormView";
-import { GitHubRepoPicker, type GitHubRepoRef } from "./components/GitHubRepoPicker";
+import { type GitHubRepoRef } from "./components/GitHubRepoPicker";
 import { DefinitionOfDone } from "./components/DefinitionOfDone";
 import { MemoryDisabled } from "./components/MemoryDisabled";
 import { MissionComposer } from "./components/MissionComposer";
 import { ProjectMissions } from "./components/ProjectMissions";
 import { RecentTasks } from "./components/RecentTasks";
-import { RepoMenu } from "./components/RepoMenu";
+import { RepoField } from "./components/RepoField";
 import { TeamRoster } from "./components/TeamRoster";
 
 type Mode = "task" | "mission";
@@ -441,27 +441,18 @@ export default function Composer() {
             </span>
           </div>
 
-          {/* project repo — every task and mission inherits the choice */}
+          {/* project repo — same picker as the new/edit-project form; every task
+              and mission inherits the choice. Saved live as you pick. */}
           <div className="mt-3">
-            {localRepos ? (
-              <RepoMenu
-                repos={repos}
-                localRepos={localRepos}
-                value={projectRepo}
-                onChange={saveProjectRepo}
-                saving={savingRepo}
-              />
-            ) : (
-              // Cloud: pick the repo straight from GitHub here (same picker as the
-              // project form), so you can (re)bind before starting a task or mission.
-              <div className="flex items-center gap-2">
-                <span className="inline-flex shrink-0 items-center gap-1 text-xs text-dim">
-                  <LuFolderGit2 className="h-3.5 w-3.5" /> Repo
-                </span>
-                <GitHubRepoPicker value={projectGithubRepo} onChange={saveProjectGithubRepo} />
-                {savingRepo && <span className="loading loading-spinner loading-xs shrink-0 text-dim" />}
-              </div>
-            )}
+            <RepoField
+              repos={repos}
+              localRepos={localRepos}
+              githubRepo={projectGithubRepo}
+              localPath={projectRepo}
+              onGithub={saveProjectGithubRepo}
+              onLocal={(v) => void saveProjectRepo(v || null)}
+              saving={savingRepo}
+            />
           </div>
         </div>
 

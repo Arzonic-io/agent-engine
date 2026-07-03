@@ -1,10 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import { LuFolderGit2, LuHardDrive, LuTrash2, LuUsers } from "react-icons/lu";
+import { LuTrash2, LuUsers } from "react-icons/lu";
 import type { RepoInfo, RoleModelsConfig } from "@arzonic/agent-client";
-import { GitHubRepoPicker, type GitHubRepoRef } from "./GitHubRepoPicker";
-import { RepoPicker } from "./RepoPicker";
+import { type GitHubRepoRef } from "./GitHubRepoPicker";
+import { RepoField } from "./RepoField";
 import {
   TEAM_ROLES,
   TeamModelPicker,
@@ -72,12 +72,6 @@ export function ProjectFormView({
   const [brief, setBrief] = useState(initialBrief);
   const [repo, setRepo] = useState(initialRepo);
   const [githubRepo, setGithubRepo] = useState<GitHubRepoRef | null>(initialGithubRepo ?? null);
-  // Local-path picker is the advanced fallback; default open only if a path is
-  // pre-set without a GitHub binding (e.g. an older project bound by path).
-  const [showLocal, setShowLocal] = useState(!!initialRepo && !initialGithubRepo);
-  // With local binding disabled (cloud), only a legacy path-bound project still
-  // gets the fold-out — so the existing path can be inspected and cleared.
-  const allowLocal = localRepos || !!initialRepo;
   const [team, setTeam] = useState<TeamSelection>(() => roleModelsToSelection(initialTeam));
   const [showTeam, setShowTeam] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -145,46 +139,22 @@ export function ProjectFormView({
             placeholder="Brief - projektets stående mål og kontekst (teamet husker dette)"
             className="textarea textarea-sm w-full resize-none border-line bg-elev"
           />
-          <div className="space-y-1.5">
-            <div className="flex items-center gap-2">
-              <span className="inline-flex shrink-0 items-center gap-1 text-xs text-dim">
-                <LuFolderGit2 className="h-3.5 w-3.5" /> Repo
-              </span>
-              <GitHubRepoPicker
-                value={githubRepo}
-                onChange={(v) => {
-                  setGithubRepo(v);
-                  // Picking a GitHub repo supersedes any typed local path.
-                  if (v) setRepo("");
-                }}
-              />
-            </div>
-            {/* Advanced fallback: a local/discovered path (dev, or no GITHUB_TOKEN).
-                Hidden entirely on the cloud deploy (allowLocal) — GitHub only. */}
-            {allowLocal && (
-              <button
-                type="button"
-                onClick={() => setShowLocal((v) => !v)}
-                className="ml-[3.25rem] inline-flex items-center gap-1 text-[11px] text-dim transition hover:text-fg"
-              >
-                <LuHardDrive className="h-3 w-3" />
-                {showLocal ? "Skjul lokal sti" : "…eller en lokal sti"}
-              </button>
-            )}
-            {allowLocal && showLocal && (
-              <div className="ml-[3.25rem]">
-                <RepoPicker
-                  repos={repos}
-                  value={repo}
-                  onChange={(v) => {
-                    setRepo(v);
-                    // A local path supersedes a GitHub binding.
-                    if (v.trim()) setGithubRepo(null);
-                  }}
-                />
-              </div>
-            )}
-          </div>
+          <RepoField
+            repos={repos}
+            localRepos={localRepos}
+            githubRepo={githubRepo}
+            localPath={repo}
+            onGithub={(v) => {
+              setGithubRepo(v);
+              // Picking a GitHub repo supersedes any typed local path.
+              if (v) setRepo("");
+            }}
+            onLocal={(v) => {
+              setRepo(v);
+              // A local path supersedes a GitHub binding.
+              if (v.trim()) setGithubRepo(null);
+            }}
+          />
 
           {/* Project default team — new missions inherit it; a mission can still override. */}
           <div className="rounded-field border border-line bg-elev/40">
