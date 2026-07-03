@@ -426,7 +426,7 @@ export default function Composer() {
             </button>
           </div>
 
-          {/* memory + team */}
+          {/* memory (the team roster now lives on the task/mission composer below) */}
           <div className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-2 text-xs">
             <span className="inline-flex items-center gap-1.5 text-dim">
               <LuBrain className="h-3.5 w-3.5" />
@@ -439,8 +439,6 @@ export default function Composer() {
                 <span>Ingen hukommelse endnu - første opgave</span>
               )}
             </span>
-            <span className="text-line">·</span>
-            <TeamRoster />
           </div>
 
           {/* project repo — every task and mission inherits the choice */}
@@ -498,6 +496,10 @@ export default function Composer() {
 
         {mode === "task" ? (
           <>
+            {/* Team on the composer (moved off the project header) — which members work this task. */}
+            <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs">
+              <TeamRoster />
+            </div>
             {rubric && <DefinitionOfDone rubric={rubric} />}
 
             {/* task composer */}

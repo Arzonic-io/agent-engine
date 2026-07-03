@@ -131,6 +131,62 @@ export function MissionComposer({
         </div>
       )}
 
+      {/* Team at the top — which members work this mission (moved off the project header). */}
+      <div className="mb-3 rounded-field border border-line bg-elev/40 px-3 py-2.5">
+        <div className="mb-2 flex items-center gap-2 text-xs">
+          <LuUsers className="h-3.5 w-3.5 text-dim" />
+          <span className="font-medium text-fg">Team</span>
+          <span className="text-dim/70">hele teamet er aktivt — slå en stilling fra du ikke vil bruge, eller giv en sin egen model</span>
+          <button
+            type="button"
+            onClick={() => setShowTeamConfig((s) => !s)}
+            disabled={activeRoles.size === 0}
+            title="Redigér modeller for de aktive stillinger"
+            className={`ml-auto inline-flex items-center gap-1 rounded-field px-2 py-1 text-[11px] transition disabled:opacity-40 ${
+              showTeamConfig ? "bg-elev text-fg" : "text-dim hover:bg-elev hover:text-fg"
+            }`}
+          >
+            <LuSettings2 className="h-3.5 w-3.5" /> Konfigurér
+          </button>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-1.5">
+          {TEAM_ROLES.map((r) => {
+            const on = activeRoles.has(r.key);
+            return (
+              <button
+                key={r.key}
+                type="button"
+                onClick={() => toggleRole(r.key)}
+                title={r.hint}
+                className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] transition ${
+                  on
+                    ? "border-line bg-elev text-fg"
+                    : "border-transparent bg-elev/30 text-dim opacity-60 hover:opacity-100"
+                }`}
+              >
+                <span className={`h-1.5 w-1.5 rounded-full ${on ? r.dot : "bg-dim"}`} />
+                {r.label}
+              </button>
+            );
+          })}
+        </div>
+
+        {showTeamConfig && activeRoles.size > 0 && (
+          <div className="mt-3 border-t border-line pt-3">
+            <p className="mb-2 text-[11px] leading-relaxed text-dim/70">
+              Vælg provider — og evt. en bestemt model — for de aktive stillinger. Resten arver den globale
+              default. Lad model-feltet stå tomt for providerens default.
+            </p>
+            <TeamModelPicker
+              roles={TEAM_ROLES.filter((r) => activeRoles.has(r.key))}
+              value={team}
+              onChange={setTeam}
+            />
+          </div>
+        )}
+      </div>
+
       <label className="block text-xs text-dim">
         Mål
         <textarea
@@ -203,61 +259,6 @@ export function MissionComposer({
           )}
         </div>
       )}
-
-      <div className="mt-3 rounded-field border border-line bg-elev/40 px-3 py-2.5">
-        <div className="mb-2 flex items-center gap-2 text-xs">
-          <LuUsers className="h-3.5 w-3.5 text-dim" />
-          <span className="font-medium text-fg">Team</span>
-          <span className="text-dim/70">hele teamet er aktivt — slå en stilling fra du ikke vil bruge, eller giv en sin egen model</span>
-          <button
-            type="button"
-            onClick={() => setShowTeamConfig((s) => !s)}
-            disabled={activeRoles.size === 0}
-            title="Redigér modeller for de aktive stillinger"
-            className={`ml-auto inline-flex items-center gap-1 rounded-field px-2 py-1 text-[11px] transition disabled:opacity-40 ${
-              showTeamConfig ? "bg-elev text-fg" : "text-dim hover:bg-elev hover:text-fg"
-            }`}
-          >
-            <LuSettings2 className="h-3.5 w-3.5" /> Konfigurér
-          </button>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-1.5">
-          {TEAM_ROLES.map((r) => {
-            const on = activeRoles.has(r.key);
-            return (
-              <button
-                key={r.key}
-                type="button"
-                onClick={() => toggleRole(r.key)}
-                title={r.hint}
-                className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] transition ${
-                  on
-                    ? "border-line bg-elev text-fg"
-                    : "border-transparent bg-elev/30 text-dim opacity-60 hover:opacity-100"
-                }`}
-              >
-                <span className={`h-1.5 w-1.5 rounded-full ${on ? r.dot : "bg-dim"}`} />
-                {r.label}
-              </button>
-            );
-          })}
-        </div>
-
-        {showTeamConfig && activeRoles.size > 0 && (
-          <div className="mt-3 border-t border-line pt-3">
-            <p className="mb-2 text-[11px] leading-relaxed text-dim/70">
-              Vælg provider — og evt. en bestemt model — for de aktive stillinger. Resten arver den globale
-              default. Lad model-feltet stå tomt for providerens default.
-            </p>
-            <TeamModelPicker
-              roles={TEAM_ROLES.filter((r) => activeRoles.has(r.key))}
-              value={team}
-              onChange={setTeam}
-            />
-          </div>
-        )}
-      </div>
 
       <div className="mt-3 flex flex-wrap items-center justify-between gap-3 border-t border-line pt-3">
         <div className="flex flex-wrap items-center gap-4">
