@@ -132,7 +132,7 @@ export function ProjectFormView({
               <button
                 onClick={submit}
                 disabled={!name.trim() || submitting}
-                className="btn btn-soft btn-sm bg-white/10 text-white hover:bg-white/20 disabled:text-dim w-full font-bold normal-case"
+                className="btn btn-soft btn-sm w-full"
               >
                 {submitting ? (
                   <span className="skeleton skeleton-text">
