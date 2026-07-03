@@ -49,6 +49,28 @@ Det store perspektiv — fra nu til Nordstjernen. Detaljerne lever i tiers + epi
 
 ## ✅ Senest leveret
 
+### 2026-07-03 — "Virker godt"-batch: checks, cost, observability, tomme tilstande + turnkey-run
+De fem huller mellem "motoren er bygget" og "tør lade den køre natten over", leveret samlet:
+- [x] **Per-mission verifikations-checks** (verifier-styrke): `checks` på missionen ([mission.ts](../packages/core/src/mission.ts),
+      [backlog.ts](../packages/shared/src/backlog.ts) jsonb-kolonne), valgt i [MissionComposer](../apps/web/app/components/MissionComposer.tsx)
+      fra `REPO_ALLOWED_CHECKS`-allowlisten (eksponeret via nyt felt på `/status`), valideret server-side (400 på ukendt),
+      brugt af workeren (fallback til `MISSION_CHECKS`), vist på dashboardet + `PATCH /missions/:id/checks` til mid-run.
+- [x] **Cost/token-tracking**: estimeret cost (`LLM_COST_PER_MTOK` → "≈ $X" via `/status`), per-projekt spend-rollup
+      ([ProjectMissions](../apps/web/app/components/ProjectMissions.tsx)), live budget-advarsel ≥80/100% på dashboardet
+      ([tokenCount/estCost](../apps/web/app/lib/format.ts)).
+- [x] **Observability**: `LANGSMITH_PROJECT` grupperer traces, `LANGSMITH_PROJECT_URL` → "Traces"-link i mission- +
+      run-headeren (via `/status`), `createJsonLogNotifier` ([notifier.ts](../packages/shared/src/notifier.ts), opt-in
+      `MISSION_LOG_JSON`) = struktureret JSON pr. event.
+- [x] **Tomme/fejl/loading-tilstande**: delte [StateViews](../apps/web/app/components/StateViews.tsx) wired i
+      dashboard/liste/composer.
+- [x] **Turnkey rigtig kørsel**: [scripts/launch-mission.mjs](../scripts/launch-mission.mjs) (`pnpm mission`) opretter
+      projekt+mission mod et rigtigt repo via API'et; worker'en samler den op. Walkthrough i
+      [docs/RUN_A_MISSION.md](RUN_A_MISSION.md). *(Selve kørslen kræver dine nøgler/repo — køres af dig.)*
+- [x] **UI-feedback (samme batch):** team-rosteren flyttet fra projekt-headeren til toppen af task/mission-composeren;
+      \+ én delt [RepoField](../apps/web/app/components/RepoField.tsx) så projekt-view bruger samme repo-vælger som
+      "nyt projekt"-formen (fjernede den døde RepoMenu).
+- [x] Alle trin: `turbo build` grøn (6/6); API-smoke grøn. Committet løbende (7 commits).
+
 ### 2026-07-03 — Must-have: synlig "Slet projekt"-knap + bekræftelse på task-/mission-slet
 - [x] **Synlig slet-knap i edit-formen** ([ProjectFormView](../apps/web/app/components/ProjectFormView.tsx)):
       projekt-sletning fandtes kun via højreklik i railen (uopdageligt). Ny "Slet projekt"-knap (edit-mode only)
@@ -636,8 +658,11 @@ Ting der er i stykker, blokerer brug, eller mangler for at appen hænger sammen.
       (retrieve pakker brief+hits → context; persist skriver artifact, best-effort). `memory store/retrieve` mod rigtig
       pgvector er allerede dækket live i [verify-memory.ts](../packages/shared/verify-memory.ts). Resten af motoren har
       20+ `verify-*`-harnesses; et egentligt test-framework er stadig fravalgt til fordel for disse.
-- [ ] **Fejl- og tomme tilstande i web.** Fejl vises flere steder som rå servertekst;
-      ensartede tomme/fejl/skeleton-tilstande mangler.
+- [x] **Fejl- og tomme tilstande i web.** *(leveret 2026-07-03)* Delte `StateViews`
+      ([ErrorState/EmptyState/LoadingState](../apps/web/app/components/StateViews.tsx)) — centreret
+      ikon + titel + hint + valgfri handling — wired i mission-dashboard (load-fejl + loading), missions-liste
+      (tom + loading) og composer-load. Rå servertekst er ikke længere den default tilstand. (Composer-inline-fejl
+      var allerede stylet.)
 
 ## 🟡 Need to have
 
@@ -653,15 +678,19 @@ Vigtigt for en god oplevelse — næste runde.
   - [ ] b. **Adaptive ekstra-krav** — router/arkitekt *foreslår* opgave-relevante
         kriterier oven på basen (kode → "fejl-tilfælde håndteret", API → "ingen breaking
         changes"). Tilføjer kun, fjerner aldrig basen; mennesket kan se/justere forslag.
-  - [ ] c. **Hård verifikation binder rubric (missioner)** — for kode er "done" = rigtige
-        checks (test/lint/build) via Verifier-laget + rubric, ikke kun LLM-score.
+  - [x] c. **Hård verifikation binder rubric (missioner)** *(leveret 2026-07-03)* — "done" = rigtige
+        checks via Verifier-laget, nu **pr. mission konfigurerbare** (`checks` på missionen, valgt i composeren
+        fra `REPO_ALLOWED_CHECKS`-allowlisten, vist på dashboardet). Se "Senest leveret".
 - [ ] **Oversæt rubric-kriterier.** Kriterie-teksterne er engelske i et ellers dansk UI
       (de er det kritikeren scorer på — hold en engelsk kopi til modellen).
 - [ ] **Per-projekt team-config.** Team-roster er statisk/display-only. Lad et projekt
       vælge foretrukken topologi/agents.
 - [ ] **Reject-and-revise i core.** Verificér/byg `humanGate → builder`-edge så en
       afvisning med noter kan trigge én runde mere (UI har allerede "Revise with notes").
-- [ ] **Token-/cost-tracking.** Vis forbrug pr. opgave/projekt; evt. budget-advarsel.
+- [x] **Token-/cost-tracking.** *(leveret 2026-07-03)* Estimeret cost-udlæsning (blended
+      `LLM_COST_PER_MTOK` → "≈ $X", eksponeret via `/status`), per-projekt spend-rollup på composerens
+      Missioner-liste, og en live budget-advarsel på mission-dashboardet (≥80% amber / ≥100% rød). Se
+      "Senest leveret". *(Rest: per-opgave cost persisteres ikke — tasks tæller kun tokens i memory.)*
 - [ ] **Søg + gruppér i sidebar.** Søgefelt over "Seneste opgaver" (listen er global nu);
       evt. gruppér pr. projekt.
 - [ ] **Tæl-badges på filtre.** Live 2 · Gate 1 · osv.
@@ -887,5 +916,7 @@ Invarianter (bevares fra M1/M2):
 - [ ] **Løft `@arzonic/agent-core` ind i Ranky/Bravy** (eller publicér pakken) — "run once,
       serve everywhere" via `@arzonic/agent-client`.
 - [ ] **Multi-tenant / brugere & roller** hvis appen skal ud over én intern bruger.
-- [ ] **Observability**: strukturerede logs, kørsels-metrics, LangSmith-traces linket fra UI.
+- [x] **Observability** *(leveret 2026-07-03)*: `LANGSMITH_PROJECT` grupperer traces; `LANGSMITH_PROJECT_URL`
+      eksponeres via `/status` og vises som et "Traces"-link i mission-dashboard + run-header; `createJsonLogNotifier`
+      (opt-in `MISSION_LOG_JSON`) skriver en struktureret JSON-linje pr. mission-event. *(Rest: kørsels-metrics-dashboard.)*
 - [ ] **Deploy af web-appen** (i dag kun api via PM2): byg og host Next-appen + miljø-secrets.
