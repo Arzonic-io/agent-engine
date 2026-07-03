@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { LuSettings2, LuTarget, LuTriangleAlert, LuUsers } from "react-icons/lu";
+import { LuCircleCheck, LuSettings2, LuTarget, LuTriangleAlert, LuUsers } from "react-icons/lu";
 import type { MissionDetail } from "@arzonic/agent-client";
 import {
   TEAM_ROLES,
@@ -19,9 +19,15 @@ import {
 export function MissionComposer({
   projectId,
   repoPath,
+  allowedChecks = [],
+  defaultChecks = [],
 }: {
   projectId: string;
   repoPath: string;
+  /** Named pnpm scripts a mission may verify with (server allowlist). */
+  allowedChecks?: string[];
+  /** The set pre-selected when the composer opens (the server's MISSION_CHECKS default). */
+  defaultChecks?: string[];
 }) {
   const router = useRouter();
   const [goal, setGoal] = useState("");
@@ -29,6 +35,12 @@ export function MissionComposer({
   const [items, setItems] = useState("");
   const [budget, setBudget] = useState("");
   const [deadline, setDeadline] = useState("");
+  // "Done" for this mission = these checks pass. Pre-select the server default,
+  // constrained to the allowlist. The engine is only as strong as these checks, so
+  // picking the ones the target repo actually has is what makes "green" mean something.
+  const [checks, setChecks] = useState<Set<string>>(
+    () => new Set(defaultChecks.filter((c) => allowedChecks.includes(c))),
+  );
   const [team, setTeam] = useState<TeamSelection>({});
   // The whole team is active by default — every member works the mission unless you
   // turn one off. An active-but-uncustomised role inherits the default team (Settings
@@ -58,6 +70,15 @@ export function MissionComposer({
     setActiveRoles(next);
   }
 
+  function toggleCheck(name: string) {
+    setChecks((prev) => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name);
+      else next.add(name);
+      return next;
+    });
+  }
+
   async function start() {
     if (!goal.trim() || noRepo || creating) return;
     setCreating(true);
@@ -82,6 +103,8 @@ export function MissionComposer({
             .filter(Boolean)
             .map((title) => ({ title })),
           roleModels: selectionToRoleModels(team),
+          // Which checks make an item "done". Empty ⇒ server's MISSION_CHECKS default.
+          checks: [...checks],
         }),
       });
       if (!res.ok) throw new Error(await res.text());
@@ -141,6 +164,45 @@ export function MissionComposer({
           />
         </label>
       </div>
+
+      {allowedChecks.length > 0 && (
+        <div className="mt-3 rounded-field border border-line bg-elev/40 px-3 py-2.5">
+          <div className="mb-2 flex items-center gap-2 text-xs">
+            <LuCircleCheck className="h-3.5 w-3.5 text-dim" />
+            <span className="font-medium text-fg">Verifikation</span>
+            <span className="text-dim/70">
+              et item er først “færdigt” når disse checks består — vælg dem dit repo faktisk har
+            </span>
+          </div>
+          <div className="flex flex-wrap items-center gap-1.5">
+            {allowedChecks.map((c) => {
+              const on = checks.has(c);
+              return (
+                <button
+                  key={c}
+                  type="button"
+                  onClick={() => toggleCheck(c)}
+                  title={`pnpm run ${c}`}
+                  className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] transition ${
+                    on
+                      ? "border-builder/40 bg-builder/15 text-fg"
+                      : "border-transparent bg-elev/30 text-dim opacity-60 hover:opacity-100"
+                  }`}
+                >
+                  <span className={`h-1.5 w-1.5 rounded-full ${on ? "bg-builder" : "bg-dim"}`} />
+                  {c}
+                </button>
+              );
+            })}
+          </div>
+          {checks.size === 0 && (
+            <p className="mt-2 flex items-start gap-1.5 text-[11px] leading-relaxed text-warning">
+              <LuTriangleAlert className="mt-0.5 h-3 w-3 shrink-0" />
+              Ingen checks valgt — “færdig” hviler så kun på kritikeren, ikke rigtige checks.
+            </p>
+          )}
+        </div>
+      )}
 
       <div className="mt-3 rounded-field border border-line bg-elev/40 px-3 py-2.5">
         <div className="mb-2 flex items-center gap-2 text-xs">

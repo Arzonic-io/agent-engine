@@ -22,10 +22,12 @@ import { ZodValidationPipe } from "../runs/dto/runs.dto.js";
 import {
   CreateMissionSchema,
   MissionItemDecisionSchema,
+  UpdateMissionChecksSchema,
   UpdateMissionGuidanceSchema,
   UpdateMissionRoleModelsSchema,
   type CreateMissionDto,
   type MissionItemDecisionDto,
+  type UpdateMissionChecksDto,
   type UpdateMissionGuidanceDto,
   type UpdateMissionRoleModelsDto,
 } from "./missions.dto.js";
@@ -63,6 +65,14 @@ export class MissionsController {
     @Body(new ZodValidationPipe(UpdateMissionRoleModelsSchema)) dto: UpdateMissionRoleModelsDto,
   ): Promise<MissionDetail> {
     return this.missions.updateRoleModels(id, dto.roleModels);
+  }
+
+  @Patch(":id/checks")
+  updateChecks(
+    @Param("id") id: string,
+    @Body(new ZodValidationPipe(UpdateMissionChecksSchema)) dto: UpdateMissionChecksDto,
+  ): Promise<MissionDetail> {
+    return this.missions.updateChecks(id, dto.checks);
   }
 
   @Patch(":id/guidance")

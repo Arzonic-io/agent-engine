@@ -14,6 +14,9 @@ export const CreateMissionSchema = z.object({
   goal: z.string().min(1).max(20_000),
   repoPath: z.string().min(1),
   acceptanceCriteria: z.array(z.string().min(1)).max(50).optional(),
+  /** Verification checks (named pnpm scripts) that define "done". Validated
+   * against REPO_ALLOWED_CHECKS server-side. Empty/omitted = the MISSION_CHECKS default. */
+  checks: z.array(z.string().min(1).max(60)).max(20).optional(),
   budget: z.number().int().min(1).nullable().optional(),
   deadline: z.iso.datetime().nullable().optional(),
   items: z.array(NewBacklogItemSchema).max(200).optional(),
@@ -23,6 +26,12 @@ export const CreateMissionSchema = z.object({
   guidance: z.string().max(10_000).optional(),
 });
 export type CreateMissionDto = z.infer<typeof CreateMissionSchema>;
+
+/** Body of PATCH /missions/:id/checks — re-point a running mission's verification checks. */
+export const UpdateMissionChecksSchema = z.object({
+  checks: z.array(z.string().min(1).max(60)).max(20),
+});
+export type UpdateMissionChecksDto = z.infer<typeof UpdateMissionChecksSchema>;
 
 export const MissionItemDecisionSchema = z.object({
   decision: z.enum(["approve", "reject"]),

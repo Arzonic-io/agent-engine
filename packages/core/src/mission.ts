@@ -85,6 +85,15 @@ export const MissionSchema = z.object({
   goal: z.string(),
   acceptanceCriteria: z.array(z.string()),
   repoPath: z.string(),
+  /**
+   * The verification checks (named pnpm scripts, e.g. "typecheck","test") that
+   * define "done" for THIS mission — an item is done only when these pass in its
+   * worktree AND after merge. Per-mission so "green = truth" is grounded in the
+   * target repo's REAL checks (a repo with no test script needs a different set
+   * than one with a full suite). Each must be in the server's REPO_ALLOWED_CHECKS
+   * allowlist. Empty = fall back to the worker's MISSION_CHECKS env default.
+   */
+  checks: z.array(z.string()).default([]),
   status: MissionStatusSchema,
   /** Hard token/cost ceiling, or null for "no budget cap". */
   budget: z.number().int().min(0).nullable(),
@@ -162,6 +171,8 @@ export interface CreateMissionInput {
   goal: string;
   repoPath: string;
   acceptanceCriteria?: string[];
+  /** Verification checks defining "done"; inherits the worker's MISSION_CHECKS default if omitted. */
+  checks?: string[];
   budget?: number | null;
   deadline?: string | null;
   /** Per-mission per-role model choices (the team config); inherits global default if omitted. */
@@ -177,6 +188,7 @@ export type MissionPatch = Partial<
     | "spentTokens"
     | "deadline"
     | "budget"
+    | "checks"
     | "roleModels"
     | "guidance"
     | "iterations"

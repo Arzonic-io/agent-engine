@@ -310,7 +310,8 @@ async function main(): Promise<void> {
             // the item instead of failing it; LLM-level retry already absorbed the
             // shorter blips before they reach here.
             isTransientError: isTransientLlmError,
-            checks: env.MISSION_CHECKS,
+            // Per-mission checks win; an empty list falls back to the env default.
+            checks: mission.checks?.length ? mission.checks : env.MISSION_CHECKS,
             highRiskPatterns: env.MISSION_HIGH_RISK_PATTERNS,
             signal: abort.signal,
           },

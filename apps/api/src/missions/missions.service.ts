@@ -74,6 +74,21 @@ export class MissionsService {
    * Defensively parsed: a malformed settings blob yields no default rather than
    * a 500, and an absent memory service (no DB/embeddings) simply means none.
    */
+  /**
+   * A mission's verification checks must be a subset of the server's
+   * REPO_ALLOWED_CHECKS allowlist — otherwise the Verifier would silently return
+   * "not allowed" (never done) at run time. Reject up front with a clear 400.
+   */
+  private assertChecksAllowed(checks: string[]): void {
+    const allowed = new Set(this.env.REPO_ALLOWED_CHECKS);
+    const bad = checks.filter((c) => !allowed.has(c));
+    if (bad.length > 0) {
+      throw new BadRequestException(
+        `Ukendte checks: ${bad.join(", ")}. Tilladte: ${this.env.REPO_ALLOWED_CHECKS.join(", ")}.`,
+      );
+    }
+  }
+
   private async projectTeamDefault(projectId: string): Promise<RoleModelsConfig> {
     if (!this.memory) return {};
     const project = await this.memory.getProject(projectId);
@@ -91,11 +106,15 @@ export class MissionsService {
     const projectDefault = await this.projectTeamDefault(dto.projectId);
     const roleModels = mergeRoleModels(projectDefault, dto.roleModels);
     assertProvidersConfigured(this.env, roleModels);
+    const checks = dto.checks ?? [];
+    if (checks.length > 0) this.assertChecksAllowed(checks);
     const mission = await backlog.createMission({
       projectId: dto.projectId,
       goal: dto.goal,
       repoPath,
       acceptanceCriteria: dto.acceptanceCriteria ?? [],
+      // Empty here = the worker falls back to its MISSION_CHECKS env default.
+      checks,
       budget: dto.budget ?? null,
       deadline: dto.deadline ?? null,
       roleModels,
@@ -184,6 +203,25 @@ export class MissionsService {
     }
     assertProvidersConfigured(this.env, roleModels);
     await backlog.updateMission(id, { roleModels });
+    return this.detail(id);
+  }
+
+  /**
+   * Re-point a non-terminal mission's verification checks mid-flight. The worker
+   * reads the row on each pass, so the change applies to the next item verified.
+   * Validated against the allowlist exactly as at creation.
+   */
+  async updateChecks(id: string, checks: string[]): Promise<MissionDetail> {
+    const backlog = this.require();
+    const mission = await backlog.getMission(id);
+    if (!mission) throw new NotFoundException(`No mission ${id}`);
+    if (TERMINAL_MISSION_STATUSES.has(mission.status)) {
+      throw new ConflictException(
+        `Mission ${id} is ${mission.status} — its checks can no longer be changed.`,
+      );
+    }
+    if (checks.length > 0) this.assertChecksAllowed(checks);
+    await backlog.updateMission(id, { checks });
     return this.detail(id);
   }
 

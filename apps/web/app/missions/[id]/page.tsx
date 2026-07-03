@@ -382,6 +382,11 @@ export default function MissionDashboard({ params }: { params: Promise<{ id: str
               <span className="text-fg/60">Accept:</span> {mission.acceptanceCriteria.join(" · ")}
             </p>
           )}
+          {mission.checks && mission.checks.length > 0 && (
+            <p className="mt-1 text-xs text-dim">
+              <span className="text-fg/60">Checks:</span> {mission.checks.join(" · ")}
+            </p>
+          )}
 
           {/* Digest foresight: the next high-risk work coming up (M3 Trin 6). */}
           {d.nextHighRisk.length > 0 && (

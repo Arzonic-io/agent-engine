@@ -253,6 +253,8 @@ export interface MissionSummary {
   projectId: string;
   goal: string;
   acceptanceCriteria: string[];
+  /** Verification checks defining "done" for this mission; empty = the worker's MISSION_CHECKS default. */
+  checks: string[];
   repoPath: string;
   status: MissionStatus;
   budget: number | null;
@@ -324,6 +326,8 @@ export interface CreateMissionRequest {
   goal: string;
   repoPath: string;
   acceptanceCriteria?: string[];
+  /** Verification checks defining "done"; validated against the allowlist. Empty = MISSION_CHECKS default. */
+  checks?: string[];
   budget?: number | null;
   /** ISO wall-clock deadline. */
   deadline?: string | null;

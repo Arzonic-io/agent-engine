@@ -50,6 +50,9 @@ export default function Composer() {
   // explicit `memory: false` does.
   const [memoryOff, setMemoryOff] = useState(false);
   const [missionsOn, setMissionsOn] = useState(true);
+  // Verification-check allowlist + default, for the mission composer's checks picker.
+  const [allowedChecks, setAllowedChecks] = useState<string[]>([]);
+  const [defaultChecks, setDefaultChecks] = useState<string[]>([]);
   const [newOpen, setNewOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [savingProject, setSavingProject] = useState(false);
@@ -76,9 +79,17 @@ export default function Composer() {
         // Distinguish "memory disabled" (a stable config state) from "no projects
         // yet" or "API still booting" — only the first gets the activation screen.
         if (st.ok) {
-          const s = (await st.json()) as { memory: boolean; missions: boolean };
+          const s = (await st.json()) as {
+            memory: boolean;
+            missions: boolean;
+            checks?: { allowed: string[]; default: string[] };
+          };
           setMemoryOff(!s.memory);
           setMissionsOn(s.missions);
+          if (s.checks) {
+            setAllowedChecks(s.checks.allowed);
+            setDefaultChecks(s.checks.default);
+          }
         }
         if (p.ok) {
           const list = ((await p.json()) as Project[]).filter((x) => x.name !== "Scratch");
@@ -531,7 +542,12 @@ export default function Composer() {
             {error && <p className="rise mt-4 text-sm text-error">{error}</p>}
           </>
         ) : (
-          <MissionComposer projectId={projectId} repoPath={projectRepo} />
+          <MissionComposer
+            projectId={projectId}
+            repoPath={projectRepo}
+            allowedChecks={allowedChecks}
+            defaultChecks={defaultChecks}
+          />
         )}
 
         <RecentTasks tasks={tasks} />

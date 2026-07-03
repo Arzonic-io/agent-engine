@@ -42,6 +42,8 @@ export interface Mission {
   projectId: string;
   goal: string;
   acceptanceCriteria: string[];
+  /** Verification checks defining "done" for this mission; empty = worker's MISSION_CHECKS default. */
+  checks: string[];
   repoPath: string;
   status: MissionStatus;
   budget: number | null;
@@ -86,6 +88,8 @@ export interface CreateMissionInput {
   goal: string;
   repoPath: string;
   acceptanceCriteria?: string[];
+  /** Verification checks defining "done"; inherits the worker's MISSION_CHECKS default if omitted. */
+  checks?: string[];
   budget?: number | null;
   deadline?: string | null;
   roleModels?: RoleModelsConfig;
@@ -99,6 +103,7 @@ export type MissionPatch = Partial<
     | "spentTokens"
     | "deadline"
     | "budget"
+    | "checks"
     | "roleModels"
     | "guidance"
     | "iterations"
@@ -144,6 +149,7 @@ export class BacklogService {
         project_id          uuid NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
         goal                text NOT NULL,
         acceptance_criteria jsonb NOT NULL DEFAULT '[]',
+        checks              jsonb NOT NULL DEFAULT '[]',
         repo_path           text NOT NULL,
         status              text NOT NULL DEFAULT 'running',
         budget              bigint,
@@ -177,6 +183,10 @@ export class BacklogService {
     await this.pool.query(`ALTER TABLE missions ADD COLUMN IF NOT EXISTS stop_reason text`);
     await this.pool.query(`ALTER TABLE missions ADD COLUMN IF NOT EXISTS pr_url text`);
     await this.pool.query(`ALTER TABLE missions ADD COLUMN IF NOT EXISTS publish_note text`);
+    // Per-mission verification checks (defaults to the worker's MISSION_CHECKS when empty).
+    await this.pool.query(
+      `ALTER TABLE missions ADD COLUMN IF NOT EXISTS checks jsonb NOT NULL DEFAULT '[]'`,
+    );
     await this.pool.query(`
       CREATE TABLE IF NOT EXISTS backlog_items (
         id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -203,13 +213,14 @@ export class BacklogService {
   // ── missions ──
   async createMission(input: CreateMissionInput): Promise<Mission> {
     const { rows } = await this.pool.query(
-      `INSERT INTO missions (project_id, goal, repo_path, acceptance_criteria, budget, deadline, role_models, guidance)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
+      `INSERT INTO missions (project_id, goal, repo_path, acceptance_criteria, checks, budget, deadline, role_models, guidance)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
       [
         input.projectId,
         input.goal,
         input.repoPath,
         JSON.stringify(input.acceptanceCriteria ?? []),
+        JSON.stringify(input.checks ?? []),
         input.budget ?? null,
         input.deadline ?? null,
         JSON.stringify(input.roleModels ?? {}),
@@ -235,6 +246,7 @@ export class BacklogService {
       spentTokens: "spent_tokens",
       deadline: "deadline",
       budget: "budget",
+      checks: "checks",
       roleModels: "role_models",
       guidance: "guidance",
       iterations: "iterations",
@@ -243,8 +255,8 @@ export class BacklogService {
       prUrl: "pr_url",
       publishNote: "publish_note",
     };
-    // role_models is a jsonb column — stringify it like the item-side json fields.
-    const json = new Set<keyof MissionPatch>(["roleModels"]);
+    // jsonb columns — stringify them like the item-side json fields.
+    const json = new Set<keyof MissionPatch>(["roleModels", "checks"]);
     const sets: string[] = [];
     const vals: unknown[] = [];
     let i = 1;
@@ -359,6 +371,7 @@ export class BacklogService {
       projectId: r.project_id,
       goal: r.goal,
       acceptanceCriteria: r.acceptance_criteria ?? [],
+      checks: r.checks ?? [],
       repoPath: r.repo_path,
       status: r.status,
       budget: r.budget === null ? null : Number(r.budget),
