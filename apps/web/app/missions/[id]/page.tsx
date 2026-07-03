@@ -11,6 +11,7 @@ import {
   LuCompass,
   LuFileDiff,
   LuGitPullRequest,
+  LuActivity,
   LuSave,
   LuTriangleAlert,
   LuUsers,
@@ -98,15 +99,20 @@ export default function MissionDashboard({ params }: { params: Promise<{ id: str
   const [guidanceErr, setGuidanceErr] = useState<string | null>(null);
   const guidanceSeeded = useRef(false);
   const esRef = useRef<EventSource | null>(null);
-  // Blended $/1M-token rate for an estimated cost readout (null = tokens only).
+  // Blended $/1M-token rate for an estimated cost readout (null = tokens only) +
+  // an optional LangSmith traces deep link (null = tracing off / no URL set).
   const [costPerMtok, setCostPerMtok] = useState<number | null>(null);
+  const [traceUrl, setTraceUrl] = useState<string | null>(null);
   useEffect(() => {
     void (async () => {
       try {
         const res = await fetch("/api/status");
-        if (res.ok) setCostPerMtok(((await res.json()) as { costPerMtok?: number | null }).costPerMtok ?? null);
+        if (!res.ok) return;
+        const s = (await res.json()) as { costPerMtok?: number | null; traceUrl?: string | null };
+        setCostPerMtok(s.costPerMtok ?? null);
+        setTraceUrl(s.traceUrl ?? null);
       } catch {
-        /* best-effort — cost readout just stays token-only */
+        /* best-effort — cost + trace readouts just stay off */
       }
     })();
   }, []);
@@ -312,6 +318,17 @@ export default function MissionDashboard({ params }: { params: Promise<{ id: str
               </h1>
             </div>
             <div className="flex shrink-0 items-center gap-2">
+              {traceUrl && (
+                <a
+                  href={traceUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  title="Åbn LangSmith-traces for at se agenternes ræsonnement"
+                  className="btn btn-sm gap-1 border-line bg-elev text-dim hover:text-fg"
+                >
+                  <LuActivity className="h-4 w-4" /> Traces
+                </a>
+              )}
               {mission.prUrl && (
                 <a
                   href={mission.prUrl}

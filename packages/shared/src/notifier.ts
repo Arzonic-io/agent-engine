@@ -55,6 +55,56 @@ export function createConsoleNotifier(options: ConsoleNotifierOptions = {}): Not
   };
 }
 
+/** Flatten a mission event into a stable, machine-parseable record for log aggregation. */
+function structured(e: MissionEvent, ts: string): Record<string, unknown> {
+  const base = { ts, missionId: e.missionId, event: e.type };
+  switch (e.type) {
+    case "item_started":
+      return { ...base, itemId: e.item.id, title: e.item.title, risk: e.item.risk };
+    case "item_finished":
+      return { ...base, itemId: e.item.id, title: e.item.title, status: e.status };
+    case "item_parked":
+      return { ...base, itemId: e.item.id, title: e.item.title, reason: e.reason };
+    case "item_retried":
+      return { ...base, itemId: e.item.id, title: e.item.title, attempt: e.attempt, reason: e.reason };
+    case "mission_digest":
+      return {
+        ...base,
+        done: e.digest.done.length,
+        parked: e.digest.parked.length,
+        pending: e.digest.pending,
+        failed: e.digest.failed.length,
+        spentTokens: e.digest.spentTokens,
+        prUrl: e.digest.prUrl,
+      };
+    case "mission_stopped":
+      return { ...base, status: e.status, reason: e.reason };
+  }
+}
+
+export interface JsonLogNotifierOptions {
+  /** Where JSON lines go. Defaults to console.log. */
+  sink?: (line: string) => void;
+  /** Timestamp source (injectable for tests). Defaults to Date.now via ISO string. */
+  now?: () => string;
+}
+
+/**
+ * Structured-log Notifier (observability): one JSON object per mission event, so a
+ * night's run is machine-parseable — grep/jq the PM2 logs, ship them to a log
+ * aggregator, or build metrics — instead of only human prose. Meant for the
+ * console notifier's `also` fan-out alongside (not instead of) the readable log.
+ */
+export function createJsonLogNotifier(options: JsonLogNotifierOptions = {}): Notifier {
+  const sink = options.sink ?? ((l: string) => console.log(l));
+  const now = options.now ?? (() => new Date().toISOString());
+  return {
+    notify(event: MissionEvent): void {
+      sink(JSON.stringify(structured(event, now())));
+    },
+  };
+}
+
 /** Event types worth pushing out-of-band by default — the human-actionable ones. */
 const DEFAULT_WEBHOOK_EVENTS: MissionEvent["type"][] = [
   "item_parked",

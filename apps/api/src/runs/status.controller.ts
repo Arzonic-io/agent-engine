@@ -13,6 +13,8 @@ export type ApiStatus = {
   missions: boolean;
   /** Tracing is on when LANGSMITH_TRACING=true + an API key is set. */
   tracing: boolean;
+  /** Deep link to the LangSmith project's traces, or null (tracing off / no URL set). */
+  traceUrl: string | null;
   /** Blended $/1M-token rate for an estimated cost readout, or null if unconfigured. */
   costPerMtok: number | null;
   checks: {
@@ -33,10 +35,12 @@ export class StatusController {
 
   @Get()
   get(): ApiStatus {
+    const tracing = this.env.LANGSMITH_TRACING === true && !!this.env.LANGSMITH_API_KEY;
     return {
       memory: this.memory !== null,
       missions: this.backlog !== null,
-      tracing: this.env.LANGSMITH_TRACING === true && !!this.env.LANGSMITH_API_KEY,
+      tracing,
+      traceUrl: tracing ? (this.env.LANGSMITH_PROJECT_URL ?? null) : null,
       costPerMtok: this.env.LLM_COST_PER_MTOK ?? null,
       checks: { allowed: this.env.REPO_ALLOWED_CHECKS, default: this.env.MISSION_CHECKS },
     };

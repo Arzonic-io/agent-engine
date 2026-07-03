@@ -7,6 +7,7 @@ import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { IconType } from "react-icons";
 import {
+  LuActivity,
   LuArrowDown,
   LuArrowLeft,
   LuCheck,
@@ -134,6 +135,18 @@ export default function RunView() {
   const [tokens, setTokens] = useState(0);
   const [atBottom, setAtBottom] = useState(true);
   const [inspectorOpen, setInspectorOpen] = useState(false);
+  // Optional LangSmith traces deep link (null = tracing off / no URL configured).
+  const [traceUrl, setTraceUrl] = useState<string | null>(null);
+  useEffect(() => {
+    void (async () => {
+      try {
+        const res = await fetch("/api/status");
+        if (res.ok) setTraceUrl(((await res.json()) as { traceUrl?: string | null }).traceUrl ?? null);
+      } catch {
+        /* best-effort — the trace link just stays hidden */
+      }
+    })();
+  }, []);
 
   const seenIds = useRef<Set<string>>(new Set());
   const seq = useRef(0);
@@ -354,6 +367,17 @@ export default function RunView() {
             </p>
           </div>
           <div className="flex shrink-0 items-center gap-2 text-xs">
+            {traceUrl && (
+              <a
+                href={traceUrl}
+                target="_blank"
+                rel="noreferrer"
+                title="Åbn LangSmith-traces"
+                className="inline-flex items-center gap-1 text-dim transition hover:text-fg"
+              >
+                <LuActivity className="h-3.5 w-3.5" /> Traces
+              </a>
+            )}
             {live && <span className="pulse-dot inline-block h-2 w-2 rounded-full bg-builder" />}
             <span className={`uppercase tracking-[0.18em] ${STATUS_LABEL[status]?.cls ?? "text-dim"}`}>
               {STATUS_LABEL[status]?.text ?? status}

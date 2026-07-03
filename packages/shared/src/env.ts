@@ -86,6 +86,12 @@ const EnvSchema = z
       .default("false")
       .transform((v) => v === "true"),
     LANGSMITH_API_KEY: z.string().min(1).optional(),
+    // Project all this app's traces land in (grouping in LangSmith).
+    LANGSMITH_PROJECT: z.string().min(1).default("agent-engine"),
+    // Deep link the UI opens to view the traces, e.g.
+    // https://smith.langchain.com/o/<org>/projects/p/<project-id>. Optional —
+    // the "Traces" link only shows when tracing is on AND this is set.
+    LANGSMITH_PROJECT_URL: z.string().url().optional(),
     // Optional blended $/1M-token rate for an ESTIMATED cost readout in the UI.
     // We track total tokens (not input/output split), so this is approximate —
     // one rate across all roles. Unset ⇒ the UI shows tokens only, no cost.
@@ -119,6 +125,12 @@ const EnvSchema = z
     // (= pre-Trin-2 behaviour). Pair with a "test" check in MISSION_CHECKS, and
     // assign the `tester` role in LLM_ROLE_MODELS to pick its model.
     MISSION_AUTHOR_TESTS: z
+      .enum(["true", "false"])
+      .default("false")
+      .transform((v) => v === "true"),
+    // Emit a structured JSON log line per mission event (observability), alongside
+    // the human-readable console log. Off by default (= console prose only).
+    MISSION_LOG_JSON: z
       .enum(["true", "false"])
       .default("false")
       .transform((v) => v === "true"),
@@ -267,6 +279,9 @@ export function loadEnv(): Env {
     // LangChain reads these directly from process.env.
     process.env.LANGSMITH_TRACING = "true";
     process.env.LANGCHAIN_TRACING_V2 = "true";
+    // Group traces under a named project (both var spellings, for SDK versions).
+    process.env.LANGSMITH_PROJECT = parsed.data.LANGSMITH_PROJECT;
+    process.env.LANGCHAIN_PROJECT = parsed.data.LANGSMITH_PROJECT;
   }
 
   return parsed.data;

@@ -18,6 +18,7 @@ import {
   createGitDiffer,
   createGitHubPublisher,
   createGitIntegrator,
+  createJsonLogNotifier,
   createVerifier,
   createWebhookNotifier,
   createWritableRepoTools,
@@ -61,20 +62,23 @@ async function main(): Promise<void> {
   // parked high-risk item or the morning digest actually reaches a sleeping human
   // instead of sitting only in PM2 logs. Best-effort: a webhook failure is logged,
   // never thrown into the loop.
-  const notifier = createConsoleNotifier({
-    also: env.MISSION_NOTIFY_WEBHOOK_URL
-      ? [
-          createWebhookNotifier({
-            url: env.MISSION_NOTIFY_WEBHOOK_URL,
-            onError: (err) =>
-              console.warn(
-                "[mission-worker] notify webhook failed:",
-                err instanceof Error ? err.message : err,
-              ),
-          }),
-        ]
-      : [],
-  });
+  const alsoNotify = [];
+  if (env.MISSION_NOTIFY_WEBHOOK_URL) {
+    alsoNotify.push(
+      createWebhookNotifier({
+        url: env.MISSION_NOTIFY_WEBHOOK_URL,
+        onError: (err) =>
+          console.warn(
+            "[mission-worker] notify webhook failed:",
+            err instanceof Error ? err.message : err,
+          ),
+      }),
+    );
+  }
+  // Structured per-event JSON log (observability) alongside the readable log, so a
+  // night's run can be grepped/shipped to a log aggregator. Opt-in (MISSION_LOG_JSON).
+  if (env.MISSION_LOG_JSON) alsoNotify.push(createJsonLogNotifier());
+  const notifier = createConsoleNotifier({ also: alsoNotify });
   // Publish step (overnight-trust "del b"): when a GitHub token is configured and
   // publishing is on, a finished mission pushes its integration branch and opens a
   // (draft) PR against the default branch — so the night's work is reviewable in the

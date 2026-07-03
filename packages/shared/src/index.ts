@@ -74,8 +74,10 @@ export {
 export { createVerifier, type VerifierOptions } from "./verifier.js";
 export {
   createConsoleNotifier,
+  createJsonLogNotifier,
   createWebhookNotifier,
   type ConsoleNotifierOptions,
+  type JsonLogNotifierOptions,
   type WebhookNotifierOptions,
 } from "./notifier.js";
 export {
