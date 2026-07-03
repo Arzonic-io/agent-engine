@@ -48,6 +48,7 @@ export function LeftRail({ onNavigate }: { onNavigate?: () => void } = {}) {
   const [menu, setMenu] = useState<MenuTarget | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
   const [confirmProject, setConfirmProject] = useState<{ id: string; name: string } | null>(null);
+  const [confirmEntry, setConfirmEntry] = useState<MenuTarget | null>(null);
   const [showSettings, setShowSettings] = useState(false);
   const toast = useToast();
 
@@ -134,7 +135,7 @@ export function LeftRail({ onNavigate }: { onNavigate?: () => void } = {}) {
   );
 
   const removeEntry = async (target: MenuTarget) => {
-    setMenu(null);
+    setConfirmEntry(null);
     setDeleting(target.id);
     // optimistic removal from the relevant feed
     if (target.kind === "task") setTasks((prev) => prev.filter((t) => t.id !== target.id));
@@ -190,13 +191,17 @@ export function LeftRail({ onNavigate }: { onNavigate?: () => void } = {}) {
     router.push("/");
   };
 
-  // Escape closes the delete-project confirmation.
+  // Escape closes either delete confirmation.
   useEffect(() => {
-    if (!confirmProject) return;
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setConfirmProject(null);
+    if (!confirmProject && !confirmEntry) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      setConfirmProject(null);
+      setConfirmEntry(null);
+    };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [confirmProject]);
+  }, [confirmProject, confirmEntry]);
 
   // close the context menu on any outside click / escape / scroll
   useEffect(() => {
@@ -442,10 +447,10 @@ export function LeftRail({ onNavigate }: { onNavigate?: () => void } = {}) {
             onClick={() => {
               if (menu.kind === "project") {
                 setConfirmProject({ id: menu.id, name: menu.label });
-                setMenu(null);
               } else {
-                void removeEntry(menu);
+                setConfirmEntry(menu);
               }
+              setMenu(null);
             }}
             className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-error transition hover:bg-error/10"
           >
@@ -484,6 +489,37 @@ export function LeftRail({ onNavigate }: { onNavigate?: () => void } = {}) {
             </div>
           </div>
           <div className="modal-backdrop bg-black/60" onClick={() => setConfirmProject(null)} />
+        </div>
+      )}
+
+      {/* delete task/mission confirmation — a delete is irreversible, so warn first */}
+      {confirmEntry && (
+        <div className="modal modal-open">
+          <div className="modal-box border border-line bg-panel">
+            <h3 className="text-base font-bold">
+              {confirmEntry.kind === "task" ? "Slet opgave?" : "Slet mission?"}
+            </h3>
+            <p className="py-3 text-sm leading-relaxed text-dim">
+              <span className="text-fg">{confirmEntry.label}</span> slettes permanent. Dette kan
+              ikke fortrydes.
+            </p>
+            <div className="modal-action">
+              <button
+                onClick={() => setConfirmEntry(null)}
+                className="btn btn-ghost btn-sm normal-case"
+              >
+                Annuller
+              </button>
+              <button
+                onClick={() => void removeEntry(confirmEntry)}
+                className="btn btn-error btn-sm gap-1.5 normal-case"
+              >
+                <LuTrash2 className="h-4 w-4" />{" "}
+                {confirmEntry.kind === "task" ? "Slet opgave" : "Slet mission"}
+              </button>
+            </div>
+          </div>
+          <div className="modal-backdrop bg-black/60" onClick={() => setConfirmEntry(null)} />
         </div>
       )}
     </aside>

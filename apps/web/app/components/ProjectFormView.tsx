@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { LuFolderGit2, LuHardDrive, LuUsers } from "react-icons/lu";
+import { LuFolderGit2, LuHardDrive, LuTrash2, LuUsers } from "react-icons/lu";
 import type { RepoInfo, RoleModelsConfig } from "@arzonic/agent-client";
 import { GitHubRepoPicker, type GitHubRepoRef } from "./GitHubRepoPicker";
 import { RepoPicker } from "./RepoPicker";
@@ -36,6 +36,7 @@ export function ProjectFormView({
   submitting,
   onSubmit,
   onCancel,
+  onDelete,
 }: {
   mode: "create" | "edit";
   firstEver?: boolean;
@@ -64,6 +65,8 @@ export function ProjectFormView({
     roleModels: RoleModelsConfig;
   }) => void;
   onCancel: () => void;
+  /** Delete this project (edit mode only). Confirmed here before it fires. */
+  onDelete?: () => void;
 }) {
   const [name, setName] = useState(initialName);
   const [brief, setBrief] = useState(initialBrief);
@@ -77,6 +80,7 @@ export function ProjectFormView({
   const allowLocal = localRepos || !!initialRepo;
   const [team, setTeam] = useState<TeamSelection>(() => roleModelsToSelection(initialTeam));
   const [showTeam, setShowTeam] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const isEdit = mode === "edit";
 
   const submit = () => {
@@ -221,10 +225,56 @@ export function ProjectFormView({
               </button>
             )}
           </div>
+
+          {/* Delete lives in the edit form so it's discoverable — not only via a
+              right-click in the rail. Confirmed before it fires. */}
+          {isEdit && onDelete && (
+            <div className="border-t border-line pt-2">
+              <button
+                type="button"
+                onClick={() => setConfirmDelete(true)}
+                disabled={submitting}
+                className="btn btn-ghost btn-sm gap-1.5 text-error normal-case hover:bg-error/10"
+              >
+                <LuTrash2 className="h-4 w-4" /> Slet projekt
+              </button>
+            </div>
+          )}
         </div>
 
         {error && <p className="rise mt-4 text-sm text-error">{error}</p>}
       </div>
+
+      {/* delete confirmation (daisyUI modal; backdrop click closes) */}
+      {confirmDelete && onDelete && (
+        <div className="modal modal-open">
+          <div className="modal-box border border-line bg-panel">
+            <h3 className="text-base font-bold">Slet projekt?</h3>
+            <p className="py-3 text-sm leading-relaxed text-dim">
+              <span className="text-fg">{name || "Projektet"}</span> slettes permanent — sammen med
+              alle dets opgaver, missioner og hukommelse. Dette kan ikke fortrydes.
+            </p>
+            <div className="modal-action">
+              <button
+                onClick={() => setConfirmDelete(false)}
+                className="btn btn-ghost btn-sm normal-case"
+              >
+                Annuller
+              </button>
+              <button
+                onClick={() => {
+                  setConfirmDelete(false);
+                  onDelete();
+                }}
+                className="btn btn-error btn-sm gap-1.5 normal-case"
+              >
+                <LuTrash2 className="h-4 w-4" /> Slet projekt
+              </button>
+            </div>
+          </div>
+          <div className="modal-backdrop bg-black/60" onClick={() => setConfirmDelete(false)} />
+        </div>
+      )}
     </div>
   );
 }
