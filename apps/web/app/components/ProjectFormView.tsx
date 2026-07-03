@@ -140,19 +140,11 @@ export function ProjectFormView({
             className="textarea textarea-sm w-full resize-none border-line bg-elev"
           />
           <RepoField
-            repos={repos}
-            localRepos={localRepos}
             githubRepo={githubRepo}
-            localPath={repo}
             onGithub={(v) => {
               setGithubRepo(v);
-              // Picking a GitHub repo supersedes any typed local path.
-              if (v) setRepo("");
-            }}
-            onLocal={(v) => {
-              setRepo(v);
-              // A local path supersedes a GitHub binding.
-              if (v.trim()) setGithubRepo(null);
+              // Picking a GitHub repo clears any legacy local path.
+              setRepo(v ? "" : repo);
             }}
           />
 

@@ -259,28 +259,6 @@ export default function Composer() {
     }
   }
 
-  async function saveProjectRepo(path: string | null) {
-    if (!projectId) return;
-    setSavingRepo(true);
-    setError(null);
-    try {
-      const res = await fetch(`/api/projects/${projectId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ repoPath: path }),
-      });
-      if (!res.ok) throw new Error(await res.text());
-      const updated = (await res.json()) as Project;
-      setProjects((prev) =>
-        prev.map((p) => (p.id === updated.id ? { ...updated, stats: p.stats } : p)),
-      );
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Kunne ikke gemme repo");
-    } finally {
-      setSavingRepo(false);
-    }
-  }
-
   // Re-bind the active project to a GitHub repo straight from the composer (the
   // cloud path — no local disk). A ref re-clones + binds; null clears it (which
   // drops the GitHub identity too, via repoPath). Both tasks and missions inherit.
@@ -442,12 +420,8 @@ export default function Composer() {
               and mission inherits the choice. Saved live as you pick. */}
           <div className="mt-3">
             <RepoField
-              repos={repos}
-              localRepos={localRepos}
               githubRepo={projectGithubRepo}
-              localPath={projectRepo}
               onGithub={saveProjectGithubRepo}
-              onLocal={(v) => void saveProjectRepo(v || null)}
               saving={savingRepo}
             />
           </div>

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   LuCheck,
   LuChevronsUpDown,
@@ -34,6 +35,19 @@ export function GitHubRepoPicker({
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const boxRef = useRef<HTMLDivElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  // The dropdown renders in a portal on document.body (so no ancestor's stacking
+  // context / overflow can trap it under a sibling), positioned under the button.
+  const [pos, setPos] = useState<{ top: number; left: number; width: number } | null>(null);
+
+  const place = () => {
+    const r = boxRef.current?.getBoundingClientRect();
+    if (r) setPos({ top: r.bottom + 4, left: r.left, width: r.width });
+  };
+  const toggle = () => {
+    if (!open) place();
+    setOpen((v) => !v);
+  };
 
   useEffect(() => {
     let alive = true;
@@ -58,14 +72,23 @@ export function GitHubRepoPicker({
     };
   }, []);
 
-  // Close the dropdown on an outside click.
+  // Close on an outside click (button OR the portal'd menu), reposition on scroll/resize.
   useEffect(() => {
     if (!open) return;
     const onDoc = (e: MouseEvent) => {
-      if (boxRef.current && !boxRef.current.contains(e.target as Node)) setOpen(false);
+      const t = e.target as Node;
+      if (boxRef.current?.contains(t) || menuRef.current?.contains(t)) return;
+      setOpen(false);
     };
+    const onMove = () => place();
     document.addEventListener("mousedown", onDoc);
-    return () => document.removeEventListener("mousedown", onDoc);
+    window.addEventListener("scroll", onMove, true);
+    window.addEventListener("resize", onMove);
+    return () => {
+      document.removeEventListener("mousedown", onDoc);
+      window.removeEventListener("scroll", onMove, true);
+      window.removeEventListener("resize", onMove);
+    };
   }, [open]);
 
   const filtered = useMemo(() => {
@@ -89,7 +112,7 @@ export function GitHubRepoPicker({
     <div ref={boxRef} className="relative flex-1">
       <button
         type="button"
-        onClick={() => setOpen((v) => !v)}
+        onClick={toggle}
         className="flex w-full items-center gap-2 rounded-field border border-line bg-elev px-2.5 py-1.5 text-left text-sm transition hover:border-builder/50"
       >
         <LuGithub className="h-3.5 w-3.5 shrink-0 text-dim" />
@@ -113,8 +136,12 @@ export function GitHubRepoPicker({
         <LuChevronsUpDown className="h-3.5 w-3.5 shrink-0 text-dim" />
       </button>
 
-      {open && (
-        <div className="absolute z-30 mt-1 w-full overflow-hidden rounded-box border border-line bg-panel shadow-2xl shadow-black/40">
+      {open && pos && createPortal(
+        <div
+          ref={menuRef}
+          style={{ position: "fixed", top: pos.top, left: pos.left, width: pos.width }}
+          className="z-[100] overflow-hidden rounded-box border border-line bg-panel shadow-2xl shadow-black/40"
+        >
           <div className="flex items-center gap-2 border-b border-line px-2.5 py-2">
             <LuSearch className="h-3.5 w-3.5 shrink-0 text-dim" />
             <input
@@ -163,7 +190,8 @@ export function GitHubRepoPicker({
               );
             })}
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   );
