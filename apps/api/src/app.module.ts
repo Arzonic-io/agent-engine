@@ -12,6 +12,7 @@ import { MissionsService } from "./missions/missions.service.js";
 import { ProjectsController } from "./projects/projects.controller.js";
 import { ProjectsService } from "./projects/projects.service.js";
 import { ReposController } from "./runs/repos.controller.js";
+import { StatusController } from "./runs/status.controller.js";
 import { RubricController } from "./runs/rubric.controller.js";
 import { RunsController } from "./runs/runs.controller.js";
 import { TasksController } from "./runs/tasks.controller.js";
@@ -24,6 +25,7 @@ import { BACKLOG, CHECKPOINTER, ENV, MEMORY, MODEL, ROLE_MODELS, SETTINGS } from
   controllers: [
     RunsController,
     ReposController,
+    StatusController,
     ProjectsController,
     RubricController,
     TasksController,

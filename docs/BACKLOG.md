@@ -4,7 +4,7 @@
 > komme. Opdatér den løbende: kryds af, flyt punkter mellem sektioner, og log
 > leverede ting under **Senest leveret**.
 
-**Sidst opdateret:** 2026-07-02
+**Sidst opdateret:** 2026-07-03
 
 ## 🌙 Nordstjerne — Autonome missioner
 
@@ -49,6 +49,29 @@ Det store perspektiv — fra nu til Nordstjernen. Detaljerne lever i tiers + epi
 
 ## ✅ Senest leveret
 
+### 2026-07-03 — Must-have: synlig "Slet projekt"-knap + bekræftelse på task-/mission-slet
+- [x] **Synlig slet-knap i edit-formen** ([ProjectFormView](../apps/web/app/components/ProjectFormView.tsx)):
+      projekt-sletning fandtes kun via højreklik i railen (uopdageligt). Ny "Slet projekt"-knap (edit-mode only)
+      med egen bekræftelses-modal; `onDelete` wired i [page.tsx](../apps/web/app/page.tsx) (DELETE `/projects/:id`,
+      dropper projektet lokalt + skifter aktivt projekt væk fra det slettede — serveren cascader tasks/missioner/hukommelse).
+- [x] **Bekræftelse før task-/mission-slet** ([LeftRail](../apps/web/app/components/LeftRail.tsx)): `removeEntry`
+      slettede optimistisk uden varsel — et footgun for utilsigtet datatab. Højreklik → "Slet" åbner nu en
+      bekræftelses-modal (samme mønster som projekt-slet) før noget fjernes; Escape/backdrop annullerer.
+- [x] `turbo build` grøn (6/6).
+
+### 2026-07-03 — Must-have: pæn "aktivér hukommelse"-tilstand (ikke rå 503)
+- [x] **`GET /status` kapabilitets-signal** ([status.controller.ts](../apps/api/src/runs/status.controller.ts)):
+      returnerer `{ memory, missions }` fra de nullable MEMORY/BACKLOG-providers — et maskinlæsbart signal
+      i stedet for at web'en skal gætte på en 503-fejltekst (agentFetch 503'er også når API'et bare booter,
+      så statuskoden alene kan ikke skelne "hukommelse fra" fra "endnu ikke oppe"). Registreret i app.module +
+      web-proxy [/api/status](../apps/web/app/api/status/route.ts).
+- [x] **Aktiveringsskærm** ([MemoryDisabled.tsx](../apps/web/app/components/MemoryDisabled.tsx)): composeren
+      ([page.tsx](../apps/web/app/page.tsx)) henter `/api/status` i sit initial-load og viser et dedikeret
+      "Aktivér projekt-hukommelse"-skærmbillede — der navngiver `SUPABASE_DB_URL` + `MISTRAL_API_KEY` og peger
+      på README — når `memory:false`. Før: rå 503, eller (værre) et fald-igennem til opret-formen der selv 503'er
+      ved submit. Optimistisk default (memory on) så en bootende/uopnåelig API aldrig blitzer aktiveringsskærmen.
+- [x] `turbo build` grøn (6/6); API-smoke grøn (DI booter med den nye controller).
+
 ### 2026-07-02 — Morgen-flowet lukket: PR-link + stop-grund på dashboardet
 - [x] **Publish afkoblet fra notifier** ([controller.ts](../packages/core/src/controller.ts) `stop()`):
       publish-kaldet lå inde i `if (deps.notifier)` — PR'en er review-artefaktet, notifikation kun
@@ -74,6 +97,12 @@ Det store perspektiv — fra nu til Nordstjernen. Detaljerne lever i tiers + epi
       en GitHub-henvisning i stedet for liste + custom sti. Dev (lokal API) er uændret. Electron-som-
       lokal-app genbesøgt og fravalgt igen: always-on-autonomi + server-side secrets; `pnpm dev` ER
       den lokale mode, git/PR er broen (jf. hosting-beslutningen 2026-06-28).
+- [x] **Composer-repovalg virker på cloud** (follow-up): RepoMenu's cloud-gren pegede bare på "Rediger".
+      Nu viser composer-headeren ([page.tsx](../apps/web/app/page.tsx)) den rigtige
+      [`GitHubRepoPicker`](../apps/web/app/components/GitHubRepoPicker.tsx) — samme picker som projekt-formen —
+      når `WEB_LOCAL_REPOS=off`, så man kan (gen)binde projektets GitHub-repo direkte før man starter en
+      opgave eller mission (PATCH `/projects/:id { githubRepo }`; ryd via X). Dev (lokal API) bruger stadig
+      RepoMenu. `turbo build` grøn (6/6).
 
 ### 2026-06-30 — (backfill) Publisher: draft-PRs + GitHub-repo-picker (workspaces)
 - [x] **Missioner publicerer** (overnight-trust "del b"): `Publisher`-søm i core
@@ -580,16 +609,23 @@ blokerende huller mellem "M3 afkrydset" og "kører uovervåget natten over". All
 
 Ting der er i stykker, blokerer brug, eller mangler for at appen hænger sammen.
 
-- [ ] **Hukommelse slået fra → pæn tilstand.** Når `SUPABASE_DB_URL`/`MISTRAL_API_KEY`
-      mangler, fejler hele projekt-flowet med en rå 503. Vis en tydelig "aktivér
-      projekt-hukommelse"-tilstand i stedet.
+- [x] **Hukommelse slået fra → pæn tilstand.** *(leveret 2026-07-03)* Når `SUPABASE_DB_URL`/
+      `MISTRAL_API_KEY` mangler viste composeren enten en rå 503 eller faldt igennem til opret-formen
+      (der selv 503'er ved submit). Nyt maskinlæsbart `GET /status` → `{ memory, missions }`
+      ([status.controller.ts](../apps/api/src/runs/status.controller.ts), læser de nullable MEMORY/BACKLOG-
+      providers) + web-proxy; composeren viser nu et dedikeret "Aktivér projekt-hukommelse"-skærmbillede
+      ([MemoryDisabled.tsx](../apps/web/app/components/MemoryDisabled.tsx)) der navngiver de præcise env-nøgler.
+      Skelner "memory-off" (stabil config, eksplicit `memory:false`) fra "ingen projekter endnu" og "API booter"
+      (optimistisk default ⇒ ingen falsk aktiveringsskærm). `turbo build` grøn (6/6); API-smoke grøn.
 - [x] **Opdatér README/docs.** *(leveret 2026-06-23)* [README.md](../README.md) skrevet om: Opgave/Mission-modes,
       hele team-rosteren, missions-motoren (M1–M3), web-appen, projekter/hukommelse, per-rolle/per-projekt/per-mission
       modeller, fuld API-rute-tabel, setup (docker compose Postgres) + run (web/worker/CLI), verify-harnesses og PM2.
-- [ ] **Slet projekt: synlig knap.** *(delvist leveret — opdaget ved audit 2026-07-02)* Slet findes
-      allerede via **højreklik** på projektet i railen ([LeftRail](../apps/web/app/components/LeftRail.tsx))
-      med bekræftelses-modal — men det er uopdageligt. Rest: en synlig "Slet projekt"-knap i
-      edit-formen (ProjectFormView) + bekræftelse på task-/mission-slet (i dag optimistisk uden varsel).
+- [x] **Slet projekt: synlig knap.** *(leveret 2026-07-03)* Synlig "Slet projekt"-knap (med egen
+      bekræftelses-modal) i edit-formen ([ProjectFormView](../apps/web/app/components/ProjectFormView.tsx),
+      edit-mode only; `onDelete` wired i [page.tsx](../apps/web/app/page.tsx) → DELETE + skift væk fra det slettede
+      projekt) — ikke længere kun opdageligt via højreklik. Plus **bekræftelse før task-/mission-slet** i railen
+      ([LeftRail](../apps/web/app/components/LeftRail.tsx)): `removeEntry` var optimistisk uden varsel (utilsigtet
+      datatab); højreklik → "Slet" åbner nu en bekræftelses-modal først. `turbo build` grøn (6/6).
 - [x] **Rediger projekt-brief/navn i UI.** *(leveret — verificeret ved audit 2026-07-02)*
       [ProjectFormView](../apps/web/app/components/ProjectFormView.tsx) har fuld edit-mode (navn/brief/
       repo/team) via "Rediger"-knappen på composer-siden.

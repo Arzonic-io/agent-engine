@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { LuBrain, LuListTodo, LuPencil, LuRocket } from "react-icons/lu";
+import { LuBrain, LuFolderGit2, LuListTodo, LuPencil, LuRocket } from "react-icons/lu";
 import type {
   MissionSummary,
   Project,
@@ -20,8 +20,9 @@ import {
 } from "./lib/activeProject";
 import { relTime, repoLabel } from "./lib/format";
 import { ProjectFormView } from "./components/ProjectFormView";
-import type { GitHubRepoRef } from "./components/GitHubRepoPicker";
+import { GitHubRepoPicker, type GitHubRepoRef } from "./components/GitHubRepoPicker";
 import { DefinitionOfDone } from "./components/DefinitionOfDone";
+import { MemoryDisabled } from "./components/MemoryDisabled";
 import { MissionComposer } from "./components/MissionComposer";
 import { ProjectMissions } from "./components/ProjectMissions";
 import { RecentTasks } from "./components/RecentTasks";
@@ -44,6 +45,11 @@ export default function Composer() {
   const [missions, setMissions] = useState<MissionSummary[]>([]);
   const [mode, setMode] = useState<Mode>("task");
   const [loaded, setLoaded] = useState(false);
+  // Server capabilities from /api/status. Optimistic defaults (memory on) so a
+  // booting/unreachable API never flashes the activation screen — only an
+  // explicit `memory: false` does.
+  const [memoryOff, setMemoryOff] = useState(false);
+  const [missionsOn, setMissionsOn] = useState(true);
   const [newOpen, setNewOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [savingProject, setSavingProject] = useState(false);
@@ -61,11 +67,19 @@ export default function Composer() {
   useEffect(() => {
     void (async () => {
       try {
-        const [p, r, rb] = await Promise.all([
+        const [p, r, rb, st] = await Promise.all([
           fetch("/api/projects"),
           fetch("/api/repos"),
           fetch("/api/rubric"),
+          fetch("/api/status"),
         ]);
+        // Distinguish "memory disabled" (a stable config state) from "no projects
+        // yet" or "API still booting" — only the first gets the activation screen.
+        if (st.ok) {
+          const s = (await st.json()) as { memory: boolean; missions: boolean };
+          setMemoryOff(!s.memory);
+          setMissionsOn(s.missions);
+        }
         if (p.ok) {
           const list = ((await p.json()) as Project[]).filter((x) => x.name !== "Scratch");
           setProjects(list);
@@ -210,6 +224,25 @@ export default function Composer() {
     }
   }
 
+  async function deleteProject() {
+    if (!projectId) return;
+    setSavingProject(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/projects/${projectId}`, { method: "DELETE" });
+      if (!res.ok) throw new Error(await res.text());
+      // Server cascades tasks/missions/memory; drop it locally and switch away.
+      const remaining = projects.filter((p) => p.id !== projectId);
+      setProjects(remaining);
+      setEditOpen(false);
+      setProjectId(remaining[0]?.id ?? "");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Kunne ikke slette projektet");
+    } finally {
+      setSavingProject(false);
+    }
+  }
+
   async function saveProjectRepo(path: string | null) {
     if (!projectId) return;
     setSavingRepo(true);
@@ -219,6 +252,31 @@ export default function Composer() {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ repoPath: path }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      const updated = (await res.json()) as Project;
+      setProjects((prev) =>
+        prev.map((p) => (p.id === updated.id ? { ...updated, stats: p.stats } : p)),
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Kunne ikke gemme repo");
+    } finally {
+      setSavingRepo(false);
+    }
+  }
+
+  // Re-bind the active project to a GitHub repo straight from the composer (the
+  // cloud path — no local disk). A ref re-clones + binds; null clears it (which
+  // drops the GitHub identity too, via repoPath). Both tasks and missions inherit.
+  async function saveProjectGithubRepo(ref: GitHubRepoRef | null) {
+    if (!projectId) return;
+    setSavingRepo(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/projects/${projectId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(ref ? { githubRepo: ref } : { repoPath: null }),
       });
       if (!res.ok) throw new Error(await res.text());
       const updated = (await res.json()) as Project;
@@ -257,6 +315,12 @@ export default function Composer() {
         <span className="loading loading-spinner loading-md text-dim" />
       </div>
     );
+  }
+
+  // Memory is off (no DB/keys) → the create-form can't save anyway; show how to
+  // activate it instead of falling through to a form that 503s on submit.
+  if (memoryOff) {
+    return <MemoryDisabled missions={missionsOn} />;
   }
 
   // Create (first-ever or "Nyt projekt") → full-screen form.
@@ -309,6 +373,7 @@ export default function Composer() {
           setEditOpen(false);
           setError(null);
         }}
+        onDelete={() => void deleteProject()}
       />
     );
   }
@@ -316,6 +381,7 @@ export default function Composer() {
   const mem = selected?.stats;
   const projectRepo =
     typeof selected?.settings?.repoPath === "string" ? (selected.settings.repoPath as string) : "";
+  const projectGithubRepo = (selected?.settings?.githubRepo as GitHubRepoRef | undefined) ?? null;
 
   return (
     <div className="flex h-full items-start justify-center overflow-y-auto px-6 sm:px-8">
@@ -362,15 +428,27 @@ export default function Composer() {
             <TeamRoster />
           </div>
 
-          {/* project repo — every task inherits the choice */}
+          {/* project repo — every task and mission inherits the choice */}
           <div className="mt-3">
-            <RepoMenu
-              repos={repos}
-              localRepos={localRepos}
-              value={projectRepo}
-              onChange={saveProjectRepo}
-              saving={savingRepo}
-            />
+            {localRepos ? (
+              <RepoMenu
+                repos={repos}
+                localRepos={localRepos}
+                value={projectRepo}
+                onChange={saveProjectRepo}
+                saving={savingRepo}
+              />
+            ) : (
+              // Cloud: pick the repo straight from GitHub here (same picker as the
+              // project form), so you can (re)bind before starting a task or mission.
+              <div className="flex items-center gap-2">
+                <span className="inline-flex shrink-0 items-center gap-1 text-xs text-dim">
+                  <LuFolderGit2 className="h-3.5 w-3.5" /> Repo
+                </span>
+                <GitHubRepoPicker value={projectGithubRepo} onChange={saveProjectGithubRepo} />
+                {savingRepo && <span className="loading loading-spinner loading-xs shrink-0 text-dim" />}
+              </div>
+            )}
           </div>
         </div>
 
