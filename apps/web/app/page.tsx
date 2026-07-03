@@ -236,11 +236,16 @@ export default function Composer() {
     try {
       const res = await fetch(`/api/projects/${projectId}`, { method: "DELETE" });
       if (!res.ok) throw new Error(await res.text());
-      // Server cascades tasks/missions/memory; drop it locally and switch away.
+      // Server cascades tasks/missions/memory; drop it locally.
       const remaining = projects.filter((p) => p.id !== projectId);
       setProjects(remaining);
       setEditOpen(false);
+      // After a delete, land on "Opret projekt" — don't silently jump into another
+      // project. Set the fallback active project FIRST: setProjectId fires
+      // ACTIVE_PROJECT_EVENT (which closes the create panel), so opening it must
+      // come after, to win the batch. On Cancel the user drops back to `remaining[0]`.
       setProjectId(remaining[0]?.id ?? "");
+      setNewOpen(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Kunne ikke slette projektet");
     } finally {

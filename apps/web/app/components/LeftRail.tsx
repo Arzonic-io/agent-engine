@@ -170,7 +170,11 @@ export function LeftRail({ onNavigate }: { onNavigate?: () => void } = {}) {
       if (!res.ok) throw new Error(await res.text());
       toast("Projekt slettet");
       if (activeProject === id) {
+        // Deleting the project you're in → land on "Opret projekt", not the next
+        // one. requestNewProject sets a one-shot flag the composer consumes on
+        // mount, so it works even though we navigate to "/".
         setActiveProject(remaining[0]?.id ?? "");
+        requestNewProject();
         router.push("/");
       }
     } catch {
