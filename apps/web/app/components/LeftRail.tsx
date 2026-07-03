@@ -415,12 +415,14 @@ export function LeftRail({ onNavigate }: { onNavigate?: () => void } = {}) {
       <div className="min-h-4 flex-1" />
 
       <div className="border-t border-line px-4 py-3">
-        <button
-          onClick={newProject}
-          className="btn w-full gap-1.5 border-builder/30 bg-builder/10 font-semibold text-builder normal-case hover:border-builder/50 hover:bg-builder/20"
-        >
-          <LuFolderPlus className="h-4 w-4" /> Nyt projekt
-        </button>
+        <div className="aura aura-dual block w-full text-builder">
+          <button
+            onClick={newProject}
+            className="btn w-full gap-1.5 border-builder/30 bg-builder/10 font-semibold text-builder normal-case hover:border-builder/50 hover:bg-builder/20"
+          >
+            <LuFolderPlus className="h-4 w-4" /> Nyt projekt
+          </button>
+        </div>
       </div>
 
       <div className="flex items-center gap-2.5 border-t border-line px-5 py-3.5 text-sm text-dim">

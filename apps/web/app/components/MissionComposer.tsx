@@ -303,19 +303,21 @@ export function MissionComposer({
       </div>
 
       <div className="mt-3 flex justify-end">
-        <button
-          onClick={() => void start()}
-          disabled={creating || noRepo || !goal.trim()}
-          className="btn btn-primary display gap-2 font-bold normal-case"
-        >
-          {creating ? (
-            <span className="skeleton skeleton-text">Starter missionen…</span>
-          ) : (
-            <>
-              <LuTarget className="h-4 w-4" /> Start mission
-            </>
-          )}
-        </button>
+        <div className="aura aura-dual text-primary">
+          <button
+            onClick={() => void start()}
+            disabled={creating || noRepo || !goal.trim()}
+            className="btn btn-primary display gap-2 font-bold normal-case"
+          >
+            {creating ? (
+              <span className="skeleton skeleton-text">Starter missionen…</span>
+            ) : (
+              <>
+                <LuTarget className="h-4 w-4" /> Start mission
+              </>
+            )}
+          </button>
+        </div>
       </div>
 
       {error && <p className="mt-3 text-sm text-error">{error}</p>}

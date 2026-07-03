@@ -128,21 +128,23 @@ export function ProjectFormView({
           />
 
           <div className="flex items-center gap-2 pt-1">
-            <button
-              onClick={submit}
-              disabled={!name.trim() || submitting}
-              className="btn btn-primary btn-sm flex-1 font-bold normal-case"
-            >
-              {submitting ? (
-                <span className="skeleton skeleton-text">
-                  {isEdit ? "Gemmer ændringer…" : "Opretter projekt…"}
-                </span>
-              ) : isEdit ? (
-                "Gem ændringer"
-              ) : (
-                "Opret projekt"
-              )}
-            </button>
+            <div className="aura aura-dual flex-1 text-primary">
+              <button
+                onClick={submit}
+                disabled={!name.trim() || submitting}
+                className="btn btn-primary btn-sm w-full font-bold normal-case"
+              >
+                {submitting ? (
+                  <span className="skeleton skeleton-text">
+                    {isEdit ? "Gemmer ændringer…" : "Opretter projekt…"}
+                  </span>
+                ) : isEdit ? (
+                  "Gem ændringer"
+                ) : (
+                  "Opret projekt"
+                )}
+              </button>
+            </div>
             {!firstEver && (
               <button onClick={onCancel} className="btn btn-ghost btn-sm text-dim normal-case">
                 Annuller

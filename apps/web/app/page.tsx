@@ -475,17 +475,19 @@ export default function Composer() {
                     ? `→ grundet i projektets repo (${repoLabel(projectRepo, repos)})`
                     : "→ router vælger single / team"}
                 </span>
-                <button
-                  onClick={() => void run()}
-                  disabled={starting || !task.trim()}
-                  className="btn btn-primary display gap-2 font-bold normal-case"
-                >
-                  {starting ? (
-                    <span className="skeleton skeleton-text">Starter opgaven…</span>
-                  ) : (
-                    "Kør"
-                  )}
-                </button>
+                <div className="aura aura-dual text-primary">
+                  <button
+                    onClick={() => void run()}
+                    disabled={starting || !task.trim()}
+                    className="btn btn-primary display gap-2 font-bold normal-case"
+                  >
+                    {starting ? (
+                      <span className="skeleton skeleton-text">Starter opgaven…</span>
+                    ) : (
+                      "Kør"
+                    )}
+                  </button>
+                </div>
               </div>
             </div>
 
