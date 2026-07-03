@@ -25,6 +25,7 @@ import type {
 } from "@arzonic/agent-client";
 import { estCost, ITEM_STATUS, MISSION_DOT } from "../../lib/format";
 import { ErrorState, LoadingState } from "../../components/StateViews";
+import { MissionLiveFeed } from "../../components/MissionLiveFeed";
 import {
   TEAM_ROLES,
   TeamModelPicker,
@@ -278,8 +279,8 @@ export default function MissionDashboard({ params }: { params: Promise<{ id: str
         title="Kunne ikke indlæse missionen"
         hint={error}
         action={
-          <Link href="/missions" className="btn btn-ghost btn-sm gap-1 text-dim">
-            <LuArrowLeft className="h-4 w-4" /> Alle missioner
+          <Link href="/" className="btn btn-ghost btn-sm gap-1 text-dim">
+            <LuArrowLeft className="h-4 w-4" /> Til projektet
           </Link>
         }
       />
@@ -297,8 +298,8 @@ export default function MissionDashboard({ params }: { params: Promise<{ id: str
   return (
     <div className="h-full overflow-y-auto px-6 sm:px-8">
       <div className="mx-auto w-full max-w-4xl pb-20 pt-[5vh]">
-        <Link href="/missions" className="mb-4 inline-flex items-center gap-1 text-xs text-dim hover:text-fg">
-          <LuArrowLeft className="h-3.5 w-3.5" /> Alle missioner
+        <Link href="/" className="mb-4 inline-flex items-center gap-1 text-xs text-dim hover:text-fg">
+          <LuArrowLeft className="h-3.5 w-3.5" /> Til projektet
         </Link>
 
         {/* header */}
@@ -430,6 +431,32 @@ export default function MissionDashboard({ params }: { params: Promise<{ id: str
             </p>
           )}
 
+          {/* the team assigned to THIS mission — pinned roles with their model;
+              everything else runs the global default from Settings */}
+          <div className="mt-3 flex flex-wrap items-center gap-1.5 text-xs">
+            <span className="inline-flex items-center gap-1 text-dim">
+              <LuUsers className="h-3.5 w-3.5" /> Team:
+            </span>
+            {TEAM_ROLES.filter((r) => mission.roleModels?.[r.key]).map((r) => {
+              const spec = mission.roleModels[r.key]!;
+              return (
+                <span
+                  key={r.key}
+                  className="inline-flex items-center gap-1.5 rounded-full border border-line bg-elev px-2 py-0.5"
+                >
+                  <span className={`h-1.5 w-1.5 rounded-full ${r.dot}`} />
+                  <span className="text-fg/90">{r.label}</span>
+                  <span className="font-mono text-[10px] text-dim">
+                    {spec.model ?? spec.provider}
+                  </span>
+                </span>
+              );
+            })}
+            {Object.keys(mission.roleModels ?? {}).length === 0 && (
+              <span className="text-dim">Standard-teamet (Indstillinger)</span>
+            )}
+          </div>
+
           {/* Digest foresight: the next high-risk work coming up (M3 Trin 6). */}
           {d.nextHighRisk.length > 0 && (
             <p className="mt-3 flex items-start gap-1.5 text-xs text-warning/90">
@@ -479,6 +506,13 @@ export default function MissionDashboard({ params }: { params: Promise<{ id: str
             </div>
           )}
         </div>
+
+        {/* live feed — what each agent is doing right now (Claude Code-style) */}
+        <MissionLiveFeed
+          missionId={id}
+          items={mission.items}
+          running={mission.status === "running"}
+        />
 
         {/* backlog board */}
         <div className="mt-6 space-y-5">

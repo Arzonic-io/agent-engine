@@ -8,7 +8,6 @@ import type {
   Project,
   ProjectTask,
   RepoInfo,
-  RoleModelsConfig,
   Rubric,
 } from "@arzonic/agent-client";
 import {
@@ -28,7 +27,6 @@ import { MissionComposer } from "./components/MissionComposer";
 import { ProjectMissions } from "./components/ProjectMissions";
 import { RecentTasks } from "./components/RecentTasks";
 import { RepoField } from "./components/RepoField";
-import { TeamRoster } from "./components/TeamRoster";
 
 type Mode = "task" | "mission";
 
@@ -36,9 +34,6 @@ export default function Composer() {
   const router = useRouter();
   const [task, setTask] = useState("");
   const [repos, setRepos] = useState<RepoInfo[]>([]);
-  // Local-path repo binding is hidden on the cloud deploy (WEB_LOCAL_REPOS=off):
-  // the browser can't reach the user's disk, and server paths are a footgun.
-  const [localRepos, setLocalRepos] = useState(true);
   const [projects, setProjects] = useState<Project[]>([]);
   const [projectId, setProjectId] = useActiveProject();
   const [rubric, setRubric] = useState<Rubric | null>(null);
@@ -102,10 +97,7 @@ export default function Composer() {
           const cur = getActiveProject();
           if ((!cur || !list.some((x) => x.id === cur)) && list[0]) setProjectId(list[0].id);
         }
-        if (r.ok) {
-          setRepos((await r.json()) as RepoInfo[]);
-          setLocalRepos(r.headers.get("x-local-repos") !== "off");
-        }
+        if (r.ok) setRepos((await r.json()) as RepoInfo[]);
         if (rb.ok) setRubric((await rb.json()) as Rubric);
       } catch {
         /* API still booting — the empty state handles it */
@@ -167,18 +159,17 @@ export default function Composer() {
     brief: string;
     repoPath?: string;
     githubRepo?: GitHubRepoRef | null;
-    roleModels?: RoleModelsConfig;
   }) {
     if (!data.name.trim()) return;
     setSavingProject(true);
     setError(null);
     try {
       // A GitHub binding wins; otherwise an optional local path. Never send
-      // githubRepo:null — the API field is optional (rejects null).
+      // githubRepo:null — the API field is optional (rejects null). No team config
+      // here: projects run on the global default — models are picked per mission.
       const body: Record<string, unknown> = {
         name: data.name,
         brief: data.brief,
-        roleModels: data.roleModels,
       };
       if (data.githubRepo) body.githubRepo = data.githubRepo;
       else if (data.repoPath) body.repoPath = data.repoPath;
@@ -208,7 +199,6 @@ export default function Composer() {
     brief: string;
     repoPath: string;
     githubRepo: GitHubRepoRef | null;
-    roleModels: RoleModelsConfig;
   }) {
     if (!projectId || !data.name.trim()) return;
     setSavingProject(true);
@@ -218,7 +208,6 @@ export default function Composer() {
       const body: Record<string, unknown> = {
         name: data.name,
         brief: data.brief,
-        roleModels: data.roleModels,
       };
       if (data.githubRepo) body.githubRepo = data.githubRepo;
       else body.repoPath = data.repoPath || null;
@@ -319,8 +308,6 @@ export default function Composer() {
       <ProjectFormView
         mode="create"
         firstEver={projects.length === 0}
-        repos={repos}
-        localRepos={localRepos}
         error={error}
         submitting={savingProject}
         onSubmit={(d) =>
@@ -329,7 +316,6 @@ export default function Composer() {
             brief: d.brief,
             repoPath: d.repoPath || undefined,
             githubRepo: d.githubRepo,
-            roleModels: d.roleModels,
           })
         }
         onCancel={() => {
@@ -345,8 +331,6 @@ export default function Composer() {
     return (
       <ProjectFormView
         mode="edit"
-        repos={repos}
-        localRepos={localRepos}
         initialName={selected.name}
         initialBrief={selected.brief}
         initialRepo={
@@ -355,7 +339,6 @@ export default function Composer() {
         initialGithubRepo={
           (selected.settings?.githubRepo as GitHubRepoRef | undefined) ?? null
         }
-        initialTeam={selected.settings?.roleModels as RoleModelsConfig | undefined}
         error={error}
         submitting={savingProject}
         onSubmit={updateProject}
@@ -458,10 +441,6 @@ export default function Composer() {
 
         {mode === "task" ? (
           <>
-            {/* Team on the composer (moved off the project header) — which members work this task. */}
-            <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs">
-              <TeamRoster />
-            </div>
             {rubric && <DefinitionOfDone rubric={rubric} />}
 
             {/* task composer */}
@@ -497,9 +476,7 @@ export default function Composer() {
                   className="btn btn-primary display gap-2 font-bold normal-case"
                 >
                   {starting ? (
-                    <>
-                      <span className="loading loading-spinner loading-xs" /> Starter…
-                    </>
+                    <span className="skeleton skeleton-text">Starter opgaven…</span>
                   ) : (
                     "Kør"
                   )}

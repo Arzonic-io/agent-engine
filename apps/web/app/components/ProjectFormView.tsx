@@ -1,23 +1,19 @@
 "use client";
 
 import { useState } from "react";
-import { LuTrash2, LuUsers } from "react-icons/lu";
-import type { RepoInfo, RoleModelsConfig } from "@arzonic/agent-client";
+import { createPortal } from "react-dom";
+import { LuTrash2 } from "react-icons/lu";
 import { type GitHubRepoRef } from "./GitHubRepoPicker";
 import { RepoField } from "./RepoField";
-import {
-  TEAM_ROLES,
-  TeamModelPicker,
-  roleModelsToSelection,
-  selectionToRoleModels,
-  teamCount,
-  type TeamSelection,
-} from "./TeamModelPicker";
 
 /**
  * Full-screen project form — used for the first-ever project, the "Nyt projekt"
  * flow, and editing an existing project. Replaces the composer rather than
  * stacking on it. Both create and edit include the repo picker.
+ *
+ * No team/model picking here by design: every project runs on the global default
+ * team from Settings — models are only chosen per MISSION (in its composer or on
+ * the running mission's dashboard).
  *
  * `onSubmit` reports `repoPath` as a trimmed string ("" = no repo); the caller
  * maps it (create omits an empty repo; edit clears it).
@@ -25,13 +21,10 @@ import {
 export function ProjectFormView({
   mode,
   firstEver = false,
-  repos,
-  localRepos = true,
   initialName = "",
   initialBrief = "",
   initialRepo = "",
   initialGithubRepo = null,
-  initialTeam,
   error,
   submitting,
   onSubmit,
@@ -40,21 +33,11 @@ export function ProjectFormView({
 }: {
   mode: "create" | "edit";
   firstEver?: boolean;
-  repos: RepoInfo[];
-  /**
-   * Whether local-path repo binding is offered at all. Off on the cloud deploy
-   * (WEB_LOCAL_REPOS=off): the browser can't reach the user's disk, and server
-   * paths are a footgun — GitHub picking is the only binding there. A legacy
-   * path-bound project still shows its path so it can be seen/cleared.
-   */
-  localRepos?: boolean;
   initialName?: string;
   initialBrief?: string;
   initialRepo?: string;
   /** The project's stored GitHub repo binding (edit mode), if it was bound via the picker. */
   initialGithubRepo?: GitHubRepoRef | null;
-  /** The project's stored default team config (edit mode); new missions inherit it. */
-  initialTeam?: RoleModelsConfig;
   error?: string | null;
   submitting?: boolean;
   onSubmit: (data: {
@@ -62,7 +45,6 @@ export function ProjectFormView({
     brief: string;
     repoPath: string;
     githubRepo: GitHubRepoRef | null;
-    roleModels: RoleModelsConfig;
   }) => void;
   onCancel: () => void;
   /** Delete this project (edit mode only). Confirmed here before it fires. */
@@ -72,8 +54,6 @@ export function ProjectFormView({
   const [brief, setBrief] = useState(initialBrief);
   const [repo, setRepo] = useState(initialRepo);
   const [githubRepo, setGithubRepo] = useState<GitHubRepoRef | null>(initialGithubRepo ?? null);
-  const [team, setTeam] = useState<TeamSelection>(() => roleModelsToSelection(initialTeam));
-  const [showTeam, setShowTeam] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const isEdit = mode === "edit";
 
@@ -85,7 +65,6 @@ export function ProjectFormView({
       // A GitHub binding wins; otherwise fall back to the local path.
       repoPath: githubRepo ? "" : repo.trim(),
       githubRepo,
-      roleModels: selectionToRoleModels(team),
     });
   };
 
@@ -148,38 +127,21 @@ export function ProjectFormView({
             }}
           />
 
-          {/* Project default team — new missions inherit it; a mission can still override. */}
-          <div className="rounded-field border border-line bg-elev/40">
-            <button
-              type="button"
-              onClick={() => setShowTeam((v) => !v)}
-              className="flex w-full items-center justify-between px-2.5 py-2 text-xs text-dim transition hover:text-fg"
-            >
-              <span className="inline-flex items-center gap-1.5">
-                <LuUsers className="h-3.5 w-3.5" /> Team-modeller (projektets standard)
-              </span>
-              <span className="text-[10px] text-fg/60">
-                {teamCount(team) > 0 ? `${teamCount(team)} valgt` : "Standard"}
-              </span>
-            </button>
-            {showTeam && (
-              <div className="border-t border-line p-2">
-                <p className="mb-2 text-[11px] leading-relaxed text-dim">
-                  Nye missioner i projektet arver disse modeller. En enkelt mission kan stadig
-                  overstyre dem i sin opsætning.
-                </p>
-                <TeamModelPicker roles={TEAM_ROLES} value={team} onChange={setTeam} />
-              </div>
-            )}
-          </div>
-
           <div className="flex items-center gap-2 pt-1">
             <button
               onClick={submit}
               disabled={!name.trim() || submitting}
               className="btn btn-primary btn-sm flex-1 font-bold normal-case"
             >
-              {isEdit ? "Gem ændringer" : "Opret projekt"}
+              {submitting ? (
+                <span className="skeleton skeleton-text">
+                  {isEdit ? "Gemmer ændringer…" : "Opretter projekt…"}
+                </span>
+              ) : isEdit ? (
+                "Gem ændringer"
+              ) : (
+                "Opret projekt"
+              )}
             </button>
             {!firstEver && (
               <button onClick={onCancel} className="btn btn-ghost btn-sm text-dim normal-case">
@@ -207,36 +169,42 @@ export function ProjectFormView({
         {error && <p className="rise mt-4 text-sm text-error">{error}</p>}
       </div>
 
-      {/* delete confirmation (daisyUI modal; backdrop click closes) */}
-      {confirmDelete && onDelete && (
-        <div className="modal modal-open">
-          <div className="modal-box border border-line bg-panel">
-            <h3 className="text-base font-bold">Slet projekt?</h3>
-            <p className="py-3 text-sm leading-relaxed text-dim">
-              <span className="text-fg">{name || "Projektet"}</span> slettes permanent — sammen med
-              alle dets opgaver, missioner og hukommelse. Dette kan ikke fortrydes.
-            </p>
-            <div className="modal-action">
-              <button
-                onClick={() => setConfirmDelete(false)}
-                className="btn btn-ghost btn-sm normal-case"
-              >
-                Annuller
-              </button>
-              <button
-                onClick={() => {
-                  setConfirmDelete(false);
-                  onDelete();
-                }}
-                className="btn btn-error btn-sm gap-1.5 normal-case"
-              >
-                <LuTrash2 className="h-4 w-4" /> Slet projekt
-              </button>
+      {/* Delete confirmation — PORTALED to <body>: an ancestor's retained
+          transform (the `rise` entrance) would otherwise trap this fixed modal
+          so the overlay only covered part of the window. */}
+      {confirmDelete &&
+        onDelete &&
+        typeof document !== "undefined" &&
+        createPortal(
+          <div className="modal modal-open z-[110]">
+            <div className="modal-box border border-line bg-panel">
+              <h3 className="text-base font-bold">Slet projekt?</h3>
+              <p className="py-3 text-sm leading-relaxed text-dim">
+                <span className="text-fg">{name || "Projektet"}</span> slettes permanent — sammen med
+                alle dets opgaver, missioner og hukommelse. Dette kan ikke fortrydes.
+              </p>
+              <div className="modal-action">
+                <button
+                  onClick={() => setConfirmDelete(false)}
+                  className="btn btn-ghost btn-sm normal-case"
+                >
+                  Annuller
+                </button>
+                <button
+                  onClick={() => {
+                    setConfirmDelete(false);
+                    onDelete();
+                  }}
+                  className="btn btn-error btn-sm gap-1.5 normal-case"
+                >
+                  <LuTrash2 className="h-4 w-4" /> Slet projekt
+                </button>
+              </div>
             </div>
-          </div>
-          <div className="modal-backdrop bg-black/60" onClick={() => setConfirmDelete(false)} />
-        </div>
-      )}
+            <div className="modal-backdrop bg-black/60" onClick={() => setConfirmDelete(false)} />
+          </div>,
+          document.body,
+        )}
     </div>
   );
 }

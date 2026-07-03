@@ -345,6 +345,20 @@ export interface UpdateMissionGuidanceRequest {
   guidance: string | null;
 }
 
+/**
+ * Live activity for one mission item — the agent-message tail from its
+ * checkpointed run thread. Polled by the dashboard's live feed while the item
+ * is in progress (GET /missions/:id/items/:itemId/activity).
+ */
+export interface MissionItemActivity {
+  itemId: string;
+  status: BacklogItemStatus;
+  /** Agent of the most recent message — "who is working right now". Null before the first step. */
+  agent: string | null;
+  round: number;
+  messages: ApiMessage[];
+}
+
 /** Async approve/reject of a parked (high-risk or thrashing) item (§5.5). */
 export interface MissionItemDecisionRequest {
   decision: "approve" | "reject";

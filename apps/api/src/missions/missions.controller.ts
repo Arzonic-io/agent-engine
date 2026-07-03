@@ -14,6 +14,7 @@ import { map, type Observable } from "rxjs";
 import type {
   ApiDiff,
   MissionDetail,
+  MissionItemActivity,
   MissionItemDecisionResponse,
   MissionSummary,
   StopMissionResponse,
@@ -101,6 +102,15 @@ export class MissionsController {
     @Param("itemId") itemId: string,
   ): Promise<ApiDiff | null> {
     return this.missions.itemDiff(id, itemId);
+  }
+
+  /** Live agent-transcript tail for an item — polled by the dashboard's live feed. */
+  @Get(":id/items/:itemId/activity")
+  itemActivity(
+    @Param("id") id: string,
+    @Param("itemId") itemId: string,
+  ): Promise<MissionItemActivity> {
+    return this.missions.itemActivity(id, itemId);
   }
 
   @Post(":id/items/:itemId/decision")

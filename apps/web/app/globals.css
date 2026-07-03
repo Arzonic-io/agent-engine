@@ -159,6 +159,27 @@ body {
   animation: shimmer 1.8s linear infinite;
 }
 
+/* Claude Code-style "working…" line: pure shimmering text, no block background.
+   Pairs with daisyUI's .skeleton (`skeleton skeleton-text`) — the combo override
+   drops the block background so the shimmer stays text, not a grey bar. */
+.skeleton-text {
+  display: inline-block;
+  background: linear-gradient(90deg,
+      var(--color-dim) 0%,
+      var(--color-fg) 50%,
+      var(--color-dim) 100%);
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: shimmer 1.6s linear infinite;
+}
+
+.skeleton.skeleton-text {
+  background-color: transparent;
+  border-radius: 0;
+}
+
 /* rendered markdown in chat bubbles / artifact */
 .md-body {
   font-size: 0.875rem;

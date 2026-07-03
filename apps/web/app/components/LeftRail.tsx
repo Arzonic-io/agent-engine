@@ -4,6 +4,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { LuFolderGit2, LuFolderPlus, LuRocket, LuSettings, LuTrash2 } from "react-icons/lu";
 import type { MissionSummary, Project, RecentTask } from "@arzonic/agent-client";
 import { SettingsModal } from "./SettingsModal";
@@ -464,64 +465,72 @@ export function LeftRail({ onNavigate }: { onNavigate?: () => void } = {}) {
         </div>
       )}
 
-      {/* delete-project confirmation (daisyUI modal; backdrop click closes) */}
-      {confirmProject && (
-        <div className="modal modal-open">
-          <div className="modal-box border border-line bg-panel">
-            <h3 className="text-base font-bold">Slet projekt?</h3>
-            <p className="py-3 text-sm leading-relaxed text-dim">
-              <span className="text-fg">{confirmProject.name}</span> slettes permanent — sammen med
-              alle dets opgaver, missioner og hukommelse. Dette kan ikke fortrydes.
-            </p>
-            <div className="modal-action">
-              <button
-                onClick={() => setConfirmProject(null)}
-                className="btn btn-ghost btn-sm normal-case"
-              >
-                Annuller
-              </button>
-              <button
-                onClick={() => void deleteProject(confirmProject.id)}
-                className="btn btn-error btn-sm gap-1.5 normal-case"
-              >
-                <LuTrash2 className="h-4 w-4" /> Slet projekt
-              </button>
+      {/* Delete confirmations — PORTALED to <body>: the rail is a transformed/
+          clipping ancestor, which traps `position: fixed`, so an in-place modal's
+          overlay only covered the sidebar instead of the whole window. */}
+      {confirmProject &&
+        typeof document !== "undefined" &&
+        createPortal(
+          <div className="modal modal-open z-[110]">
+            <div className="modal-box border border-line bg-panel">
+              <h3 className="text-base font-bold">Slet projekt?</h3>
+              <p className="py-3 text-sm leading-relaxed text-dim">
+                <span className="text-fg">{confirmProject.name}</span> slettes permanent — sammen med
+                alle dets opgaver, missioner og hukommelse. Dette kan ikke fortrydes.
+              </p>
+              <div className="modal-action">
+                <button
+                  onClick={() => setConfirmProject(null)}
+                  className="btn btn-ghost btn-sm normal-case"
+                >
+                  Annuller
+                </button>
+                <button
+                  onClick={() => void deleteProject(confirmProject.id)}
+                  className="btn btn-error btn-sm gap-1.5 normal-case"
+                >
+                  <LuTrash2 className="h-4 w-4" /> Slet projekt
+                </button>
+              </div>
             </div>
-          </div>
-          <div className="modal-backdrop bg-black/60" onClick={() => setConfirmProject(null)} />
-        </div>
-      )}
+            <div className="modal-backdrop bg-black/60" onClick={() => setConfirmProject(null)} />
+          </div>,
+          document.body,
+        )}
 
       {/* delete task/mission confirmation — a delete is irreversible, so warn first */}
-      {confirmEntry && (
-        <div className="modal modal-open">
-          <div className="modal-box border border-line bg-panel">
-            <h3 className="text-base font-bold">
-              {confirmEntry.kind === "task" ? "Slet opgave?" : "Slet mission?"}
-            </h3>
-            <p className="py-3 text-sm leading-relaxed text-dim">
-              <span className="text-fg">{confirmEntry.label}</span> slettes permanent. Dette kan
-              ikke fortrydes.
-            </p>
-            <div className="modal-action">
-              <button
-                onClick={() => setConfirmEntry(null)}
-                className="btn btn-ghost btn-sm normal-case"
-              >
-                Annuller
-              </button>
-              <button
-                onClick={() => void removeEntry(confirmEntry)}
-                className="btn btn-error btn-sm gap-1.5 normal-case"
-              >
-                <LuTrash2 className="h-4 w-4" />{" "}
-                {confirmEntry.kind === "task" ? "Slet opgave" : "Slet mission"}
-              </button>
+      {confirmEntry &&
+        typeof document !== "undefined" &&
+        createPortal(
+          <div className="modal modal-open z-[110]">
+            <div className="modal-box border border-line bg-panel">
+              <h3 className="text-base font-bold">
+                {confirmEntry.kind === "task" ? "Slet opgave?" : "Slet mission?"}
+              </h3>
+              <p className="py-3 text-sm leading-relaxed text-dim">
+                <span className="text-fg">{confirmEntry.label}</span> slettes permanent. Dette kan
+                ikke fortrydes.
+              </p>
+              <div className="modal-action">
+                <button
+                  onClick={() => setConfirmEntry(null)}
+                  className="btn btn-ghost btn-sm normal-case"
+                >
+                  Annuller
+                </button>
+                <button
+                  onClick={() => void removeEntry(confirmEntry)}
+                  className="btn btn-error btn-sm gap-1.5 normal-case"
+                >
+                  <LuTrash2 className="h-4 w-4" />{" "}
+                  {confirmEntry.kind === "task" ? "Slet opgave" : "Slet mission"}
+                </button>
+              </div>
             </div>
-          </div>
-          <div className="modal-backdrop bg-black/60" onClick={() => setConfirmEntry(null)} />
-        </div>
-      )}
+            <div className="modal-backdrop bg-black/60" onClick={() => setConfirmEntry(null)} />
+          </div>,
+          document.body,
+        )}
     </aside>
   );
 }

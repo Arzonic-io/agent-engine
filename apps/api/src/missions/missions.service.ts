@@ -19,14 +19,17 @@ import {
 import type { BacklogItem, BacklogService, MemoryService } from "@arzonic/agent-shared";
 import type {
   ApiDiff,
+  ApiMessage,
   MissionDetail,
+  MissionItemActivity,
   MissionItemDecisionResponse,
   MissionStreamEvent,
   MissionSummary,
   StopMissionResponse,
 } from "@arzonic/agent-client";
 import type { ApiEnv } from "../env.js";
-import { BACKLOG, ENV, MEMORY } from "../tokens.js";
+import type { CheckpointerHandle } from "../checkpointer.js";
+import { BACKLOG, CHECKPOINTER, ENV, MEMORY } from "../tokens.js";
 import { assertProvidersConfigured } from "../role-models.util.js";
 import { RunsService } from "../runs/runs.service.js";
 import type { CreateMissionDto, MissionItemDecisionDto } from "./missions.dto.js";
@@ -36,6 +39,9 @@ const TERMINAL_MISSION_STATUSES = new Set(["done", "failed", "stopped"]);
 
 /** How often the SSE stream re-reads mission state and pushes a snapshot. */
 const SNAPSHOT_INTERVAL_MS = 2000;
+
+/** How many trailing agent messages the live feed gets per poll — recent steps, not the transcript. */
+const ACTIVITY_TAIL = 20;
 
 /**
  * Board summaries of each item's diff: the file rollup (paths, ±lines, truncated
@@ -57,6 +63,7 @@ export class MissionsService {
     @Inject(BACKLOG) private readonly backlog: BacklogService | null,
     @Inject(ENV) private readonly env: ApiEnv,
     @Inject(MEMORY) private readonly memory: MemoryService | null,
+    @Inject(CHECKPOINTER) private readonly checkpointer: CheckpointerHandle,
     @Inject(RunsService) private readonly runs: RunsService,
   ) {}
 
@@ -165,6 +172,48 @@ export class MissionsService {
       throw new NotFoundException(`No item ${itemId} on mission ${missionId}`);
     }
     return (item.diff as ApiDiff | null) ?? null;
+  }
+
+  /**
+   * Live activity for one item: the agent-message tail from its checkpointed run
+   * (thread_id = item id) — what the dashboard's live feed polls while an item is
+   * in progress. The worker checkpoints every graph step to the shared Postgres,
+   * so reading the tuple here needs no compiled graph and never touches the
+   * worker process. Best-effort by design: a missing/unreadable checkpoint (item
+   * not started yet, in-memory saver) is an empty feed, not an error.
+   */
+  async itemActivity(missionId: string, itemId: string): Promise<MissionItemActivity> {
+    const backlog = this.require();
+    const item = await backlog.getItem(itemId);
+    if (!item || item.missionId !== missionId) {
+      throw new NotFoundException(`No item ${itemId} on mission ${missionId}`);
+    }
+    let messages: ApiMessage[] = [];
+    let round = 0;
+    try {
+      const tuple = await this.checkpointer.saver.getTuple({
+        configurable: { thread_id: itemId },
+      });
+      const values = (tuple?.checkpoint?.channel_values ?? {}) as {
+        messages?: unknown;
+        round?: unknown;
+      };
+      const raw = Array.isArray(values.messages) ? values.messages : [];
+      messages = raw
+        .filter(
+          (m): m is ApiMessage =>
+            !!m &&
+            typeof m === "object" &&
+            typeof (m as { content?: unknown }).content === "string" &&
+            typeof (m as { agent?: unknown }).agent === "string",
+        )
+        .slice(-ACTIVITY_TAIL);
+      if (typeof values.round === "number") round = values.round;
+    } catch {
+      // Feed is decoration on top of the board — never fail the poll on it.
+    }
+    const last = messages[messages.length - 1];
+    return { itemId, status: item.status, agent: last?.agent ?? null, round, messages };
   }
 
   /**

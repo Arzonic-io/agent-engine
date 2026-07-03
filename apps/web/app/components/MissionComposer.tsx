@@ -12,6 +12,21 @@ import {
 } from "./TeamModelPicker";
 
 /**
+ * Realistic token-budget rungs (hard ceiling per mission). Free-text invited
+ * unrealistic values (7-digit typos or "500" killing the run after one item);
+ * a select keeps the rail meaningful. 100k ≈ a solid evening run; 300k is the
+ * deliberate max — beyond that, split the goal into flere missioner.
+ */
+const BUDGET_OPTIONS: { value: string; label: string }[] = [
+  { value: "25000", label: "25.000 tokens · hurtigt forsøg" },
+  { value: "50000", label: "50.000 tokens · lille mission" },
+  { value: "100000", label: "100.000 tokens · aftenkørsel" },
+  { value: "200000", label: "200.000 tokens · natkørsel" },
+  { value: "300000", label: "300.000 tokens · maks" },
+  { value: "", label: "Ubegrænset (kun deadline/governors)" },
+];
+
+/**
  * Mission creation inside a project. A mission inherits the project's repo
  * (the truth source the Verifier checks against), so it can only start once the
  * project has a repo bound — otherwise there is nothing to verify "done" against.
@@ -33,7 +48,7 @@ export function MissionComposer({
   const [goal, setGoal] = useState("");
   const [criteria, setCriteria] = useState("");
   const [items, setItems] = useState("");
-  const [budget, setBudget] = useState("");
+  const [budget, setBudget] = useState("100000");
   const [deadline, setDeadline] = useState("");
   // "Done" for this mission = these checks pass. Pre-select the server default,
   // constrained to the allowlist. The engine is only as strong as these checks, so
@@ -260,37 +275,41 @@ export function MissionComposer({
         </div>
       )}
 
-      <div className="mt-3 flex flex-wrap items-center justify-between gap-3 border-t border-line pt-3">
-        <div className="flex flex-wrap items-center gap-4">
-          <label className="flex items-center gap-2 text-xs text-dim">
-            Token-budget
-            <input
-              value={budget}
-              onChange={(e) => setBudget(e.target.value.replace(/[^0-9]/g, ""))}
-              inputMode="numeric"
-              placeholder="ubegrænset"
-              className="input input-sm w-32 border-line bg-elev"
-            />
-          </label>
-          <label className="flex items-center gap-2 text-xs text-dim">
-            Deadline <span className="text-dim/60">(stop senest)</span>
-            <input
-              type="datetime-local"
-              value={deadline}
-              onChange={(e) => setDeadline(e.target.value)}
-              className="input input-sm border-line bg-elev"
-            />
-          </label>
-        </div>
+      {/* Rails: budget + deadline side by side, 50/50 — the two ways a run is bounded. */}
+      <div className="mt-3 grid gap-3 border-t border-line pt-3 sm:grid-cols-2">
+        <label className="block text-xs text-dim">
+          Token-budget <span className="text-dim/60">(hårdt loft)</span>
+          <select
+            value={budget}
+            onChange={(e) => setBudget(e.target.value)}
+            className="select select-sm mt-1 w-full border-line bg-elev"
+          >
+            {BUDGET_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="block text-xs text-dim">
+          Deadline <span className="text-dim/60">(stop senest)</span>
+          <input
+            type="datetime-local"
+            value={deadline}
+            onChange={(e) => setDeadline(e.target.value)}
+            className="input input-sm mt-1 w-full border-line bg-elev"
+          />
+        </label>
+      </div>
+
+      <div className="mt-3 flex justify-end">
         <button
           onClick={() => void start()}
           disabled={creating || noRepo || !goal.trim()}
           className="btn btn-primary display gap-2 font-bold normal-case"
         >
           {creating ? (
-            <>
-              <span className="loading loading-spinner loading-xs" /> Starter…
-            </>
+            <span className="skeleton skeleton-text">Starter missionen…</span>
           ) : (
             <>
               <LuTarget className="h-4 w-4" /> Start mission
