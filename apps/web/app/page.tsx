@@ -336,6 +336,7 @@ export default function Composer() {
     return (
       <ProjectFormView
         mode="edit"
+        projectId={selected.id}
         initialName={selected.name}
         initialBrief={selected.brief}
         initialRepo={

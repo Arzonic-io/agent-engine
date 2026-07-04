@@ -4,6 +4,7 @@ import { useState } from "react";
 import { createPortal } from "react-dom";
 import { LuTrash2 } from "react-icons/lu";
 import { type GitHubRepoRef } from "./GitHubRepoPicker";
+import { ProjectRubricEditor } from "./ProjectRubricEditor";
 import { RepoField } from "./RepoField";
 
 /**
@@ -20,6 +21,7 @@ import { RepoField } from "./RepoField";
  */
 export function ProjectFormView({
   mode,
+  projectId,
   firstEver = false,
   initialName = "",
   initialBrief = "",
@@ -32,6 +34,8 @@ export function ProjectFormView({
   onDelete,
 }: {
   mode: "create" | "edit";
+  /** The project's id (edit mode) — enables the per-project rubric editor. */
+  projectId?: string;
   firstEver?: boolean;
   initialName?: string;
   initialBrief?: string;
@@ -151,6 +155,10 @@ export function ProjectFormView({
               </button>
             )}
           </div>
+
+          {/* Per-project rubric — edits/saves on its own endpoint, independent of
+              the name/brief/repo form above. */}
+          {isEdit && projectId && <ProjectRubricEditor projectId={projectId} />}
 
           {/* Delete lives in the edit form so it's discoverable — not only via a
               right-click in the rail. Confirmed before it fires. */}

@@ -16,6 +16,8 @@ import {
   createRepoAnalysisGraph,
   createTeamGraph,
   defaultRubric,
+  resolveProjectRubric,
+  RubricSchema,
   type AgentGraph,
   type GraphStateType,
   type RoleModels,
@@ -99,6 +101,18 @@ export class RunsService implements OnModuleDestroy {
     return rubric;
   }
 
+  /**
+   * A project's own rubric (settings.rubric), floor-enforced — or undefined to
+   * fall back to the default. A malformed stored rubric is ignored (never crashes
+   * a run); the required floor is always applied on the way out.
+   */
+  private projectRubric(project: { settings?: Record<string, unknown> }): Rubric | undefined {
+    const raw = project.settings?.rubric;
+    if (!raw) return undefined;
+    const parsed = RubricSchema.safeParse(raw);
+    return parsed.success ? resolveProjectRubric(parsed.data) : undefined;
+  }
+
   private guardrails(options?: StartRunDto["options"]) {
     return {
       maxRounds: options?.maxRounds ?? this.env.MAX_ROUNDS,
@@ -166,13 +180,18 @@ export class RunsService implements OnModuleDestroy {
   }
 
   /** Project graph: retrieveContext → router → (single | team) → gate → persistMemory. */
-  private makeProjectGraph(options?: StartRunDto["options"], rubricId?: string): AgentGraph {
+  private makeProjectGraph(
+    options?: StartRunDto["options"],
+    rubricId?: string,
+    rubric?: Rubric,
+  ): AgentGraph {
     return createProjectGraph({
       model: this.model,
       models: this.roleModels,
       memory: this.requireMemory(),
       checkpointer: this.checkpointer.saver,
-      rubric: this.rubricFor(rubricId),
+      // An explicit per-project rubric wins over the named-registry lookup.
+      rubric: rubric ?? this.rubricFor(rubricId),
       guardrails: this.guardrails(options),
     }) as unknown as AgentGraph;
   }
@@ -287,7 +306,7 @@ export class RunsService implements OnModuleDestroy {
     const runId = row.id; // task id doubles as the run/thread id
     const graph = effectiveRepo
       ? (this.makeRepoGraph(effectiveRepo) as unknown as AgentGraph)
-      : this.makeProjectGraph();
+      : this.makeProjectGraph(undefined, undefined, this.projectRubric(project));
 
     // A forced topology only bites the project graph's router — a repo-analysis
     // task has no router, so it's silently ignored there.

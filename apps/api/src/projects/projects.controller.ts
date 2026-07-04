@@ -8,9 +8,16 @@ import {
   Param,
   Patch,
   Post,
+  Put,
 } from "@nestjs/common";
 import { z } from "zod";
-import { RoleModelsConfigSchema } from "@arzonic/agent-core";
+import {
+  defaultRubric,
+  resolveProjectRubric,
+  RoleModelsConfigSchema,
+  RubricSchema,
+  type Rubric,
+} from "@arzonic/agent-core";
 import type { Project, ProjectWithStats, Task } from "@arzonic/agent-shared";
 import type { StartRunResponse } from "@arzonic/agent-client";
 import type { ApiEnv } from "../env.js";
@@ -146,6 +153,27 @@ export class ProjectsController {
   @Get(":id/tasks")
   listTasks(@Param("id") id: string): Promise<Task[]> {
     return this.projects.listTasks(id);
+  }
+
+  /** The project's effective rubric — its own (floor-enforced) or the global default. */
+  @Get(":id/rubric")
+  async getRubric(@Param("id") id: string): Promise<Rubric> {
+    const p = await this.projects.get(id);
+    if (!p) throw new NotFoundException(`No project ${id}`);
+    const parsed = RubricSchema.safeParse(p.settings?.rubric);
+    return parsed.success ? resolveProjectRubric(parsed.data) : defaultRubric;
+  }
+
+  /** Set the project's rubric. The required floor is enforced before it's stored. */
+  @Put(":id/rubric")
+  async setRubric(
+    @Param("id") id: string,
+    @Body(new ZodValidationPipe(RubricSchema)) dto: Rubric,
+  ): Promise<Rubric> {
+    const rubric = resolveProjectRubric(dto);
+    const updated = await this.projects.updateSettings(id, { rubric });
+    if (!updated) throw new NotFoundException(`No project ${id}`);
+    return rubric;
   }
 
   @Delete(":id")

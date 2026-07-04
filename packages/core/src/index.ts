@@ -137,8 +137,12 @@ export {
   type DigestRecent,
 } from "./humanPolicy.js";
 export {
+  BASE_REQUIRED_CRITERIA,
   defaultRubric,
   renderRubric,
+  resolveProjectRubric,
+  RubricCriterionSchema,
+  RubricSchema,
   type Rubric,
   type RubricCriterion,
 } from "./rubric.js";

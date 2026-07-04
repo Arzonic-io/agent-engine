@@ -63,6 +63,18 @@ Det store perspektiv — fra nu til Nordstjernen. Detaljerne lever i tiers + epi
       ved boot + lukker ved shutdown. Bevist: [verify-implementer.ts](../packages/core/verify-implementer.ts)
       udvidet + ny [verify-mcp.ts](../packages/shared/verify-mcp.ts). `turbo build` grøn (6/6); API-smoke grøn.
 
+### 2026-07-04 — Per-projekt rubric (egne kvalitetskrav med håndhævet gulv)
+- [x] **Core:** zod `RubricSchema` + `resolveProjectRubric` ([rubric.ts](../packages/core/src/rubric.ts)) — en
+      human-redigeret rubric floor-enforces til de 3 universelle påkrævede (korrekt/komplet/rammer-opgaven), som
+      altid er til stede og `required`; tærskel + optional/custom krav går igennem som operatøren satte dem. Pure + idempotent.
+- [x] **API:** `startProjectTask` bruger nu projektets egen rubric (`settings.rubric`, floor-enforced, malformet ⇒
+      falder til default) i project-grafen; `GET/PUT /projects/:id/rubric`
+      ([projects.controller.ts](../apps/api/src/projects/projects.controller.ts)) henter/gemmer den zod-valideret.
+- [x] **Web:** [ProjectRubricEditor](../apps/web/app/components/ProjectRubricEditor.tsx) i projektets edit-form
+      (tærskel, rediger/tilføj/fjern krav; de 3 base låst) + web-proxy
+      [/api/projects/[id]/rubric](../apps/web/app/api/projects/[id]/rubric/route.ts).
+- [x] Bevist: [verify-rubric.ts](../packages/core/verify-rubric.ts) (20 checks). `turbo build` grøn (6/6); API-smoke grøn. Se "Need to have" item a.
+
 ### 2026-07-04 — Router-override efter submit + API-dev watch
 - [x] **Router-override på run-siden.** Nyt `forcedTopology` på GraphState ([state.ts](../packages/core/src/state.ts));
       routeren ([router.ts](../packages/core/src/nodes/router.ts)) bruger det verbatim **uden model-kald** (nul tokens).
@@ -724,8 +736,15 @@ Vigtigt for en god oplevelse — næste runde.
 - [ ] **Udvid rubric / Definition of Done (trinvis).** Basis altid på som gulv;
       adaptivitet + per-projekt ovenpå. De 3 påkrævede (korrekt/komplet/rammer-opgaven)
       er universelle og bør aldrig kunne vælges fra.
-  - [ ] a. **Per-projekt rubric** — hvert projekt har egne kvalitetskrav (override af
-        global `defaultRubric`), redigerbare i UI. Forudsigeligt, mennesket styrer.
+  - [x] a. **Per-projekt rubric** *(leveret 2026-07-04)* — hvert projekt kan have egne kvalitetskrav
+        (override af global `defaultRubric`), redigerbare i UI. Gemt i `projects.settings.rubric`; project-grafen
+        bruger den (ellers default). **Påkrævet-gulv håndhæves server-side**: `resolveProjectRubric`
+        ([rubric.ts](../packages/core/src/rubric.ts)) sikrer at de 3 universelle (korrekt/komplet/rammer-opgaven)
+        altid er til stede og `required`, uanset hvad klienten sender. `GET/PUT /projects/:id/rubric`
+        ([projects.controller.ts](../apps/api/src/projects/projects.controller.ts), zod-valideret) + editor i
+        [ProjectFormView](../apps/web/app/components/ProjectFormView.tsx) (tærskel, rediger/tilføj/fjern krav, base
+        låst). Bevist: [verify-rubric.ts](../packages/core/verify-rubric.ts) (20 checks — gulv, downgrade-forsvar,
+        tekst-fallback, idempotens, clamp, schema). `turbo build` grøn (6/6); API-smoke grøn.
   - [ ] b. **Adaptive ekstra-krav** — router/arkitekt *foreslår* opgave-relevante
         kriterier oven på basen (kode → "fejl-tilfælde håndteret", API → "ingen breaking
         changes"). Tilføjer kun, fjerner aldrig basen; mennesket kan se/justere forslag.
