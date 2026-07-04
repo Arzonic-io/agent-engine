@@ -268,6 +268,7 @@ export class RunsService implements OnModuleDestroy {
     projectId: string,
     task: string,
     repoPath?: string,
+    forcedTopology?: "single" | "team",
   ): Promise<StartRunResponse> {
     const memory = this.requireMemory();
     let project =
@@ -288,7 +289,33 @@ export class RunsService implements OnModuleDestroy {
       ? (this.makeRepoGraph(effectiveRepo) as unknown as AgentGraph)
       : this.makeProjectGraph();
 
-    return this.launch(runId, task, graph, { task, projectId: project.id, status: "running" }, project.id);
+    // A forced topology only bites the project graph's router — a repo-analysis
+    // task has no router, so it's silently ignored there.
+    const seed = { task, projectId: project.id, status: "running" as const };
+    const input = (
+      !effectiveRepo && forcedTopology ? { ...seed, forcedTopology } : seed
+    ) as GraphInput;
+
+    return this.launch(runId, task, graph, input, project.id);
+  }
+
+  /**
+   * Re-run an existing run's task with a forced topology — the "Override" control
+   * on the run page. Starts a FRESH run (new thread) so the original stays intact;
+   * the new run skips the router and uses `topology` verbatim. Router-override only
+   * exists on the project graph, so this requires memory.
+   */
+  async rerunWithTopology(
+    runId: string,
+    topology: "single" | "team",
+  ): Promise<StartRunResponse> {
+    const graph = this.graphFor(runId);
+    const snapshot = await graph.getState(this.config(runId));
+    const state = snapshot.values as GraphStateType | undefined;
+    if (!state || !state.task) {
+      throw new NotFoundException(`No run found for id ${runId}`);
+    }
+    return this.startProjectTask(state.projectId || "scratch", state.task, undefined, topology);
   }
 
   private async scratchProject() {
@@ -472,6 +499,14 @@ export class RunsService implements OnModuleDestroy {
       throw new NotFoundException(`No run found for id ${runId}`);
     }
     const interrupted = snapshot.tasks.some((t) => (t.interrupts ?? []).length > 0);
+    // Surface the router's decision only when a router actually ran (project-graph
+    // text tasks). The message format is `Router → <topology>: <reason>`.
+    const routerMsg = [...state.messages]
+      .reverse()
+      .find((m) => m.agent === "system" && m.content.startsWith("Router → "));
+    const routerReason = routerMsg
+      ? routerMsg.content.replace(/^Router → (?:single|team): /, "")
+      : null;
     return {
       runId,
       threadId: runId,
@@ -482,6 +517,8 @@ export class RunsService implements OnModuleDestroy {
       draft: state.draft,
       verdict: state.verdict,
       messages: state.messages,
+      topology: routerMsg ? state.topology : null,
+      routerReason,
     };
   }
 

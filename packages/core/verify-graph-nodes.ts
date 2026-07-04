@@ -119,6 +119,24 @@ function criticOut(
 
   const team = await makeRouterNode(scriptedModel({ topology: "team", reason: "multi-part plan" }))(state());
   ok(team.topology === "team", "router maps a 'team' decision to topology team");
+
+  // Operator override: forcedTopology is used verbatim WITHOUT calling the model.
+  const throwingModel = {
+    withStructuredOutput() {
+      return {
+        async invoke() {
+          throw new Error("router must not call the model when a topology is forced");
+        },
+      };
+    },
+  } as unknown as BaseChatModel;
+  const forced = await makeRouterNode(throwingModel)(state({ forcedTopology: "team" }));
+  ok(forced.topology === "team", "forcedTopology overrides the router's pick (used verbatim)");
+  ok(forced.tokensUsed === undefined, "an override spends no router tokens (the model was never called)");
+  ok(
+    !!forced.messages?.[0]?.content.includes("overridden"),
+    "the override is recorded as a manual override in the transcript",
+  );
 }
 
 // ── 3. Project-memory nodes via the injected ProjectMemory seam ──

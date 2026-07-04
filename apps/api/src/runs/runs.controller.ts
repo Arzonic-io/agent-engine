@@ -18,9 +18,11 @@ import type {
 } from "@arzonic/agent-client";
 import {
   DecisionSchema,
+  RerunSchema,
   StartRunSchema,
   ZodValidationPipe,
   type DecisionDto,
+  type RerunDto,
   type StartRunDto,
 } from "./dto/runs.dto.js";
 import { RunsService } from "./runs.service.js";
@@ -63,5 +65,13 @@ export class RunsController {
     @Body(new ZodValidationPipe(DecisionSchema)) dto: DecisionDto,
   ): Promise<DecisionResponse> {
     return this.runs.decide(id, dto);
+  }
+
+  @Post(":id/rerun")
+  rerun(
+    @Param("id") id: string,
+    @Body(new ZodValidationPipe(RerunSchema)) dto: RerunDto,
+  ): Promise<StartRunResponse> {
+    return this.runs.rerunWithTopology(id, dto.topology);
   }
 }

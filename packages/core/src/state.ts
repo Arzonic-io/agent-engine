@@ -117,6 +117,15 @@ export const GraphState = Annotation.Root({
     reducer: (_a, b) => b,
     default: () => "single",
   }),
+  /**
+   * When set, the router uses this topology verbatim instead of asking the model
+   * — the "Override" affordance on the run page (re-run this task as single/team).
+   * Null (default) = the router picks. Additive: existing runs never set it.
+   */
+  forcedTopology: Annotation<"single" | "team" | null>({
+    reducer: (_a, b) => b,
+    default: () => null,
+  }),
 });
 
 export type GraphStateType = typeof GraphState.State;

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -124,8 +124,10 @@ function CopyMenu({ content }: { content: string }) {
 
 export default function RunView() {
   const { id } = useParams<{ id: string }>();
+  const router = useRouter();
 
   const [feed, setFeed] = useState<FeedItem[]>([]);
+  const [rerunning, setRerunning] = useState(false);
   const [streaming, setStreaming] = useState<{ node: "builder" | "analyst"; content: string } | null>(null);
   const [status, setStatus] = useState("running");
   const [detail, setDetail] = useState<RunDetail | null>(null);
@@ -299,6 +301,29 @@ export default function RunView() {
     [awaiting, deciding, id, refreshDetail],
   );
 
+  // Override the router: re-run this task with the topology forced. Starts a
+  // fresh run (the original stays intact) and navigates to it.
+  const rerunAs = useCallback(
+    async (topology: "single" | "team") => {
+      if (rerunning) return;
+      setRerunning(true);
+      try {
+        const res = await fetch(`/api/runs/${id}/rerun`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ topology }),
+        });
+        if (res.ok) {
+          const { runId } = (await res.json()) as { runId: string };
+          router.push(`/runs/${runId}`);
+        }
+      } finally {
+        setRerunning(false);
+      }
+    },
+    [rerunning, id, router],
+  );
+
   // keyboard: A approve · R reject · G jump to gate
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -384,6 +409,15 @@ export default function RunView() {
             </span>
           </div>
         </header>
+
+        {detail?.topology && (
+          <RouterBar
+            topology={detail.topology}
+            reason={detail.routerReason}
+            rerunning={rerunning}
+            onOverride={rerunAs}
+          />
+        )}
 
         <div ref={scrollRef} onScroll={onScroll} className="min-h-0 flex-1 overflow-y-auto px-6 py-6">
           <div className="mx-auto max-w-3xl space-y-1">
@@ -765,6 +799,43 @@ function RubricPanel({ verdict, round }: { verdict: ApiVerdict | null; round: nu
         <p className="text-sm text-dim">Awaiting the first verdict…</p>
       )}
     </Panel>
+  );
+}
+
+/** The router's topology choice + reason, with an override that re-runs the task. */
+function RouterBar({
+  topology,
+  reason,
+  rerunning,
+  onOverride,
+}: {
+  topology: "single" | "team";
+  reason: string | null;
+  rerunning: boolean;
+  onOverride: (t: "single" | "team") => void;
+}) {
+  const other = topology === "single" ? "team" : "single";
+  const label = topology === "team" ? "Team" : "Single";
+  const otherLabel = other === "team" ? "team" : "single";
+  return (
+    <div className="flex shrink-0 items-center justify-between gap-3 border-b border-line bg-elev/30 px-5 py-2 text-xs">
+      <div className="flex min-w-0 items-center gap-2">
+        <LuCompass className="h-3.5 w-3.5 shrink-0 text-dim" />
+        <span className="shrink-0 text-fg/80">
+          Ruter: <span className="font-medium text-fg">{label}</span>
+        </span>
+        {reason && <span className="truncate text-dim">· {reason}</span>}
+      </div>
+      <button
+        onClick={() => onOverride(other)}
+        disabled={rerunning}
+        title={`Kør opgaven igen som ${otherLabel}`}
+        className="btn btn-ghost btn-xs shrink-0 gap-1 text-dim hover:text-fg disabled:opacity-50"
+      >
+        <LuRefreshCw className={`h-3 w-3 ${rerunning ? "animate-spin" : ""}`} />
+        Kør som {otherLabel}
+      </button>
+    </div>
   );
 }
 

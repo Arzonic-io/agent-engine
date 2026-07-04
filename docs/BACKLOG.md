@@ -49,6 +49,18 @@ Det store perspektiv — fra nu til Nordstjernen. Detaljerne lever i tiers + epi
 
 ## ✅ Senest leveret
 
+### 2026-07-04 — Router-override efter submit + API-dev watch
+- [x] **Router-override på run-siden.** Nyt `forcedTopology` på GraphState ([state.ts](../packages/core/src/state.ts));
+      routeren ([router.ts](../packages/core/src/nodes/router.ts)) bruger det verbatim **uden model-kald** (nul tokens).
+      `POST /runs/:id/rerun { topology }` ([runs.controller.ts](../apps/api/src/runs/runs.controller.ts) →
+      `rerunWithTopology`) gen-starter opgavens tekst som et **frisk run** med topologien tvunget forbi routeren
+      (originalen urørt). `RunDetail` fik `topology` + `routerReason` (kun når en router kørte); run-siden
+      ([runs/[id]](../apps/web/app/runs/[id]/page.tsx)) viser en `RouterBar` med "Kør som single/team". Web-proxy
+      [/api/runs/[id]/rerun](../apps/web/app/api/runs/[id]/rerun/route.ts). Bevist i
+      [verify-graph-nodes.ts](../packages/core/verify-graph-nodes.ts) (3 nye checks). Se "Need to have".
+- [x] **API-dev watch.** `dev` + `worker:dev` → `tsx watch` (ingen manuel genstart). Se "Kendte issues".
+- [x] `turbo build` grøn (6/6); API-smoke grøn; verify-graph-nodes grøn.
+
 ### 2026-07-04 — Sidebar: søg + tæl-badges på filtre
 - [x] **Søgefelt over "Seneste opgaver"** ([LeftRail](../apps/web/app/components/LeftRail.tsx)): live,
       case-insensitiv filtrering på opgavetekst + projektnavn (listen er global, så søg var det manglende led);
@@ -687,8 +699,14 @@ Ting der er i stykker, blokerer brug, eller mangler for at appen hænger sammen.
 
 Vigtigt for en god oplevelse — næste runde.
 
-- [ ] **Router-override efter submit.** Vis valgt topology + grund på run-siden med en
-      "Override"-kontrol (item 5 fra UI-brief). Kræver backend: tving topology + re-run.
+- [x] **Router-override efter submit.** *(leveret 2026-07-04)* Run-siden viser nu router-baren
+      "Ruter: Team — grund" ([runs/[id]](../apps/web/app/runs/[id]/page.tsx)) med en "Kør som single/team"-
+      knap. Backend: nyt `forcedTopology` på GraphState → routeren bruger det **verbatim uden model-kald**
+      ([router.ts](../packages/core/src/nodes/router.ts)); `POST /runs/:id/rerun { topology }`
+      ([runs.controller.ts](../apps/api/src/runs/runs.controller.ts)) gen-starter opgaven som et **frisk run**
+      (originalen står urørt) med topologien tvunget forbi routeren; `RunDetail` fik `topology` + `routerReason`
+      (kun sat når en router faktisk kørte). Bevist: [verify-graph-nodes.ts](../packages/core/verify-graph-nodes.ts)
+      (forcedTopology brugt verbatim, nul tokens, override-note i transcriptet). `turbo build` grøn (6/6); API-smoke grøn.
 - [ ] **Udvid rubric / Definition of Done (trinvis).** Basis altid på som gulv;
       adaptivitet + per-projekt ovenpå. De 3 påkrævede (korrekt/komplet/rammer-opgaven)
       er universelle og bør aldrig kunne vælges fra.
@@ -746,8 +764,9 @@ Forbedringer og fremtid.
 
 - [x] **Dev-shell Node-mismatch.** *(leveret 2026-07-02)* Node er nu pinnet via [.nvmrc](../.nvmrc)
       (`22`, `nvm use`); `engines`-gulvet forbliver ≥ 20. README-setup nævner det.
-- [ ] **API-dev har ingen watch.** `apps/api` kører via `tsx src/main.ts` uden watch —
-      ændringer i api/shared kræver manuel genstart. Overvej `tsx watch`.
+- [x] **API-dev har ingen watch.** *(leveret 2026-07-04)* `dev` + `worker:dev` kører nu via
+      `tsx watch` ([apps/api/package.json](../apps/api/package.json)) — api/worker genstarter automatisk
+      ved ændringer i api/src (og i shared, når dens dist genbygges). Ingen manuel genstart mere.
 - [x] **CORS-metoder.** *(leveret 2026-07-04)* `main.ts` tillod kun `GET, POST` — `PATCH`/`DELETE`
       virkede kun fordi web kalder via server-proxy. Listen er nu `GET, POST, PATCH, DELETE, OPTIONS`,
       så en direkte browser-klient (eller en fremtidig ikke-proxy-rute) ikke rammer en preflight-væg.

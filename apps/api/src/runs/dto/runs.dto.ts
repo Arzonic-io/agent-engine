@@ -23,6 +23,12 @@ export const DecisionSchema = z.object({
 });
 export type DecisionDto = z.infer<typeof DecisionSchema>;
 
+export const RerunSchema = z.object({
+  // Force the topology past the router when re-running the task.
+  topology: z.enum(["single", "team"]),
+});
+export type RerunDto = z.infer<typeof RerunSchema>;
+
 export class ZodValidationPipe<T> implements PipeTransform<unknown, T> {
   constructor(private readonly schema: z.ZodType<T>) {}
 

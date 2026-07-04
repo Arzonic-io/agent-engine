@@ -66,6 +66,10 @@ export interface RunDetail {
   draft: string;
   verdict: ApiVerdict | null;
   messages: ApiMessage[];
+  /** The topology the router chose — null when no router ran (repo/ad-hoc runs). */
+  topology: "single" | "team" | null;
+  /** One-sentence reason the router gave for its choice; null when no router ran. */
+  routerReason: string | null;
 }
 
 export interface RunSummary {

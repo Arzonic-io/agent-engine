@@ -27,6 +27,21 @@ export function makeRouterNode(model: BaseChatModel) {
   });
 
   return async (state: GraphStateType): Promise<Partial<GraphStateType>> => {
+    // Operator override: use the forced topology verbatim, no model call, no tokens.
+    if (state.forcedTopology) {
+      return {
+        topology: state.forcedTopology,
+        status: "running",
+        messages: [
+          {
+            agent: "system",
+            role: "system",
+            content: `Router → ${state.forcedTopology}: manually overridden.`,
+          },
+        ],
+      };
+    }
+
     const { raw, parsed } = await structured.invoke([
       new SystemMessage(SYSTEM_PROMPT),
       new HumanMessage(`Task:\n${state.task}`),
