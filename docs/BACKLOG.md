@@ -49,6 +49,20 @@ Det store perspektiv — fra nu til Nordstjernen. Detaljerne lever i tiers + epi
 
 ## ✅ Senest leveret
 
+### 2026-07-04 — MCP-videnbase i implementeren (fx daisyUI blueprint)
+- [x] **Permanent MCP-videnbase pr. mission.** MCP-servere deklareret i `MISSION_MCP_SERVERS`
+      (samme JSON som en `claude_desktop_config` — paste den ind) forbindes **én gang** ved worker-boot,
+      og deres tools lægges på implementerens ReAct-belt. Så en UI-mission kan kalde fx `daisyUI-Snippets`
+      og skrive on-brand markup i stedet for at opfinde den. Motoren læser sin **egen `.env`** —
+      `claude_desktop_config` er kun til Claude Desktop og rører motoren ikke.
+- [x] **`createMcpTools`** i shared ([mcp.ts](../packages/shared/src/mcp.ts)) via `@langchain/mcp-adapters` —
+      accepterer `{ mcpServers }` **og** en bar server-map, tvinger `throwOnLoadError=false`, **best-effort**:
+      ugyldig JSON / server der ikke starter / load-fejl ⇒ tom toolset + advarsel, aldrig et kast.
+- [x] **Core rent:** `makeImplementerNode` + `createImplementerGraph`/`createMissionTeamGraph`
+      tager valgfrie `extraTools` (additive; prompt-hint om at foretrække dem til UI). Workeren bygger tools
+      ved boot + lukker ved shutdown. Bevist: [verify-implementer.ts](../packages/core/verify-implementer.ts)
+      udvidet + ny [verify-mcp.ts](../packages/shared/verify-mcp.ts). `turbo build` grøn (6/6); API-smoke grøn.
+
 ### 2026-07-04 — Router-override efter submit + API-dev watch
 - [x] **Router-override på run-siden.** Nyt `forcedTopology` på GraphState ([state.ts](../packages/core/src/state.ts));
       routeren ([router.ts](../packages/core/src/nodes/router.ts)) bruger det verbatim **uden model-kald** (nul tokens).
