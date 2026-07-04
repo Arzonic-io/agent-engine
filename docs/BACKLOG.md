@@ -4,7 +4,7 @@
 > komme. Opdatér den løbende: kryds af, flyt punkter mellem sektioner, og log
 > leverede ting under **Senest leveret**.
 
-**Sidst opdateret:** 2026-07-04
+**Sidst opdateret:** 2026-07-05
 
 ## 🌙 Nordstjerne — Autonome missioner
 
@@ -48,6 +48,22 @@ Det store perspektiv — fra nu til Nordstjernen. Detaljerne lever i tiers + epi
 ---
 
 ## ✅ Senest leveret
+
+### 2026-07-05 — Adaptive Definition of Done (rubric item b) — DoD-temaet i mål 🎉
+- [x] **Proposer-node** ([proposeCriteria.ts](../packages/core/src/nodes/proposeCriteria.ts)): foreslår 0–4
+      opgave-relevante ekstra-krav (arkitekt-modellen), skrevet til nyt `extraCriteria` på GraphState. Defensiv:
+      slug'er ids, dropper base-ids/dubletter/tomme, capper antal. **Ren no-op når slået fra** (ingen model-kald),
+      så graf-topologi + cost er uændret med flaget off.
+- [x] **`augmentRubric`** ([rubric.ts](../packages/core/src/rubric.ts)) + critic-fletning
+      ([critic.ts](../packages/core/src/nodes/critic.ts)): extra-krav foldes ind **kun som optional** — de scores
+      og giver feedback men **gater aldrig** en pass, og en base-id kan aldrig fortrænges (base vinder). Den
+      deterministiske required-regel forbliver menneske-styret (per-projekt-rubric-editoren).
+- [x] **Synlighed + justering:** forslagene vises i transcriptet (system-note, "Adaptive kvalitetskrav…"); mennesket
+      forfremmer et krav varigt ved at tilføje det i rubric-editoren fra i går.
+- [x] **Wiring + gate:** `createProjectGraph` fik `adaptiveRubric?`; API'et binder `ADAPTIVE_RUBRIC` (shared env,
+      default off, dokumenteret i [.env.example](../.env.example)). Router → proposeCriteria → topologi-split.
+- [x] Bevist: [verify-adaptive.ts](../packages/core/verify-adaptive.ts) (14 checks). `turbo build` grøn (6/6);
+      graph-nodes/gate/rubric/smoke + API-smoke stadig grønne. **Rubric/DoD-temaet (a+b+c) er nu helt i mål.**
 
 ### 2026-07-04 — MCP-videnbase i implementeren (fx daisyUI blueprint)
 - [x] **Permanent MCP-videnbase pr. mission.** MCP-servere deklareret i `MISSION_MCP_SERVERS`
@@ -733,8 +749,8 @@ Vigtigt for en god oplevelse — næste runde.
       (originalen står urørt) med topologien tvunget forbi routeren; `RunDetail` fik `topology` + `routerReason`
       (kun sat når en router faktisk kørte). Bevist: [verify-graph-nodes.ts](../packages/core/verify-graph-nodes.ts)
       (forcedTopology brugt verbatim, nul tokens, override-note i transcriptet). `turbo build` grøn (6/6); API-smoke grøn.
-- [ ] **Udvid rubric / Definition of Done (trinvis).** Basis altid på som gulv;
-      adaptivitet + per-projekt ovenpå. De 3 påkrævede (korrekt/komplet/rammer-opgaven)
+- [x] **Udvid rubric / Definition of Done (trinvis).** *(færdig 2026-07-05 — a+b+c leveret)* Basis altid på
+      som gulv; adaptivitet + per-projekt ovenpå. De 3 påkrævede (korrekt/komplet/rammer-opgaven)
       er universelle og bør aldrig kunne vælges fra.
   - [x] a. **Per-projekt rubric** *(leveret 2026-07-04)* — hvert projekt kan have egne kvalitetskrav
         (override af global `defaultRubric`), redigerbare i UI. Gemt i `projects.settings.rubric`; project-grafen
@@ -745,9 +761,15 @@ Vigtigt for en god oplevelse — næste runde.
         [ProjectFormView](../apps/web/app/components/ProjectFormView.tsx) (tærskel, rediger/tilføj/fjern krav, base
         låst). Bevist: [verify-rubric.ts](../packages/core/verify-rubric.ts) (20 checks — gulv, downgrade-forsvar,
         tekst-fallback, idempotens, clamp, schema). `turbo build` grøn (6/6); API-smoke grøn.
-  - [ ] b. **Adaptive ekstra-krav** — router/arkitekt *foreslår* opgave-relevante
-        kriterier oven på basen (kode → "fejl-tilfælde håndteret", API → "ingen breaking
-        changes"). Tilføjer kun, fjerner aldrig basen; mennesket kan se/justere forslag.
+  - [x] b. **Adaptive ekstra-krav** *(leveret 2026-07-05)* — en proposer-node
+        ([proposeCriteria.ts](../packages/core/src/nodes/proposeCriteria.ts)) foreslår opgave-relevante
+        kriterier (kode → "fejl-tilfælde håndteret" osv.) som critic'en fletter ind via `augmentRubric`
+        ([rubric.ts](../packages/core/src/rubric.ts)) **kun som optional** — de påvirker score + feedback men
+        **gater aldrig** en pass og kan aldrig fortrænge basen (base-ids vinder). Mennesket **ser** forslagene
+        i transcriptet (system-note) og **justerer** varigt ved at forfremme et krav i per-projekt-rubric-editoren.
+        Gated bag `ADAPTIVE_RUBRIC` (default off; node = ren no-op når slået fra, så topologi + cost er uændret).
+        Bevist: [verify-adaptive.ts](../packages/core/verify-adaptive.ts) (14 checks — optional-tvang, base-vinder,
+        slug/dedupe/cap-guards, no-op, critic gater ikke på extra). `turbo build` grøn (6/6); alle graf-harnesses grønne.
   - [x] c. **Hård verifikation binder rubric (missioner)** *(leveret 2026-07-03)* — "done" = rigtige
         checks via Verifier-laget, nu **pr. mission konfigurerbare** (`checks` på missionen, valgt i composeren
         fra `REPO_ALLOWED_CHECKS`-allowlisten, vist på dashboardet). Se "Senest leveret".

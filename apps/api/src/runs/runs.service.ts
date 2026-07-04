@@ -193,6 +193,7 @@ export class RunsService implements OnModuleDestroy {
       // An explicit per-project rubric wins over the named-registry lookup.
       rubric: rubric ?? this.rubricFor(rubricId),
       guardrails: this.guardrails(options),
+      adaptiveRubric: this.env.ADAPTIVE_RUBRIC,
     }) as unknown as AgentGraph;
   }
 

@@ -21,6 +21,7 @@ import { humanGateNode, markAwaitingHuman } from "./nodes/humanGate.js";
 import { makeLeadNode } from "./nodes/lead.js";
 import { makePersistMemoryNode } from "./nodes/persistMemory.js";
 import { makeRetrieveContextNode } from "./nodes/retrieveContext.js";
+import { makeProposeCriteriaNode } from "./nodes/proposeCriteria.js";
 import { makeRouterNode } from "./nodes/router.js";
 import { makeWorkerNode } from "./nodes/worker.js";
 import type { ProjectMemory } from "./memory.js";
@@ -350,6 +351,12 @@ export interface CreateProjectGraphOptions {
   rubric?: Rubric;
   guardrails?: GuardrailConfig;
   checkpointer: BaseCheckpointSaver;
+  /**
+   * When true, a proposer node suggests task-relevant EXTRA criteria (folded into
+   * the critic's rubric as optional-only) before the work starts. Off = the node is
+   * a pure no-op, so behavior + cost are unchanged.
+   */
+  adaptiveRubric?: boolean;
 }
 
 /**
@@ -423,13 +430,20 @@ export function createProjectGraph(options: CreateProjectGraphOptions) {
     .addNode("advance", advance)
     .addNode("lead", makeLeadNode(pick("lead")))
     .addNode("critic", makeCriticNode(pick("critic"), rubric))
+    .addNode(
+      "proposeCriteria",
+      makeProposeCriteriaNode(pick("architect"), { enabled: !!options.adaptiveRubric }),
+    )
     .addNode("markAwaitingHuman", markAwaitingHuman)
     .addNode("humanGate", humanGateNode)
     .addNode("persistMemory", makePersistMemoryNode(memory))
     .addNode("fail", failNode)
     .addEdge(START, "retrieveContext")
     .addEdge("retrieveContext", "router")
-    .addConditionalEdges("router", afterRouter, ["architect", "builder"])
+    // router picks topology → proposer suggests adaptive criteria (no-op when off)
+    // → the topology split. afterRouter reads state.topology (set by the router).
+    .addEdge("router", "proposeCriteria")
+    .addConditionalEdges("proposeCriteria", afterRouter, ["architect", "builder"])
     .addConditionalEdges("builder", afterBuilder, ["critic", "fail"])
     .addEdge("architect", "worker")
     .addConditionalEdges("worker", afterWorker, ["advance", "fail"])

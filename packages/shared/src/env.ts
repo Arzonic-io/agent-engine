@@ -134,6 +134,13 @@ const EnvSchema = z
       .enum(["true", "false"])
       .default("false")
       .transform((v) => v === "true"),
+    // Adaptive Definition of Done: a proposer suggests task-relevant EXTRA criteria
+    // (added to the critic's rubric as optional-only) on each project task. Off by
+    // default (= the base/project rubric only, no extra model call per run).
+    ADAPTIVE_RUBRIC: z
+      .enum(["true", "false"])
+      .default("false")
+      .transform((v) => v === "true"),
     // Checks the mission Verifier runs per item — the truth source for "done".
     MISSION_CHECKS: z
       .string()

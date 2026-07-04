@@ -131,3 +131,23 @@ export function resolveProjectRubric(override: Rubric): Rubric {
     criteria,
   };
 }
+
+/**
+ * Fold adaptive, task-relevant criteria onto a base rubric for a single run. Extra
+ * criteria are added as OPTIONAL only (forced `required: false`) — a model-proposed
+ * criterion informs the score and feedback but can never gate a pass or displace a
+ * base criterion. Ids already in the base are dropped (base wins). Pure; returns the
+ * base unchanged when there's nothing to add.
+ */
+export function augmentRubric(base: Rubric, extra: RubricCriterion[]): Rubric {
+  if (!extra?.length) return base;
+  const seen = new Set(base.criteria.map((c) => c.id));
+  const additions: RubricCriterion[] = [];
+  for (const c of extra) {
+    if (!c.id || !c.description.trim() || seen.has(c.id)) continue;
+    seen.add(c.id);
+    additions.push({ id: c.id, description: c.description.trim(), required: false });
+  }
+  if (additions.length === 0) return base;
+  return { passThreshold: base.passThreshold, criteria: [...base.criteria, ...additions] };
+}

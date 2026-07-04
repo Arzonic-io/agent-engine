@@ -1,5 +1,6 @@
 import { Annotation } from "@langchain/langgraph";
 import { z } from "zod";
+import type { RubricCriterion } from "./rubric.js";
 
 export const AgentMessageSchema = z.object({
   agent: z.enum([
@@ -125,6 +126,16 @@ export const GraphState = Annotation.Root({
   forcedTopology: Annotation<"single" | "team" | null>({
     reducer: (_a, b) => b,
     default: () => null,
+  }),
+  /**
+   * Task-relevant criteria the proposer added on top of the base rubric for THIS
+   * run (adaptive Definition of Done). Always folded in as optional — they inform
+   * score + feedback but never gate a pass; the human controls what's required via
+   * the per-project rubric. Empty (default) = no adaptive criteria.
+   */
+  extraCriteria: Annotation<RubricCriterion[]>({
+    reducer: (_a, b) => b,
+    default: () => [],
   }),
 });
 

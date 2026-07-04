@@ -5,7 +5,7 @@ import {
   type AIMessage,
 } from "@langchain/core/messages";
 import { z } from "zod";
-import { renderRubric, type Rubric } from "../rubric.js";
+import { augmentRubric, renderRubric, type Rubric } from "../rubric.js";
 import type { GraphStateType, Verdict } from "../state.js";
 
 const SYSTEM_PROMPT = `You are the Critic in a builder/critic loop. Your job is to find concrete,
@@ -52,10 +52,14 @@ export function makeCriticNode(model: BaseChatModel, rubric: Rubric) {
   });
 
   return async (state: GraphStateType): Promise<Partial<GraphStateType>> => {
+    // Fold in this run's adaptive criteria (optional-only) so a proposed,
+    // task-relevant check is scored alongside the base rubric.
+    const effective = augmentRubric(rubric, state.extraCriteria ?? []);
+
     const prompt = [
       `# Task\n${state.task}`,
       `# Draft to evaluate (round ${state.round})\n${state.draft}`,
-      `# Rubric\nJudge each criterion by its id:\n${renderRubric(rubric)}`,
+      `# Rubric\nJudge each criterion by its id:\n${renderRubric(effective)}`,
     ].join("\n\n");
 
     const { raw, parsed } = await structured.invoke([
@@ -68,10 +72,10 @@ export function makeCriticNode(model: BaseChatModel, rubric: Rubric) {
 
     // Deterministic pass rule: all required criteria met AND score >= threshold.
     const metById = new Map(output.criteria.map((c) => [c.id, c.met]));
-    const requiredMet = rubric.criteria
+    const requiredMet = effective.criteria
       .filter((c) => c.required)
       .every((c) => metById.get(c.id) === true);
-    const pass = requiredMet && output.score >= rubric.passThreshold;
+    const pass = requiredMet && output.score >= effective.passThreshold;
 
     const prettify = (id: string) =>
       id.replace(/[-_]/g, " ").replace(/^\w/, (c) => c.toUpperCase());
@@ -79,7 +83,7 @@ export function makeCriticNode(model: BaseChatModel, rubric: Rubric) {
       pass,
       score: output.score,
       issues: output.issues,
-      criteria: rubric.criteria.map((c) => ({
+      criteria: effective.criteria.map((c) => ({
         id: c.id,
         label: prettify(c.id),
         met: metById.get(c.id) === true,
