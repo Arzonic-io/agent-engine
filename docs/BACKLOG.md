@@ -49,6 +49,14 @@ Det store perspektiv — fra nu til Nordstjernen. Detaljerne lever i tiers + epi
 
 ## ✅ Senest leveret
 
+### 2026-07-04 — Sidebar: søg + tæl-badges på filtre
+- [x] **Søgefelt over "Seneste opgaver"** ([LeftRail](../apps/web/app/components/LeftRail.tsx)): live,
+      case-insensitiv filtrering på opgavetekst + projektnavn (listen er global, så søg var det manglende led);
+      tom-tilstanden skelner nu "ingen match" fra "ingen opgaver endnu".
+- [x] **Tæl-badges på filtrene**: Alle/Live/Gate/Færdig viser hver sin count fra den fulde liste (én `useMemo`,
+      badges neutrale ved inaktiv / lysere ved aktivt filter). Søgning påvirker ikke tællingerne (de tæller altid alt).
+- [x] `turbo build` grøn (6/6). *(Gruppér-pr-projekt flyttet til Nice to have — det var "evt.".)*
+
 ### 2026-07-04 — Reject-and-revise bevist + CORS-metoder rettet
 - [x] **Reject-and-revise i core (bevist).** Stien var fuldt wired men ubevist. Ny hermetisk harness
       [verify-gate.ts](../packages/core/verify-gate.ts) (14 checks) driver den rigtige project-graf gennem
@@ -709,14 +717,18 @@ Vigtigt for en god oplevelse — næste runde.
       `LLM_COST_PER_MTOK` → "≈ $X", eksponeret via `/status`), per-projekt spend-rollup på composerens
       Missioner-liste, og en live budget-advarsel på mission-dashboardet (≥80% amber / ≥100% rød). Se
       "Senest leveret". *(Rest: per-opgave cost persisteres ikke — tasks tæller kun tokens i memory.)*
-- [ ] **Søg + gruppér i sidebar.** Søgefelt over "Seneste opgaver" (listen er global nu);
-      evt. gruppér pr. projekt.
-- [ ] **Tæl-badges på filtre.** Live 2 · Gate 1 · osv.
+- [x] **Søg i sidebar.** *(leveret 2026-07-04)* Søgefelt over "Seneste opgaver"
+      ([LeftRail](../apps/web/app/components/LeftRail.tsx)) filtrerer live på opgavetekst **og** projektnavn
+      (case-insensitivt); tom-tilstanden skelner "ingen match på søgning" fra "ingen opgaver endnu".
+      *(Gruppér pr. projekt var "evt." — flyttet til Nice to have.)*
+- [x] **Tæl-badges på filtre.** *(leveret 2026-07-04)* Hvert filter (Alle/Live/Gate/Færdig) viser sin
+      count fra den fulde liste ([LeftRail](../apps/web/app/components/LeftRail.tsx)) — fx "Live 2", "Gate 1".
 
 ## 🟢 Nice to have
 
 Forbedringer og fremtid.
 
+- [ ] **Gruppér sidebar pr. projekt.** Sektionér "Seneste opgaver" under projekt-overskrifter (søg er leveret).
 - [ ] Hover-preview af seneste draft/verdict på en opgave i sidebaren.
 - [ ] Aggregeret bund-statuslinje: antal projekter · kørende nu · tokens i dag.
 - [ ] "Kørende nu"-sektion der pinner live-opgaver øverst.

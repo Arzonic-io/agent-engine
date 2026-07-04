@@ -56,6 +56,7 @@ export function LeftRail({ onNavigate }: { onNavigate?: () => void } = {}) {
   const [tasks, setTasks] = useState<RecentTask[]>([]);
   const [missions, setMissions] = useState<MissionSummary[]>([]);
   const [filter, setFilter] = useState<Filter>("all");
+  const [query, setQuery] = useState("");
   const [menu, setMenu] = useState<MenuTarget | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
   const [confirmProject, setConfirmProject] = useState<{
@@ -144,19 +145,41 @@ export function LeftRail({ onNavigate }: { onNavigate?: () => void } = {}) {
     };
   }, []);
 
-  const filtered = useMemo(() => {
-    if (filter === "all") return tasks;
-    if (filter === "done")
-      return tasks.filter(
-        (t) => t.status === "accepted" || t.status === "rejected",
-      );
-    return tasks.filter((t) => t.status === filter);
-  }, [tasks, filter]);
+  const matchesFilter = (status: string, f: Filter) =>
+    f === "all"
+      ? true
+      : f === "done"
+        ? status === "accepted" || status === "rejected"
+        : status === f;
 
-  const awaitingCount = useMemo(
-    () => tasks.filter((t) => t.status === "awaiting_human").length,
-    [tasks],
-  );
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return tasks.filter(
+      (t) =>
+        matchesFilter(t.status, filter) &&
+        (q === "" ||
+          t.task.toLowerCase().includes(q) ||
+          t.projectName.toLowerCase().includes(q)),
+    );
+  }, [tasks, filter, query]);
+
+  /** Per-filter counts for the badges — always over the full (unsearched) list. */
+  const counts = useMemo(() => {
+    const c: Record<Filter, number> = {
+      all: tasks.length,
+      running: 0,
+      awaiting_human: 0,
+      done: 0,
+    };
+    for (const t of tasks) {
+      if (t.status === "running") c.running += 1;
+      else if (t.status === "awaiting_human") c.awaiting_human += 1;
+      else if (t.status === "accepted" || t.status === "rejected") c.done += 1;
+    }
+    return c;
+  }, [tasks]);
+
+  const awaitingCount = counts.awaiting_human;
 
   const removeEntry = async (target: MenuTarget) => {
     setConfirmEntry(null);
@@ -364,16 +387,35 @@ export function LeftRail({ onNavigate }: { onNavigate?: () => void } = {}) {
           </span>
         )}
       </div>
+      <div className="px-4 pb-2">
+        <input
+          type="text"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Søg opgaver…"
+          aria-label="Søg i seneste opgaver"
+          className="w-full rounded-field bg-elev/60 px-3 py-1.5 text-xs text-fg placeholder:text-dim focus:outline-none focus:ring-1 focus:ring-line"
+        />
+      </div>
       <div className="flex gap-1 px-4 pb-2">
         {FILTERS.map((f) => (
           <button
             key={f.key}
             onClick={() => setFilter(f.key)}
-            className={`flex-1 rounded-field px-2 py-1 text-xs transition ${
+            className={`inline-flex flex-1 items-center justify-center gap-1 rounded-field px-2 py-1 text-xs transition ${
               filter === f.key ? "bg-elev text-fg" : "text-dim hover:text-fg"
             }`}
           >
-            {f.label}
+            <span>{f.label}</span>
+            {counts[f.key] > 0 && (
+              <span
+                className={`text-[10px] tabular-nums ${
+                  filter === f.key ? "text-fg/70" : "text-dim/70"
+                }`}
+              >
+                {counts[f.key]}
+              </span>
+            )}
           </button>
         ))}
       </div>
@@ -381,7 +423,9 @@ export function LeftRail({ onNavigate }: { onNavigate?: () => void } = {}) {
       <div className="max-h-60 overflow-y-auto px-2 py-1">
         {filtered.length === 0 ? (
           <p className="px-3 py-8 text-center text-xs text-dim">
-            Ingen opgaver endnu.
+            {query.trim()
+              ? "Ingen opgaver matcher søgningen."
+              : "Ingen opgaver endnu."}
           </p>
         ) : (
           <ul className="space-y-0.5">
