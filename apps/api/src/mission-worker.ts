@@ -19,6 +19,7 @@ import {
   createGitHubPublisher,
   createGitIntegrator,
   createJsonLogNotifier,
+  createMcpTools,
   createVerifier,
   createWebhookNotifier,
   createWritableRepoTools,
@@ -58,6 +59,11 @@ async function main(): Promise<void> {
   const checkpointer = await createCheckpointer(env);
   const backlog = await createBacklog(env);
   const memory = await createMemory(env);
+  // (M4) MCP tools the implementer carries as a permanent knowledge base — e.g. a
+  // daisyUI blueprint. Connected ONCE here (spawns the stdio server), shared by
+  // every mission this process runs. Best-effort: a missing/broken server yields
+  // an empty toolset, never blocks boot.
+  const mcp = await createMcpTools(env.MISSION_MCP_SERVERS, (l) => console.log(l));
   // Console first, plus an out-of-band webhook (blocker 1) when configured — so a
   // parked high-risk item or the morning digest actually reaches a sleeping human
   // instead of sitting only in PM2 logs. Best-effort: a webhook failure is logged,
@@ -252,6 +258,7 @@ async function main(): Promise<void> {
                   models: missionModels,
                   checkpointer: checkpointer.saver,
                   repo,
+                  extraTools: mcp.tools,
                   reviewRounds: env.MISSION_REVIEW_ROUNDS,
                 })
               : createImplementerGraph({
@@ -259,6 +266,7 @@ async function main(): Promise<void> {
                   models: missionModels,
                   checkpointer: checkpointer.saver,
                   repo,
+                  extraTools: mcp.tools,
                 })
           ) as RunnableMissionGraph;
         },
@@ -339,6 +347,7 @@ async function main(): Promise<void> {
   }
 
   if (digestTimer) clearInterval(digestTimer);
+  await mcp.close();
   await checkpointer.close();
   await backlog.end();
   await settings.end();

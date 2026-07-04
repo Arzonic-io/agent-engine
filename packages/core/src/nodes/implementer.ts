@@ -156,19 +156,42 @@ export function buildImplementerTools(
 }
 
 /**
+ * A hint appended to the system prompt when extra tools are injected — so the
+ * implementer knows to REACH FOR them (e.g. a daisyUI / design-system knowledge
+ * base) rather than inventing UI markup. The tools are already described to the
+ * model by `createReactAgent`; this just sets the policy for when to prefer them.
+ */
+const EXTRA_TOOLS_HINT = `
+
+Extra tools may be available beyond the file/command tools above — e.g. a UI
+component or design-system knowledge base. When your task involves UI, PREFER
+those tools to fetch correct, on-brand markup/snippets instead of inventing it:
+call the tool, then write the files with what it returns.`;
+
+/**
  * Mission-only implementer node (M2 build-order Trin 3). A ReAct loop built on
  * the prebuilt `createReactAgent`, driving the write-capable tools to author and
  * verify real code in a worktree. Distinct from the text-only builder/worker
  * nodes: it is handed a `WritableRepoTools`, so write capability never leaks into
  * a non-mission flow. Returns the model's final summary as `draft` and a trace
  * of the tool calls for the messages channel.
+ *
+ * @param extraTools additional tools merged into the belt (M4: MCP servers such
+ * as a daisyUI blueprint), injected by the runtime — additive, best-effort.
  */
-export function makeImplementerNode(model: BaseChatModel, repo: WritableRepoTools) {
+export function makeImplementerNode(
+  model: BaseChatModel,
+  repo: WritableRepoTools,
+  extraTools: StructuredToolInterface[] = [],
+) {
   if (typeof model.bindTools !== "function") {
     throw new Error("The configured LLM does not support tool calling (bindTools).");
   }
-  const tools = buildImplementerTools(repo);
-  const agent = createReactAgent({ llm: model, tools, prompt: SYSTEM_PROMPT });
+  // Extra tools (M4: injected MCP servers, e.g. a daisyUI blueprint) join the belt
+  // AFTER the file/command tools — additive, they never replace write capability.
+  const tools = [...buildImplementerTools(repo), ...extraTools];
+  const prompt = extraTools.length > 0 ? SYSTEM_PROMPT + EXTRA_TOOLS_HINT : SYSTEM_PROMPT;
+  const agent = createReactAgent({ llm: model, tools, prompt });
 
   return async (state: GraphStateType): Promise<Partial<GraphStateType>> => {
     let messages: BaseMessage[];

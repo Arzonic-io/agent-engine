@@ -1,4 +1,5 @@
 import type { BaseChatModel } from "@langchain/core/language_models/chat_models";
+import type { StructuredToolInterface } from "@langchain/core/tools";
 import {
   END,
   START,
@@ -105,6 +106,8 @@ export interface CreateImplementerGraphOptions {
   models?: RoleModels;
   /** Write-capable repo tools rooted at the item's worktree, injected by the runtime. */
   repo: WritableRepoTools;
+  /** Extra tools for the implementer belt (M4: injected MCP servers, e.g. a daisyUI blueprint). */
+  extraTools?: StructuredToolInterface[];
   checkpointer: BaseCheckpointSaver;
 }
 
@@ -118,7 +121,7 @@ export interface CreateImplementerGraphOptions {
 export function createImplementerGraph(options: CreateImplementerGraphOptions) {
   const model = options.models?.implementer ?? options.model;
   return new StateGraph(GraphState)
-    .addNode("implementer", makeImplementerNode(model, options.repo))
+    .addNode("implementer", makeImplementerNode(model, options.repo, options.extraTools))
     .addEdge(START, "implementer")
     .addEdge("implementer", END)
     .compile({ checkpointer: options.checkpointer });
@@ -133,6 +136,8 @@ export interface CreateMissionTeamGraphOptions {
   models?: RoleModels;
   /** Write-capable repo tools rooted at the item's worktree, injected by the runtime. */
   repo: WritableRepoTools;
+  /** Extra tools for the implementer belt (M4: injected MCP servers, e.g. a daisyUI blueprint). */
+  extraTools?: StructuredToolInterface[];
   checkpointer: BaseCheckpointSaver;
   /**
    * Max implementer→critic revisions. With 1 (default): the implementer writes,
@@ -175,7 +180,7 @@ export function createMissionTeamGraph(options: CreateMissionTeamGraphOptions) {
   };
 
   return new StateGraph(GraphState)
-    .addNode("implementer", makeImplementerNode(implementerModel, options.repo))
+    .addNode("implementer", makeImplementerNode(implementerModel, options.repo, options.extraTools))
     .addNode("critic", makeMissionCriticNode(criticModel, options.repo))
     .addEdge(START, "implementer")
     .addEdge("implementer", "critic")

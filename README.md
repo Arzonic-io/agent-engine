@@ -140,6 +140,13 @@ Everything is env-driven (`.env`, zod-validated at boot). Highlights — full li
   its integration branch and open a PR against the default branch: `MISSION_PUBLISH_PR`
   (default on), `MISSION_PR_DRAFT` (default draft). The PR URL + stop reason are
   persisted on the mission and linked from the dashboard.
+- **MCP knowledge bases (M4)** — `MISSION_MCP_SERVERS` gives the mission implementer a
+  permanent, on-demand knowledge base via [MCP](https://modelcontextprotocol.io) servers
+  (e.g. a daisyUI blueprint so every UI mission builds on-brand markup). The value is the
+  same JSON as a Claude-Desktop `claude_desktop_config` (`{ "mcpServers": { … } }`), on one
+  line — paste a config straight in. Servers connect once at worker boot and their tools
+  join the implementer's belt; best-effort, so a missing/broken server just means those
+  tools are absent, never a crashed mission.
 - **Repo sandbox** — `REPO_ALLOWED_ROOTS` (which dirs the picker lists), `REPO_ALLOWED_CHECKS`
   (pnpm scripts the Verifier may run), `REPO_ALLOWED_COMMANDS` (executables a mission may run,
   no shell — `&&`/pipe/`$(…)` are inert).

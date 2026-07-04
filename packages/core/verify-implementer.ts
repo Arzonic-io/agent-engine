@@ -9,6 +9,8 @@
  */
 import { BaseChatModel } from "@langchain/core/language_models/chat_models";
 import { AIMessage } from "@langchain/core/messages";
+import { tool } from "@langchain/core/tools";
+import { z } from "zod";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -116,7 +118,66 @@ try {
   ok(trace.some((m) => m.content.includes("write_file")) && trace.some((m) => m.content.includes("apply_edit")), "trace names the tools that were called");
   ok((out.messages ?? []).every((m) => m.agent === "implementer"), "messages are attributed to the implementer");
 
-  console.log("\nM2 implementer node verified ✓");
+  // ── 3. injected extra tools (M4: MCP, e.g. a daisyUI blueprint) join the belt ──
+  {
+    // A stand-in for an MCP tool — the implementer must be able to CALL it, then
+    // write the returned markup to disk (the daisyUI-blueprint use case).
+    let snippetCalls = 0;
+    const daisyTool = tool(
+      async ({ component }: { component: string }) => {
+        snippetCalls += 1;
+        return `<button class="btn btn-primary">${component}</button>`;
+      },
+      {
+        name: "daisyui_snippet",
+        description: "Return the on-brand daisyUI markup for a component.",
+        schema: z.object({ component: z.string() }),
+      },
+    );
+
+    // It's present in the assembled belt...
+    const belt = buildImplementerTools(repo);
+    const withExtra = [...belt, daisyTool];
+    ok(
+      withExtra.some((t) => t.name === "daisyui_snippet") && withExtra.length === belt.length + 1,
+      "an injected extra tool is appended to the implementer belt (never replaces the file tools)",
+    );
+
+    // ...and the implementer actually calls it, then writes what it returned.
+    const uiModel = new ScriptedToolModel([
+      new AIMessage({
+        content: "",
+        tool_calls: [{ name: "daisyui_snippet", args: { component: "Køb" }, id: "d1", type: "tool_call" }],
+        usage_metadata: usage,
+      }),
+      new AIMessage({
+        content: "",
+        tool_calls: [
+          {
+            name: "write_file",
+            args: { path: "src/Button.tsx", content: `<button class="btn btn-primary">Køb</button>` },
+            id: "d2",
+            type: "tool_call",
+          },
+        ],
+        usage_metadata: usage,
+      }),
+      new AIMessage({ content: "Byggede Button.tsx med daisyUI-markup fra blueprintet.", usage_metadata: usage }),
+    ]);
+    const uiNode = makeImplementerNode(uiModel as unknown as BaseChatModel, repo, [daisyTool]);
+    const uiOut = await uiNode(baseState("Byg en køb-knap med daisyUI"));
+    ok(snippetCalls === 1, "the implementer CALLED the injected MCP tool mid-loop");
+    ok(
+      (await readFile(join(dir, "src/Button.tsx"), "utf8")).includes("btn btn-primary"),
+      "the tool's returned markup was written to disk",
+    );
+    ok(
+      (uiOut.messages ?? []).some((m) => m.content.includes("daisyui_snippet")),
+      "the MCP tool call is recorded in the trace",
+    );
+  }
+
+  console.log("\nM2 implementer node (+ injected MCP tools) verified ✓");
 } finally {
   await rm(dir, { recursive: true, force: true });
 }

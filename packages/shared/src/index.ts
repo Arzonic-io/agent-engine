@@ -9,6 +9,7 @@ export {
 } from "./env.js";
 export { createSupabaseClient } from "./supabase.js";
 export { getModel, buildModel, buildRoleModels } from "./llm.js";
+export { createMcpTools, type McpToolset } from "./mcp.js";
 export { isTransientLlmError, llmRetryOnFailedAttempt } from "./retry.js";
 export {
   createRepoTools,

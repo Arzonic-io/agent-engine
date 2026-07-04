@@ -164,6 +164,13 @@ const EnvSchema = z
     // toward the goal instead of stopping the instant the initial plan empties.
     // 0 = off (drain-and-stop). Every other governor still bounds the run.
     MISSION_MAX_STRATEGIC_REPLANS: z.coerce.number().int().min(0).default(3),
+    // (M4) MCP servers whose tools the implementer carries as a permanent knowledge
+    // base — e.g. a daisyUI blueprint so every UI mission builds on-brand markup.
+    // SAME JSON shape as a Claude-Desktop claude_desktop_config (paste it in on one
+    // line): { "mcpServers": { "<name>": { "command", "args", "env", "type"? } } }.
+    // Connected ONCE at worker boot; best-effort (a broken server just yields no
+    // tools, never crashes a mission). Unset = no MCP tools.
+    MISSION_MCP_SERVERS: z.string().optional(),
     // ── overnight trust "del b": publish the work as a reviewable PR ──
     // Fine-grained GitHub PAT (Contents + Pull-requests: write on the target repos).
     // When set (and MISSION_PUBLISH_PR is on), a finished mission pushes its
