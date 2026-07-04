@@ -12,7 +12,7 @@ async function bootstrap(): Promise<void> {
 
   app.enableCors({
     origin: env.API_CORS_ORIGINS.length > 0 ? env.API_CORS_ORIGINS : false,
-    methods: ["GET", "POST"],
+    methods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
     allowedHeaders: ["Authorization", "Content-Type"],
   });
   app.enableShutdownHooks();

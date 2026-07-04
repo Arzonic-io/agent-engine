@@ -4,7 +4,7 @@
 > komme. Opdatér den løbende: kryds af, flyt punkter mellem sektioner, og log
 > leverede ting under **Senest leveret**.
 
-**Sidst opdateret:** 2026-07-03
+**Sidst opdateret:** 2026-07-04
 
 ## 🌙 Nordstjerne — Autonome missioner
 
@@ -48,6 +48,17 @@ Det store perspektiv — fra nu til Nordstjernen. Detaljerne lever i tiers + epi
 ---
 
 ## ✅ Senest leveret
+
+### 2026-07-04 — Reject-and-revise bevist + CORS-metoder rettet
+- [x] **Reject-and-revise i core (bevist).** Stien var fuldt wired men ubevist. Ny hermetisk harness
+      [verify-gate.ts](../packages/core/verify-gate.ts) (14 checks) driver den rigtige project-graf gennem
+      interrupt→`Command({ resume })` med fake-model + fake-memory og beviser: `revise` + noter looper
+      tilbage til builderen, **noterne når builder-prompten** ("# Human guidance"), runden re-gater, kun
+      `approve` persisterer (revise/reject persisterer intet), og bare-string-decisions (CLI-formen) virker.
+      Se "Need to have". *(Ingen kode-ændring i motoren — hullet var manglende bevis, ikke manglende wiring.)*
+- [x] **CORS-metoder rettet** ([main.ts](../apps/api/src/main.ts)): `GET, POST` → `GET, POST, PATCH, DELETE, OPTIONS`,
+      så `PATCH`/`DELETE` ikke længere kun virker via server-proxyens preflight-omgåelse. Se "Kendte issues".
+- [x] `turbo build` grøn (6/6); verify-gate grøn (14/14).
 
 ### 2026-07-03 — "Virker godt"-batch: checks, cost, observability, tomme tilstande + turnkey-run
 De fem huller mellem "motoren er bygget" og "tør lade den køre natten over", leveret samlet:
@@ -685,8 +696,15 @@ Vigtigt for en god oplevelse — næste runde.
       (de er det kritikeren scorer på — hold en engelsk kopi til modellen).
 - [ ] **Per-projekt team-config.** Team-roster er statisk/display-only. Lad et projekt
       vælge foretrukken topologi/agents.
-- [ ] **Reject-and-revise i core.** Verificér/byg `humanGate → builder`-edge så en
-      afvisning med noter kan trigge én runde mere (UI har allerede "Revise with notes").
+- [x] **Reject-and-revise i core.** *(leveret 2026-07-04)* Hele stien var wired ende-til-ende
+      (afterGate router `status:"running"` → builder/lead i alle grafer; `humanGateNode` mapper
+      `revise` + noter til `humanNotes`; API'ets `POST /runs/:id/decision` resumer via
+      `Command({ resume: { decision, notes } })`) — men **ubevist**. Ny hermetisk harness
+      [verify-gate.ts](../packages/core/verify-gate.ts) (14 checks, fake-model + fake-memory, rigtig
+      interrupt→resume på project-grafen) beviser: `revise` + noter looper tilbage til builderen **og
+      noterne når builder-prompten** som "# Human guidance", runden re-gater (mennesket beholder kontrol),
+      kun `approve` persisterer artefakten (revise/reject persisterer intet), og bare-string-decisions
+      (CLI-formen) driver stadig loopet. `turbo build` grøn (6/6).
 - [x] **Token-/cost-tracking.** *(leveret 2026-07-03)* Estimeret cost-udlæsning (blended
       `LLM_COST_PER_MTOK` → "≈ $X", eksponeret via `/status`), per-projekt spend-rollup på composerens
       Missioner-liste, og en live budget-advarsel på mission-dashboardet (≥80% amber / ≥100% rød). Se
@@ -718,8 +736,9 @@ Forbedringer og fremtid.
       (`22`, `nvm use`); `engines`-gulvet forbliver ≥ 20. README-setup nævner det.
 - [ ] **API-dev har ingen watch.** `apps/api` kører via `tsx src/main.ts` uden watch —
       ændringer i api/shared kræver manuel genstart. Overvej `tsx watch`.
-- [ ] **CORS-metoder.** `main.ts` tillader kun `GET, POST` — `PATCH`/`DELETE` virker kun
-      fordi web kalder via server-proxy. Ret listen eller dokumentér antagelsen.
+- [x] **CORS-metoder.** *(leveret 2026-07-04)* `main.ts` tillod kun `GET, POST` — `PATCH`/`DELETE`
+      virkede kun fordi web kalder via server-proxy. Listen er nu `GET, POST, PATCH, DELETE, OPTIONS`,
+      så en direkte browser-klient (eller en fremtidig ikke-proxy-rute) ikke rammer en preflight-væg.
 - [ ] **To "seneste opgaver".** Composeren viser projekt-scopede seneste opgaver, sidebaren
       en global liste. Afklar om begge skal blive.
 - [ ] **Per-task repo-override fjernet (bevidst).** Ingen måde at køre én opgave mod et
