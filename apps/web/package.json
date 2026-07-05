@@ -6,10 +6,12 @@
     "dev": "next dev -p 3400",
     "build": "next build",
     "start": "next start -p 3400",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "verify:access": "tsx verify-access.ts"
   },
   "dependencies": {
     "@arzonic/agent-client": "workspace:*",
+    "jose": "^6.2.3",
     "next": "16.2.9",
     "react": "19.2.7",
     "react-dom": "19.2.7",
@@ -24,6 +26,7 @@
     "@types/react-dom": "19.2.3",
     "daisyui": "5.6.10",
     "tailwindcss": "4.3.2",
+    "tsx": "4.22.4",
     "typescript": "5.9.3"
   }
 }

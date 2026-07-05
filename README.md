@@ -250,6 +250,14 @@ exact consumer origins, and note the API's CORS allows only GET/POST — the web
 PATCH/DELETE through its own server-side proxy routes. Set `WEB_LOCAL_REPOS=off` so the UI
 offers GitHub repo picking only (no VPS filesystem paths). All secrets via the repo-root `.env`.
 
+**Auth.** The site sits behind a Cloudflare Access (Zero Trust) tunnel — the human is
+authenticated at the edge. The app shows the signed-in identity (email + a Log-out link) and,
+as **defense in depth**, an opt-in proxy ([apps/web/proxy.ts](apps/web/proxy.ts)) that verifies
+the Cloudflare Access JWT so the origin refuses anyone who reaches `:3400` directly, bypassing
+Access. Turn it on by setting `WEB_AUTH=cloudflare` + `CF_ACCESS_TEAM_DOMAIN` + `CF_ACCESS_AUD`
+in `apps/web/.env.local` and redeploying. Off by default — it can never lock the site out by
+accident (Access is still in front regardless).
+
 ## Consuming from Ranky / Bravy
 
 Product apps call the service — they never import core. Install `@arzonic/agent-client`:

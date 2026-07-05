@@ -829,8 +829,14 @@ Forbedringer og fremtid.
       en global liste. Afklar om begge skal blive.
 - [ ] **Per-task repo-override fjernet (bevidst).** Ingen måde at køre én opgave mod et
       andet repo end projektets uden at skifte projektets repo.
-- [ ] **Ingen web-auth.** `AGENT_API_KEY` holdes server-side via proxy (fint for internt),
-      men web-appen har ingen bruger-login/adgangskontrol.
+- [x] **Web-auth (app-lag oven på Cloudflare Access).** *(leveret 2026-07-05)* Site'et ligger bag en
+      Cloudflare Access-tunnel (edge-auth). App'en viser nu **identiteten** (email + Log ud) via
+      `/api/me`, og en **opt-in proxy** ([apps/web/proxy.ts](../apps/web/proxy.ts)) **verificerer Access-JWT'en**
+      (jose, mod team-domænets JWKS + AUD + issuer) så origin afviser alle der rammer `:3400` direkte
+      udenom Access — defense in depth. Default **OFF** (`WEB_AUTH=cloudflare` + `CF_ACCESS_TEAM_DOMAIN` +
+      `CF_ACCESS_AUD`), så et fejlsat setup aldrig låser site'et ude. Bevist hermetisk:
+      [verify-access.ts](../apps/web/verify-access.ts) (rigtig aud/iss ⇒ accept; forkert aud/iss/udløbet/
+      forfalsket/manglende ⇒ afvist, aldrig et kast). *(Multi-tenant brugere/roller er stadig M4.)*
 
 ---
 
@@ -1024,4 +1030,5 @@ Invarianter (bevares fra M1/M2):
 - [x] **Observability** *(leveret 2026-07-03)*: `LANGSMITH_PROJECT` grupperer traces; `LANGSMITH_PROJECT_URL`
       eksponeres via `/status` og vises som et "Traces"-link i mission-dashboard + run-header; `createJsonLogNotifier`
       (opt-in `MISSION_LOG_JSON`) skriver en struktureret JSON-linje pr. mission-event. *(Rest: kørsels-metrics-dashboard.)*
-- [ ] **Deploy af web-appen** (i dag kun api via PM2): byg og host Next-appen + miljø-secrets.
+- [x] **Deploy af web-appen** *(leveret — `agent-web` i PM2 + deploy-workflow genstarter alle tre; agents.arzonic.com bag Cloudflare Access)*.
+- [x] **Web-auth (defense-in-depth)** *(leveret 2026-07-05 — opt-in Cloudflare Access-JWT-verifikation + identitet i UI; se Must-have/gæld-sektionen)*. Rest: multi-tenant brugere/roller.

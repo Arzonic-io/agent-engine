@@ -65,7 +65,23 @@ export function LeftRail({ onNavigate }: { onNavigate?: () => void } = {}) {
   } | null>(null);
   const [confirmEntry, setConfirmEntry] = useState<MenuTarget | null>(null);
   const [showSettings, setShowSettings] = useState(false);
+  // Signed-in identity (Cloudflare Access) — null in local dev / when not behind Access.
+  const [me, setMe] = useState<{ email: string | null; logout: string | null }>({
+    email: null,
+    logout: null,
+  });
   const toast = useToast();
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const res = await fetch("/api/me");
+        if (res.ok) setMe((await res.json()) as { email: string | null; logout: string | null });
+      } catch {
+        /* identity is decoration — silently absent in dev */
+      }
+    })();
+  }, []);
 
   const activeId = pathname.startsWith("/runs/")
     ? pathname.split("/")[2]
@@ -564,12 +580,26 @@ export function LeftRail({ onNavigate }: { onNavigate?: () => void } = {}) {
           height={24}
           className="rounded-sm opacity-80"
         />
-        <span className="opacity-70">Arzonic · internt værktøj</span>
+        {me.email ? (
+          // Signed in via Cloudflare Access — show who + a logout link.
+          <span className="min-w-0 leading-tight">
+            <span className="block truncate text-xs text-fg/80" title={me.email}>
+              {me.email}
+            </span>
+            {me.logout && (
+              <a href={me.logout} className="text-[11px] text-dim transition hover:text-fg">
+                Log ud
+              </a>
+            )}
+          </span>
+        ) : (
+          <span className="opacity-70">Arzonic · internt værktøj</span>
+        )}
         <button
           onClick={() => setShowSettings(true)}
           aria-label="Indstillinger"
           title="Indstillinger"
-          className="ml-auto rounded-field p-1.5 text-dim transition hover:bg-elev hover:text-fg"
+          className="ml-auto shrink-0 rounded-field p-1.5 text-dim transition hover:bg-elev hover:text-fg"
         >
           <LuSettings className="h-4 w-4" />
         </button>

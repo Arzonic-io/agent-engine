@@ -100,6 +100,9 @@ importers:
       '@arzonic/agent-client':
         specifier: workspace:*
         version: link:../../packages/client
+      jose:
+        specifier: ^6.2.3
+        version: 6.2.3
       next:
         specifier: 16.2.9
         version: 16.2.9(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
@@ -137,6 +140,9 @@ importers:
       tailwindcss:
         specifier: 4.3.2
         version: 4.3.2
+      tsx:
+        specifier: 4.22.4
+        version: 4.22.4
       typescript:
         specifier: 5.9.3
         version: 5.9.3
