@@ -139,6 +139,8 @@ export interface RecentTask {
 export interface RubricCriterion {
   id: string;
   description: string;
+  /** Human-facing (Danish) label shown in the UI instead of the English description. */
+  label?: string;
   required: boolean;
 }
 

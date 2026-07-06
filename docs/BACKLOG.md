@@ -49,6 +49,17 @@ Det store perspektiv — fra nu til Nordstjernen. Detaljerne lever i tiers + epi
 
 ## ✅ Senest leveret
 
+### 2026-07-06 — Danske rubric-labels + per-projekt topologi
+- [x] **Danske rubric-kriterier (item):** `RubricCriterion.label` (dansk, display-only) på default-kriterierne;
+      vist i [DefinitionOfDone](../apps/web/app/components/DefinitionOfDone.tsx) + base-krav i rubric-editoren.
+      Modellen læser stadig den engelske `description` (`renderRubric` urørt), så scoringen er uændret.
+      `resolveProjectRubric` bærer base-label igennem. Se "Need to have".
+- [x] **Per-projekt topologi (item):** projekt-formen ([ProjectFormView](../apps/web/app/components/ProjectFormView.tsx))
+      har nu en Auto/Single/Team-vælger; gemt i `settings.defaultTopology` og seedet som `forcedTopology` på hver
+      tekstopgave ([runs.service.ts](../apps/api/src/runs/runs.service.ts)). Re-run-override vinder over projekt-defaulten.
+- [x] Bevist: [verify-rubric.ts](../packages/core/verify-rubric.ts) udvidet (label overlever resolve, ingen label-lækage
+      til modellen). `turbo build` grøn (6/6); adaptive/graph-nodes + API-smoke stadig grønne.
+
 ### 2026-07-05 — Adaptive Definition of Done (rubric item b) — DoD-temaet i mål 🎉
 - [x] **Proposer-node** ([proposeCriteria.ts](../packages/core/src/nodes/proposeCriteria.ts)): foreslår 0–4
       opgave-relevante ekstra-krav (arkitekt-modellen), skrevet til nyt `extraCriteria` på GraphState. Defensiv:
@@ -773,10 +784,19 @@ Vigtigt for en god oplevelse — næste runde.
   - [x] c. **Hård verifikation binder rubric (missioner)** *(leveret 2026-07-03)* — "done" = rigtige
         checks via Verifier-laget, nu **pr. mission konfigurerbare** (`checks` på missionen, valgt i composeren
         fra `REPO_ALLOWED_CHECKS`-allowlisten, vist på dashboardet). Se "Senest leveret".
-- [ ] **Oversæt rubric-kriterier.** Kriterie-teksterne er engelske i et ellers dansk UI
-      (de er det kritikeren scorer på — hold en engelsk kopi til modellen).
-- [ ] **Per-projekt team-config.** Team-roster er statisk/display-only. Lad et projekt
-      vælge foretrukken topologi/agents.
+- [x] **Oversæt rubric-kriterier.** *(leveret 2026-07-06)* `RubricCriterion` fik et valgfrit dansk
+      `label` ([rubric.ts](../packages/core/src/rubric.ts)); default-kriterierne har nu danske labels, vist i UI'et
+      ([DefinitionOfDone](../apps/web/app/components/DefinitionOfDone.tsx) + base-krav i
+      [ProjectRubricEditor](../apps/web/app/components/ProjectRubricEditor.tsx)). **Modellen ser stadig den engelske
+      `description`** (`renderRubric` urørt) — så rubric'en kritikeren scorer mod er uændret/stabil. `resolveProjectRubric`
+      bærer base-label igennem. Bevist i [verify-rubric.ts](../packages/core/verify-rubric.ts).
+- [x] **Per-projekt team-config (topologi).** *(leveret 2026-07-06)* Et projekt kan nu vælge **foretrukken topologi**
+      (Auto/Single/Team) i projekt-formen ([ProjectFormView](../apps/web/app/components/ProjectFormView.tsx)); gemt i
+      `settings.defaultTopology`, seedet som `forcedTopology` på hver tekstopgave i projektet
+      ([runs.service.ts](../apps/api/src/runs/runs.service.ts) `projectDefaultTopology`; "auto" = routeren vælger).
+      Precedence: en eksplicit re-run-override vinder over projekt-defaulten. *(Per-rolle-modeller pr. projekt er
+      allerede understøttet i API'et og arves af missioner; model-valg forbliver bevidst pr. mission/global — ikke
+      gen-eksponeret i projekt-formen.)*
 - [x] **Reject-and-revise i core.** *(leveret 2026-07-04)* Hele stien var wired ende-til-ende
       (afterGate router `status:"running"` → builder/lead i alle grafer; `humanGateNode` mapper
       `revise` + noter til `humanNotes`; API'ets `POST /runs/:id/decision` resumer via

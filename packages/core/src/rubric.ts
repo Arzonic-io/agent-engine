@@ -12,8 +12,12 @@ import { z } from "zod";
 export interface RubricCriterion {
   /** Stable id the critic references in its structured verdict. */
   id: string;
-  /** What the critic should check, phrased as a falsifiable statement. */
+  /** What the critic should check, phrased as a falsifiable statement. Fed to the
+   *  model — kept in English so the rubric the critic scores against is stable. */
   description: string;
+  /** Optional human-facing (Danish) label shown in the UI instead of the English
+   *  `description`. The model never sees this; it's display-only. */
+  label?: string;
   /** Required criteria must ALL be met for a pass, regardless of score. */
   required: boolean;
 }
@@ -31,30 +35,35 @@ export const defaultRubric: Rubric = {
       id: "correctness",
       description:
         "The draft is factually and technically correct; no broken logic, wrong APIs, or false claims.",
+      label: "Korrekt — fagligt og teknisk rigtigt; ingen brudt logik, forkerte API'er eller falske påstande.",
       required: true,
     },
     {
       id: "completeness",
       description:
         "The draft fully addresses every part of the task; nothing requested is missing or hand-waved.",
+      label: "Komplet — dækker hele opgaven; intet efterspurgt mangler eller er viftet væk.",
       required: true,
     },
     {
       id: "matches-task",
       description:
         "The draft answers the task that was actually asked, without drifting into unrequested scope.",
+      label: "Rammer opgaven — svarer på det der faktisk blev bedt om, uden at drive ud i uønsket scope.",
       required: true,
     },
     {
       id: "edge-cases",
       description:
         "Obvious edge cases, failure modes, and security pitfalls are handled or explicitly called out.",
+      label: "Kanttilfælde — oplagte fejltilstande og sikkerhedsfælder er håndteret eller nævnt eksplicit.",
       required: false,
     },
     {
       id: "clarity",
       description:
         "The draft is well-structured and unambiguous; a competent reader can act on it without guessing.",
+      label: "Klarhed — velstruktureret og utvetydig; en kompetent læser kan handle uden at gætte.",
       required: false,
     },
   ],
@@ -79,6 +88,7 @@ export const RubricCriterionSchema = z.object({
     .max(64)
     .regex(/^[a-z0-9-]+$/, "id must be kebab-case (a-z, 0-9, -)"),
   description: z.string().trim().min(1).max(2000),
+  label: z.string().trim().max(2000).optional(),
   required: z.boolean(),
 });
 
@@ -107,12 +117,14 @@ export function resolveProjectRubric(override: Rubric): Rubric {
   const seen = new Set<string>();
   const criteria: RubricCriterion[] = [];
 
-  // Base required first — locked to `required`, canonical text as fallback.
+  // Base required first — locked to `required`, canonical text as fallback, and the
+  // canonical Danish label carried through (display-only; the model reads description).
   for (const base of BASE_REQUIRED_CRITERIA) {
     const edited = override.criteria.find((c) => c.id === base.id);
     criteria.push({
       id: base.id,
       description: edited?.description.trim() || base.description,
+      ...(base.label ? { label: base.label } : {}),
       required: true,
     });
     seen.add(base.id);

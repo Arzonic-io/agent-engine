@@ -34,7 +34,7 @@ export function DefinitionOfDone({ rubric }: { rubric: Rubric }) {
             <li key={c.id} className="flex items-start gap-2 text-xs leading-relaxed">
               <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-dim" />
               <span className="text-fg/80">
-                {c.description}
+                {c.label ?? c.description}
                 {c.required && (
                   <span className="ml-1.5 rounded bg-elev px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-dim">
                     påkrævet

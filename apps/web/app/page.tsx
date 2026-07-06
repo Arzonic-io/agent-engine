@@ -18,7 +18,7 @@ import {
   useActiveProject,
 } from "./lib/activeProject";
 import { relTime, repoLabel } from "./lib/format";
-import { ProjectFormView } from "./components/ProjectFormView";
+import { ProjectFormView, type ProjectTopology } from "./components/ProjectFormView";
 import { type GitHubRepoRef } from "./components/GitHubRepoPicker";
 import { DefinitionOfDone } from "./components/DefinitionOfDone";
 import { MemoryDisabled } from "./components/MemoryDisabled";
@@ -159,6 +159,7 @@ export default function Composer() {
     brief: string;
     repoPath?: string;
     githubRepo?: GitHubRepoRef | null;
+    defaultTopology?: ProjectTopology;
   }) {
     if (!data.name.trim()) return;
     setSavingProject(true);
@@ -171,6 +172,7 @@ export default function Composer() {
         name: data.name,
         brief: data.brief,
       };
+      if (data.defaultTopology) body.defaultTopology = data.defaultTopology;
       if (data.githubRepo) body.githubRepo = data.githubRepo;
       else if (data.repoPath) body.repoPath = data.repoPath;
       const res = await fetch("/api/projects", {
@@ -199,6 +201,7 @@ export default function Composer() {
     brief: string;
     repoPath: string;
     githubRepo: GitHubRepoRef | null;
+    defaultTopology: ProjectTopology;
   }) {
     if (!projectId || !data.name.trim()) return;
     setSavingProject(true);
@@ -208,6 +211,7 @@ export default function Composer() {
       const body: Record<string, unknown> = {
         name: data.name,
         brief: data.brief,
+        defaultTopology: data.defaultTopology,
       };
       if (data.githubRepo) body.githubRepo = data.githubRepo;
       else body.repoPath = data.repoPath || null;
@@ -344,6 +348,9 @@ export default function Composer() {
         }
         initialGithubRepo={
           (selected.settings?.githubRepo as GitHubRepoRef | undefined) ?? null
+        }
+        initialTopology={
+          (selected.settings?.defaultTopology as ProjectTopology | undefined) ?? "auto"
         }
         error={error}
         submitting={savingProject}

@@ -113,6 +113,18 @@ export class RunsService implements OnModuleDestroy {
     return parsed.success ? resolveProjectRubric(parsed.data) : undefined;
   }
 
+  /**
+   * A project's preferred topology (settings.defaultTopology) — forces the router
+   * onto single/team for every text task in the project. Undefined = "auto" (the
+   * router decides per task), the default.
+   */
+  private projectDefaultTopology(project: {
+    settings?: Record<string, unknown>;
+  }): "single" | "team" | undefined {
+    const t = project.settings?.defaultTopology;
+    return t === "single" || t === "team" ? t : undefined;
+  }
+
   private guardrails(options?: StartRunDto["options"]) {
     return {
       maxRounds: options?.maxRounds ?? this.env.MAX_ROUNDS,
@@ -310,10 +322,12 @@ export class RunsService implements OnModuleDestroy {
       : this.makeProjectGraph(undefined, undefined, this.projectRubric(project));
 
     // A forced topology only bites the project graph's router — a repo-analysis
-    // task has no router, so it's silently ignored there.
+    // task has no router, so it's silently ignored there. Precedence: an explicit
+    // caller override (a re-run) wins over the project's default topology.
+    const topology = forcedTopology ?? this.projectDefaultTopology(project);
     const seed = { task, projectId: project.id, status: "running" as const };
     const input = (
-      !effectiveRepo && forcedTopology ? { ...seed, forcedTopology } : seed
+      !effectiveRepo && topology ? { ...seed, forcedTopology: topology } : seed
     ) as GraphInput;
 
     return this.launch(runId, task, graph, input, project.id);

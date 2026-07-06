@@ -110,15 +110,19 @@ export function ProjectRubricEditor({ projectId }: { projectId: string }) {
           const base = isBase(c.id);
           return (
             <li key={c.id} className="flex items-start gap-2">
-              <input
-                value={c.description}
-                onChange={(e) => editCriterion(c.id, e.target.value)}
-                readOnly={base}
-                placeholder="Beskriv kravet som en testbar påstand…"
-                className={`flex-1 rounded-field px-2.5 py-1.5 text-xs text-fg focus:outline-none focus:ring-1 focus:ring-line ${
-                  base ? "cursor-default bg-elev/30 text-fg/70" : "bg-elev/60"
-                }`}
-              />
+              {base ? (
+                // Base criteria are locked — show the Danish label as static text.
+                <span className="flex-1 rounded-field bg-elev/30 px-2.5 py-1.5 text-xs leading-relaxed text-fg/70">
+                  {c.label ?? c.description}
+                </span>
+              ) : (
+                <input
+                  value={c.description}
+                  onChange={(e) => editCriterion(c.id, e.target.value)}
+                  placeholder="Beskriv kravet som en testbar påstand…"
+                  className="flex-1 rounded-field bg-elev/60 px-2.5 py-1.5 text-xs text-fg focus:outline-none focus:ring-1 focus:ring-line"
+                />
+              )}
               <button
                 type="button"
                 onClick={() => !base && toggleRequired(c.id)}

@@ -8,6 +8,7 @@
 import {
   BASE_REQUIRED_CRITERIA,
   defaultRubric,
+  renderRubric,
   resolveProjectRubric,
   RubricSchema,
   type Rubric,
@@ -98,4 +99,30 @@ const req = (r: Rubric, id: string) => r.criteria.find((c) => c.id === id);
   ok(RubricSchema.safeParse(defaultRubric).success, "the default rubric validates");
 }
 
-console.log("\nPer-project rubric floor + schema verified ✓");
+// ── 7. Danish labels: display-only, base label survives resolve, model sees English ──
+{
+  ok(
+    defaultRubric.criteria.every((c) => typeof c.label === "string" && c.label.length > 0),
+    "every default criterion carries a Danish display label",
+  );
+
+  // The base label is carried through even when the client sent no label.
+  const r = resolveProjectRubric({
+    passThreshold: 80,
+    criteria: [{ id: "correctness", description: "x", required: true }],
+  });
+  ok(!!req(r, "correctness")!.label, "base label survives resolveProjectRubric (display stays Danish)");
+
+  // renderRubric (what the model reads) uses the English description, never the label.
+  const rendered = renderRubric(defaultRubric);
+  ok(
+    rendered.includes(defaultRubric.criteria[0]!.description),
+    "renderRubric feeds the model the English description",
+  );
+  ok(
+    !rendered.includes(defaultRubric.criteria[0]!.label!),
+    "renderRubric never leaks the Danish label to the model",
+  );
+}
+
+console.log("\nPer-project rubric floor + schema + labels verified ✓");

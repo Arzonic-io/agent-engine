@@ -44,6 +44,8 @@ const CreateProjectSchema = z.object({
   githubRepo: GitHubRepoBindSchema.optional(),
   /** The project's default team — new missions inherit it for roles they don't pin. */
   roleModels: RoleModelsConfigSchema.optional(),
+  /** Preferred topology for the project's text tasks. "auto" = let the router decide. */
+  defaultTopology: z.enum(["auto", "single", "team"]).optional(),
 });
 type CreateProjectDto = z.infer<typeof CreateProjectSchema>;
 
@@ -55,6 +57,8 @@ const UpdateProjectSchema = z.object({
   githubRepo: GitHubRepoBindSchema.optional(),
   /** The project's default team config; new missions inherit it. */
   roleModels: RoleModelsConfigSchema.optional(),
+  /** Preferred topology for the project's text tasks. "auto" = let the router decide. */
+  defaultTopology: z.enum(["auto", "single", "team"]).optional(),
 });
 type UpdateProjectDto = z.infer<typeof UpdateProjectSchema>;
 
@@ -97,6 +101,10 @@ export class ProjectsController {
       assertProvidersConfigured(this.env, dto.roleModels);
       settings.roleModels = dto.roleModels;
     }
+    // "auto" is the absence of a preference — store only a concrete topology.
+    if (dto.defaultTopology && dto.defaultTopology !== "auto") {
+      settings.defaultTopology = dto.defaultTopology;
+    }
     return this.projects.create(dto.name, dto.brief, settings);
   }
 
@@ -128,6 +136,13 @@ export class ProjectsController {
     if (dto.roleModels !== undefined) {
       assertProvidersConfigured(this.env, dto.roleModels);
       updated = await this.projects.updateSettings(id, { roleModels: dto.roleModels });
+    }
+
+    if (dto.defaultTopology !== undefined) {
+      // "auto" clears the preference (null) so the router decides again.
+      updated = await this.projects.updateSettings(id, {
+        defaultTopology: dto.defaultTopology === "auto" ? null : dto.defaultTopology,
+      });
     }
 
     if (updated === null) {

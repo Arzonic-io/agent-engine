@@ -7,6 +7,14 @@ import { type GitHubRepoRef } from "./GitHubRepoPicker";
 import { ProjectRubricEditor } from "./ProjectRubricEditor";
 import { RepoField } from "./RepoField";
 
+export type ProjectTopology = "auto" | "single" | "team";
+
+const TOPOLOGY_OPTIONS: { key: ProjectTopology; label: string; hint: string }[] = [
+  { key: "auto", label: "Auto", hint: "Routeren vælger pr. opgave" },
+  { key: "single", label: "Single", hint: "Én skribent + kritiker" },
+  { key: "team", label: "Team", hint: "Arkitekt → workers → lead" },
+];
+
 /**
  * Full-screen project form — used for the first-ever project, the "Nyt projekt"
  * flow, and editing an existing project. Replaces the composer rather than
@@ -27,6 +35,7 @@ export function ProjectFormView({
   initialBrief = "",
   initialRepo = "",
   initialGithubRepo = null,
+  initialTopology = "auto",
   error,
   submitting,
   onSubmit,
@@ -42,6 +51,8 @@ export function ProjectFormView({
   initialRepo?: string;
   /** The project's stored GitHub repo binding (edit mode), if it was bound via the picker. */
   initialGithubRepo?: GitHubRepoRef | null;
+  /** The project's preferred topology for text tasks. "auto" = the router decides. */
+  initialTopology?: ProjectTopology;
   error?: string | null;
   submitting?: boolean;
   onSubmit: (data: {
@@ -49,6 +60,7 @@ export function ProjectFormView({
     brief: string;
     repoPath: string;
     githubRepo: GitHubRepoRef | null;
+    defaultTopology: ProjectTopology;
   }) => void;
   onCancel: () => void;
   /** Delete this project (edit mode only). Confirmed here before it fires. */
@@ -58,6 +70,7 @@ export function ProjectFormView({
   const [brief, setBrief] = useState(initialBrief);
   const [repo, setRepo] = useState(initialRepo);
   const [githubRepo, setGithubRepo] = useState<GitHubRepoRef | null>(initialGithubRepo ?? null);
+  const [topology, setTopology] = useState<ProjectTopology>(initialTopology);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const isEdit = mode === "edit";
 
@@ -69,6 +82,7 @@ export function ProjectFormView({
       // A GitHub binding wins; otherwise fall back to the local path.
       repoPath: githubRepo ? "" : repo.trim(),
       githubRepo,
+      defaultTopology: topology,
     });
   };
 
@@ -130,6 +144,29 @@ export function ProjectFormView({
               setRepo(v ? "" : repo);
             }}
           />
+
+          <div>
+            <label className="mb-1 block text-xs text-dim">Topologi for opgaver</label>
+            <div className="flex gap-1">
+              {TOPOLOGY_OPTIONS.map((o) => (
+                <button
+                  key={o.key}
+                  type="button"
+                  onClick={() => setTopology(o.key)}
+                  title={o.hint}
+                  className={`flex-1 rounded-field px-2 py-1.5 text-xs transition ${
+                    topology === o.key ? "bg-elev text-fg" : "text-dim hover:text-fg"
+                  }`}
+                >
+                  {o.label}
+                </button>
+              ))}
+            </div>
+            <p className="mt-1 text-[11px] text-dim">
+              {TOPOLOGY_OPTIONS.find((o) => o.key === topology)?.hint}. Gælder tekstopgaver
+              (repo-analyse er altid grounded).
+            </p>
+          </div>
 
           <div className="flex items-center gap-2 pt-1">
             <div className={!name.trim() || submitting ? "flex-1" : "aura aura-dual flex-1 text-primary"}>
