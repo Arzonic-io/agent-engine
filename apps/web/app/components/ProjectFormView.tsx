@@ -145,28 +145,32 @@ export function ProjectFormView({
             }}
           />
 
-          <div>
-            <label className="mb-1 block text-xs text-dim">Topologi for opgaver</label>
-            <div className="flex gap-1">
-              {TOPOLOGY_OPTIONS.map((o) => (
-                <button
-                  key={o.key}
-                  type="button"
-                  onClick={() => setTopology(o.key)}
-                  title={o.hint}
-                  className={`flex-1 rounded-field px-2 py-1.5 text-xs transition ${
-                    topology === o.key ? "bg-elev text-fg" : "text-dim hover:text-fg"
-                  }`}
-                >
-                  {o.label}
-                </button>
-              ))}
+          {/* Topology is a project *default* you tune after creating — not part of
+              the create flow (a fresh project has no tasks yet). Edit mode only. */}
+          {isEdit && (
+            <div>
+              <label className="mb-1 block text-xs text-dim">Standard-topologi for opgaver</label>
+              <div className="flex gap-1">
+                {TOPOLOGY_OPTIONS.map((o) => (
+                  <button
+                    key={o.key}
+                    type="button"
+                    onClick={() => setTopology(o.key)}
+                    title={o.hint}
+                    className={`flex-1 rounded-field px-2 py-1.5 text-xs transition ${
+                      topology === o.key ? "bg-elev text-fg" : "text-dim hover:text-fg"
+                    }`}
+                  >
+                    {o.label}
+                  </button>
+                ))}
+              </div>
+              <p className="mt-1 text-[11px] text-dim">
+                {TOPOLOGY_OPTIONS.find((o) => o.key === topology)?.hint}. Gælder tekstopgaver
+                (repo-analyse er altid grounded).
+              </p>
             </div>
-            <p className="mt-1 text-[11px] text-dim">
-              {TOPOLOGY_OPTIONS.find((o) => o.key === topology)?.hint}. Gælder tekstopgaver
-              (repo-analyse er altid grounded).
-            </p>
-          </div>
+          )}
 
           <div className="flex items-center gap-2 pt-1">
             <div className={!name.trim() || submitting ? "flex-1" : "aura aura-dual flex-1 text-primary"}>
