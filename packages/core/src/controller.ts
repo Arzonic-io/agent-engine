@@ -9,6 +9,7 @@ import type {
   Risk,
 } from "./mission.js";
 import { buildDigest, classifyRisk, type MissionDigest } from "./humanPolicy.js";
+import type { Rubric } from "./rubric.js";
 import type { Publisher } from "./publisher.js";
 import type { WorkResult, WorkRunner } from "./runner.js";
 import type { Verifier, VerifierReport } from "./verifier.js";
@@ -62,6 +63,58 @@ export const defaultReplanner: Replanner = {
   },
 };
 
+// ── Rubric-driven "done" seam (the quality bar an overnight mission builds toward) ──
+
+/**
+ * One rubric criterion the project does NOT yet satisfy. Fed to the decomposer so
+ * the next slice of work closes the gap (rubric-aware continuation), and surfaced
+ * in the stop reason when the mission can't close it within its budget.
+ */
+export interface RubricGap {
+  /** The rubric criterion id. */
+  id: string;
+  /** What the criterion checks (the falsifiable statement, from the rubric). */
+  description: string;
+  /** Why it's not met yet — the assessor's note, grounded in the project's state. */
+  note?: string;
+}
+
+/** The project-level assessment against the rubric at the idle boundary. */
+export interface RubricAssessment {
+  /** Every REQUIRED criterion met AND score >= passThreshold — computed in code, not trusted to the model. */
+  pass: boolean;
+  /** Overall Definition-of-Done score for the project so far, 0-100. */
+  score: number;
+  /** Criteria not yet met — required first (they gate "done"), then optional. */
+  unmet: RubricGap[];
+  /** One-line note for the journal/digest. */
+  note?: string;
+  /** Tokens the assessment spent, folded into the mission budget. */
+  tokensUsed?: number;
+}
+
+export interface RubricAssessInput {
+  mission: Mission;
+  rubric: Rubric;
+  /** How many items have reached done this run — context for the assessment. */
+  doneCount: number;
+}
+
+/**
+ * Scores the WHOLE project against the rubric at the idle boundary (the backlog
+ * drained) — the "is it good enough yet?" gate that turns a mission from "drain a
+ * fixed list" into "build until the Definition of Done is met". Injected like every
+ * other seam; the LLM impl (`makeRubricAssessor`) reads the mission's REAL
+ * accumulated changes so the verdict is grounded in shipped, re-verified code — not
+ * item claims. A pass ends the mission "done"; unmet REQUIRED criteria become the
+ * next slice of work via the decomposer. Optional — omitted (or no `rubric`) ⇒ the
+ * pre-rubric behaviour (done = backlog drained). Bounded by `maxStrategicReplans`
+ * like any re-plan, and by every other governor.
+ */
+export interface RubricAssessor {
+  assess(input: RubricAssessInput): Promise<RubricAssessment>;
+}
+
 // ── Decompose seam (M3 Trin 1: grow the initial backlog from the goal) ──
 
 /**
@@ -93,6 +146,13 @@ export interface DecomposeInput {
    * can frame "what's still missing" instead of "plan from scratch". Default false.
    */
   continuation?: boolean;
+  /**
+   * Unmet rubric criteria from the idle-boundary assessment (rubric-aware
+   * continuation): the decomposer plans the NEXT slice specifically to CLOSE these
+   * gaps, instead of re-deriving "what's missing" from scratch. Only set on a
+   * rubric-gated continuation; empty/undefined ⇒ a plain continuation re-plan.
+   */
+  rubricGaps?: RubricGap[];
 }
 
 export interface DecomposeResult {
@@ -316,6 +376,16 @@ export interface MissionDeps {
    */
   isTransientError?: (err: unknown) => boolean;
   replanner?: Replanner;
+  /**
+   * The project's floor-enforced Definition of Done. Paired with a `rubricAssessor`,
+   * it gates "done" on the rubric being MET (not merely the backlog draining) and
+   * drives rubric-aware re-decomposition toward the unmet criteria. Omitted (or no
+   * assessor) ⇒ the pre-rubric done behaviour. The per-item mission critic gets the
+   * same rubric independently (via the graph); this is the project-level gate.
+   */
+  rubric?: Rubric;
+  /** Scores the project against `rubric` at the idle boundary (rubric-driven done). Optional. */
+  rubricAssessor?: RubricAssessor;
   notifier?: Notifier;
   clock?: Clock;
   /** Merges green items into the mission branch + re-verifies (Trin 5). Optional. */
@@ -767,13 +837,40 @@ export async function runMission(
       if (pending) return stop("blocked", "remaining items blocked on unmet dependencies");
       if (parked) return stop("blocked", "all remaining items need a human");
 
+      // Rubric-driven "done" (the quality bar): the backlog drained and nothing is
+      // pending/parked — but is the PROJECT actually good enough? Assess the whole
+      // project against the rubric BEFORE deciding. A pass ends the mission "done"
+      // immediately (quality reached). Otherwise the unmet criteria become the gaps
+      // the re-decompose must close — so an overnight mission keeps building toward
+      // the bar instead of stopping the instant the list empties. Grounded: the
+      // assessor reads the real accumulated (re-verified) changes, not item claims.
+      // Runs at most once per drain, so it's bounded by maxStrategicReplans + 1.
+      let gaps: RubricGap[] | undefined;
+      let rubricUnmet = false;
+      if (deps.rubric && deps.rubricAssessor) {
+        const assessment = await deps.rubricAssessor.assess({
+          mission,
+          rubric: deps.rubric,
+          doneCount: itemsDone,
+        });
+        if (assessment.tokensUsed) {
+          mission =
+            (await backlog.updateMission(missionId, {
+              spentTokens: mission.spentTokens + assessment.tokensUsed,
+            })) ?? mission;
+        }
+        if (assessment.pass) return stop("done", "rubric-met");
+        rubricUnmet = true;
+        gaps = assessment.unmet;
+      }
+
       // Strategic re-plan (blocker 3 / north-star self-direction): the backlog
-      // drained and nothing is pending or parked — but the GOAL may not be met.
-      // Instead of stopping "done" the instant the initial plan empties, ask the
-      // Decomposer for the NEXT slice of work toward the goal, feeding it everything
-      // already attempted (existingTitles) so it won't repeat it. New items ⇒ keep
-      // looping (governors re-checked at the top); an empty re-plan ⇒ the goal is
-      // genuinely done. Bounded by maxStrategicReplans so it always terminates.
+      // drained but the goal/rubric may not be met. Instead of stopping the instant
+      // the initial plan empties, ask the Decomposer for the NEXT slice toward the
+      // goal — rubric-aware when we have unmet criteria (close them), else the plain
+      // continuation — feeding it everything already attempted (existingTitles) so it
+      // won't repeat it. New items ⇒ keep looping (governors re-checked at the top).
+      // Bounded by maxStrategicReplans so it always terminates.
       const maxStrategicReplans = gov.maxStrategicReplans ?? 0;
       if (deps.decomposer && strategicReplans < maxStrategicReplans) {
         strategicReplans++;
@@ -781,6 +878,7 @@ export async function runMission(
           mission,
           existingTitles: items.map((i) => i.title),
           continuation: true,
+          rubricGaps: gaps,
         });
         if (plan.tokensUsed) {
           mission =
@@ -799,6 +897,12 @@ export async function runMission(
           continue; // re-plan produced work — loop on (budget/deadline/etc re-checked)
         }
       }
+
+      // Nothing left to plan. If the rubric floor was assessed and NOT met (and we
+      // couldn't produce work to close it — replans exhausted or an empty re-plan),
+      // say so honestly: the mission is BLOCKED on quality (needs a human or more
+      // budget), not a misleading "done". Without a rubric, an empty backlog is done.
+      if (rubricUnmet) return stop("blocked", "rubric-floor-not-met");
       return stop("done", "done");
     }
 

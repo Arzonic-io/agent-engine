@@ -128,7 +128,7 @@ export function applyDecomposeGuards(
 }
 
 function buildPrompt(input: DecomposeInput): string {
-  const { mission, existingTitles, continuation } = input;
+  const { mission, existingTitles, continuation, rubricGaps } = input;
   return [
     `# Mission goal\n${mission.goal}`,
     mission.acceptanceCriteria.length
@@ -140,6 +140,15 @@ function buildPrompt(input: DecomposeInput): string {
     // that empty result is how the mission converges to "done" instead of churning.
     continuation
       ? `# Continuation — the backlog so far has been worked\nReview the goal and acceptance criteria against what has already been attempted (listed below). Propose ONLY new, concrete, goal-relevant items that are still needed to reach the goal — gaps, missing pieces, follow-through. If the goal and every acceptance criterion are already satisfied, return an EMPTY items list (do not invent busywork).`
+      : "",
+    // Rubric-aware continuation: the project was scored against its Definition of
+    // Done and these criteria are still unmet. Aim the next slice squarely at
+    // closing them — this is what makes the mission converge on "good enough",
+    // not just "list drained". Empty list only if none of these can be advanced.
+    rubricGaps && rubricGaps.length
+      ? `# Definition of Done — criteria NOT yet met\nThe project was assessed against its Definition of Done and these criteria are still unmet. Plan concrete work items that specifically CLOSE these gaps (prioritise them):\n${rubricGaps
+          .map((g) => `- [${g.id}] ${g.description}${g.note ? ` — still missing: ${g.note}` : ""}`)
+          .join("\n")}`
       : "",
     // Operator guidance (M3 Trin 6): a human's steer, if set before planning — it
     // shapes the initial backlog the same way it later shapes replans.

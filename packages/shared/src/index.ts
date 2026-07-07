@@ -37,6 +37,7 @@ export {
   type GitIntegratorOptions,
 } from "./integrator.js";
 export { createGitDiffer } from "./differ.js";
+export { createMissionEvidence } from "./rubricEvidence.js";
 export {
   createGitHubPublisher,
   parseGitHubRemote,

@@ -101,6 +101,10 @@ export {
   type DecomposeInput,
   type DecomposeResult,
   type DecomposedItem,
+  type RubricAssessor,
+  type RubricAssessInput,
+  type RubricAssessment,
+  type RubricGap,
   type TestAuthor,
   type TestAuthorInput,
   type TestAuthorResult,
@@ -125,6 +129,10 @@ export {
   makeTestAuthor,
   type MakeTestAuthorOptions,
 } from "./nodes/testAuthor.js";
+export {
+  makeRubricAssessor,
+  type MakeRubricAssessorOptions,
+} from "./nodes/rubricAssessor.js";
 export {
   classifyRisk,
   approveParkedItem,

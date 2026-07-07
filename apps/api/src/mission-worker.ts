@@ -6,6 +6,7 @@ import {
   defaultRubric,
   makeDecomposer,
   makeReplanner,
+  makeRubricAssessor,
   makeTestAuthor,
   pickModel,
   resolveProjectRubric,
@@ -24,6 +25,7 @@ import {
   createGitIntegrator,
   createJsonLogNotifier,
   createMcpTools,
+  createMissionEvidence,
   createVerifier,
   createWebhookNotifier,
   createWritableRepoTools,
@@ -251,6 +253,14 @@ async function main(): Promise<void> {
       // The decomposer grows the initial backlog from the goal (M3 Trin 1), only
       // when the backlog is empty (a resume / hand-seed never re-plans).
       const decomposer = makeDecomposer(pickModel(model, "decompose", missionModels));
+      // The project-level rubric assessor (rubric-driven "done"): at the idle
+      // boundary it scores the WHOLE project against the rubric, grounded in the
+      // mission branch's real accumulated diff. A pass ends the mission "done";
+      // unmet criteria drive the next rubric-aware re-decompose. Uses the critic
+      // role (it's a reviewer). Only takes effect when strategic replans are on.
+      const rubricAssessor = makeRubricAssessor(pickModel(model, "critic", missionModels), {
+        evidence: createMissionEvidence(mission.repoPath, missionBranch),
+      });
       // The tester authors a test that exercises each item before verification
       // (M3 Trin 2) so a green build is real evidence. Built with the same
       // worktree-rooted, allowlisted write tools as the implementer; injected only
@@ -345,6 +355,12 @@ async function main(): Promise<void> {
             decomposer,
             testAuthor: env.MISSION_AUTHOR_TESTS ? testAuthor : undefined,
             replanner,
+            // Rubric-driven "done": gate the mission on the project MEETING its
+            // Definition of Done, not merely draining the backlog. Same rubric the
+            // per-item critic uses. Takes effect at the idle boundary alongside the
+            // strategic re-decompose (MISSION_MAX_STRATEGIC_REPLANS).
+            rubric,
+            rubricAssessor,
             notifier,
             clock: { now: () => Date.now() },
             governors,
