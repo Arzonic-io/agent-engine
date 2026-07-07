@@ -3,12 +3,16 @@ import {
   createImplementerGraph,
   createMissionTeamGraph,
   createWorktreeWorkRunner,
+  defaultRubric,
   makeDecomposer,
   makeReplanner,
   makeTestAuthor,
   pickModel,
+  resolveProjectRubric,
   runMission,
+  RubricSchema,
   type MissionGovernors,
+  type Rubric,
   type RunnableMissionGraph,
 } from "@arzonic/agent-core";
 import {
@@ -47,6 +51,27 @@ import { createMemory } from "./memory.provider.js";
  */
 
 const APP_VERSION = "0.1.0";
+
+/**
+ * The floor-enforced Definition of Done for a mission's project — the same rubric
+ * the interactive graphs score against, now threaded into the mission critic so a
+ * running mission is challenged against the operator's configured quality bar.
+ * Best-effort: a missing project / disabled memory / malformed rubric falls back
+ * to the default rubric so a mission is never blocked on rubric lookup.
+ */
+async function loadProjectRubric(
+  memory: Awaited<ReturnType<typeof createMemory>>,
+  projectId: string,
+): Promise<Rubric> {
+  if (!memory) return defaultRubric;
+  try {
+    const project = await memory.getProject(projectId);
+    const parsed = RubricSchema.safeParse(project?.settings?.rubric);
+    return parsed.success ? resolveProjectRubric(parsed.data) : defaultRubric;
+  } catch {
+    return defaultRubric;
+  }
+}
 
 async function main(): Promise<void> {
   const env = loadApiEnv();
@@ -214,6 +239,10 @@ async function main(): Promise<void> {
       // and decompose (plans backlog); unassigned roles fall back to the default
       // model. Built per mission so each can use its own team.
       const missionModels = buildRoleModels(env, { ...globalDefault, ...mission.roleModels });
+      // The project's floor-enforced Definition of Done — threaded into the mission
+      // critic so each item's diff is scored per-criterion against the operator's
+      // quality bar (not a freeform binary judgement).
+      const rubric = await loadProjectRubric(memory, mission.projectId);
       // The replan agent sees the current backlog titles so it avoids duplicates.
       const replanner = makeReplanner(pickModel(model, "replan", missionModels), {
         backlogTitles: async ({ mission: m }) =>
@@ -260,6 +289,7 @@ async function main(): Promise<void> {
                   repo,
                   extraTools: mcp.tools,
                   reviewRounds: env.MISSION_REVIEW_ROUNDS,
+                  rubric,
                 })
               : createImplementerGraph({
                   model,

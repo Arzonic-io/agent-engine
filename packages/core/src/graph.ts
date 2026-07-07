@@ -148,6 +148,14 @@ export interface CreateMissionTeamGraphOptions {
    * times — which bounds the loop so it always terminates.
    */
   reviewRounds?: number;
+  /**
+   * The project's floor-enforced Definition of Done. When given, the mission
+   * critic scores each item's diff PER CRITERION and the pass rule is computed in
+   * code (all required met AND score >= passThreshold) — so the per-item gate
+   * enforces the operator's configured quality bar. Omit for the pre-rubric
+   * freeform binary judgement.
+   */
+  rubric?: Rubric;
 }
 
 /**
@@ -182,7 +190,7 @@ export function createMissionTeamGraph(options: CreateMissionTeamGraphOptions) {
 
   return new StateGraph(GraphState)
     .addNode("implementer", makeImplementerNode(implementerModel, options.repo, options.extraTools))
-    .addNode("critic", makeMissionCriticNode(criticModel, options.repo))
+    .addNode("critic", makeMissionCriticNode(criticModel, options.repo, options.rubric))
     .addEdge(START, "implementer")
     .addEdge("implementer", "critic")
     .addConditionalEdges("critic", afterCritic, ["implementer", END])
