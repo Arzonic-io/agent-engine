@@ -169,6 +169,7 @@ async function main(): Promise<void> {
           : "on-stop"
       } | ` +
       `strategic-replan: ${env.MISSION_MAX_STRATEGIC_REPLANS} | ` +
+      `rubric-gate: ${env.MISSION_RUBRIC_GATE ? "on" : "off"} | ` +
       `abort-poll: ${env.MISSION_ABORT_POLL_MS}ms | ` +
       `publish: ${publisher ? (env.MISSION_PR_DRAFT ? "draft PR" : "ready PR") : "off"}`,
   );
@@ -355,12 +356,12 @@ async function main(): Promise<void> {
             decomposer,
             testAuthor: env.MISSION_AUTHOR_TESTS ? testAuthor : undefined,
             replanner,
-            // Rubric-driven "done": gate the mission on the project MEETING its
-            // Definition of Done, not merely draining the backlog. Same rubric the
-            // per-item critic uses. Takes effect at the idle boundary alongside the
-            // strategic re-decompose (MISSION_MAX_STRATEGIC_REPLANS).
-            rubric,
-            rubricAssessor,
+            // Rubric-driven "done" (MISSION_RUBRIC_GATE): gate the mission on the
+            // project MEETING its Definition of Done, not merely draining the
+            // backlog. Same rubric the per-item critic uses. Takes effect at the
+            // idle boundary alongside the strategic re-decompose. Off ⇒ omit both
+            // (done = backlog drained, pre-rubric-gate behaviour).
+            ...(env.MISSION_RUBRIC_GATE ? { rubric, rubricAssessor } : {}),
             notifier,
             clock: { now: () => Date.now() },
             governors,

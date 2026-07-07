@@ -171,6 +171,18 @@ const EnvSchema = z
     // toward the goal instead of stopping the instant the initial plan empties.
     // 0 = off (drain-and-stop). Every other governor still bounds the run.
     MISSION_MAX_STRATEGIC_REPLANS: z.coerce.number().int().min(0).default(3),
+    // Rubric-driven "done": at the idle boundary, score the WHOLE project against
+    // its Definition of Done (grounded in the mission branch's real diff) BEFORE
+    // deciding. A pass ends the mission "done"; unmet criteria drive the next
+    // rubric-aware re-decompose; an unmet floor with no work left stops "blocked"
+    // (rubric-floor-not-met) instead of a misleading "done". On by default — it is
+    // the "build until it's good enough" gate. Off = done means the backlog drained,
+    // regardless of quality (pre-rubric-gate behaviour). Costs one assessor call per
+    // idle boundary (the `critic` role); most useful with strategic replans > 0.
+    MISSION_RUBRIC_GATE: z
+      .enum(["true", "false"])
+      .default("true")
+      .transform((v) => v === "true"),
     // (M4) MCP servers whose tools the implementer carries as a permanent knowledge
     // base — e.g. a daisyUI blueprint so every UI mission builds on-brand markup.
     // SAME JSON shape as a Claude-Desktop claude_desktop_config (paste it in on one
