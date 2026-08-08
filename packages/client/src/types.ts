@@ -70,6 +70,10 @@ export interface RunDetail {
   topology: "single" | "team" | null;
   /** One-sentence reason the router gave for its choice; null when no router ran. */
   routerReason: string | null;
+  /** The project this run belongs to, so the UI can link back to it; null for ad-hoc runs. */
+  projectId: string | null;
+  /** That project's name, for the breadcrumb; null when unknown. */
+  projectName: string | null;
   /** When the run started (ISO); null when it predates timestamp tracking. */
   startedAt: string | null;
   /** When the run reached a terminal status (ISO); null while still open. */
@@ -151,6 +155,35 @@ export interface RecentTask {
   topology: "single" | "team" | null;
   status: ApiRunStatus | string;
   createdAt: string;
+}
+
+/**
+ * A parked mission item, flattened with its mission and project — the mission
+ * half of `GET /inbox`.
+ */
+export interface InboxMissionItem {
+  itemId: string;
+  title: string;
+  risk: "low" | "high";
+  /** The verification that failed, when that's why it parked; null otherwise. */
+  failedCheck: string | null;
+  missionId: string;
+  missionGoal: string;
+  projectId: string;
+  projectName: string;
+  updatedAt: string;
+}
+
+/**
+ * Everything across every project that is waiting on a human decision, in one
+ * call. The operator's first question each morning is "what needs me?", and it
+ * used to be answerable only by opening each run and each mission in turn.
+ */
+export interface Inbox {
+  /** Runs paused at the human gate. */
+  tasks: RecentTask[];
+  /** Backlog items parked by a live mission. */
+  items: InboxMissionItem[];
 }
 
 export interface RubricCriterion {

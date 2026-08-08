@@ -333,7 +333,12 @@ export default function MissionDashboard({ params }: { params: Promise<{ id: str
   return (
     <div className="h-full overflow-y-auto px-6 sm:px-8">
       <div className="mx-auto w-full max-w-4xl pb-20 pt-[5vh]">
-        <Link href="/" className="mb-4 inline-flex items-center gap-1 text-xs text-dim hover:text-fg">
+        {/* The mission knows its project — link to THAT one, not to whichever
+            project the composer happens to have active. */}
+        <Link
+          href={mission.projectId ? `/?project=${mission.projectId}` : "/"}
+          className="mb-4 inline-flex items-center gap-1 text-xs text-dim hover:text-fg"
+        >
           <LuArrowLeft className="h-3.5 w-3.5" /> Til projektet
         </Link>
 

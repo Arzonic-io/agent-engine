@@ -26,6 +26,7 @@ import { LoadingState } from "./components/StateViews";
 import { MissionComposer } from "./components/MissionComposer";
 import { ProjectMissions } from "./components/ProjectMissions";
 import { RecentTasks } from "./components/RecentTasks";
+import { InboxSection } from "./components/InboxSection";
 import { RepoField } from "./components/RepoField";
 
 type Mode = "task" | "mission";
@@ -138,6 +139,17 @@ export default function Composer() {
   useEffect(() => {
     if (loaded) taRef.current?.focus();
   }, [loaded]);
+
+  // `/?project=<id>` selects that project — how a run or mission links back to
+  // the project it belongs to. Without it "back" just showed whichever project
+  // happened to be active, which is rarely the one you came from.
+  useEffect(() => {
+    // Read the URL directly rather than via useSearchParams: this page is fully
+    // client-rendered, and the hook would force a Suspense boundary at build
+    // time for a value we only need once, on mount.
+    const wanted = new URLSearchParams(window.location.search).get("project");
+    if (wanted) setProjectId(wanted);
+  }, [setProjectId]);
 
   // Open the "new project" view when the rail's "Nyt projekt" asks for it.
   useEffect(() => {
@@ -372,6 +384,10 @@ export default function Composer() {
   return (
     <div className="flex h-full items-start justify-center overflow-y-auto px-6 sm:px-8">
       <div className="w-full max-w-2xl pb-20 pt-[7vh]">
+        {/* What the agents are blocked on — across every project, before the
+            composer, because deciding is the job that can't wait. */}
+        <InboxSection />
+
         {/* project header */}
         <div className="rise mb-6">
           <div className="flex items-start justify-between gap-3">

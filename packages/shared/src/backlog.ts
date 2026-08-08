@@ -37,6 +37,23 @@ export interface Verification {
   output: string;
 }
 
+/**
+ * A parked backlog item, flattened with the mission and project it belongs to —
+ * enough for the front page to show and route to it without a second lookup.
+ */
+export interface BlockedItemRef {
+  itemId: string;
+  title: string;
+  risk: Risk;
+  /** The verification that failed, when that's why it parked; null otherwise. */
+  failedCheck: string | null;
+  missionId: string;
+  missionGoal: string;
+  projectId: string;
+  projectName: string;
+  updatedAt: string;
+}
+
 export interface Mission {
   id: string;
   projectId: string;
@@ -339,6 +356,38 @@ export class BacklogService {
   async getItem(id: string): Promise<BacklogItem | null> {
     const { rows } = await this.pool.query(`SELECT * FROM backlog_items WHERE id=$1`, [id]);
     return rows[0] ? this.mapItem(rows[0]) : null;
+  }
+
+  /**
+   * Every parked item across every still-live mission, newest first — the
+   * mission half of the operator's "what needs me?" inbox. One join instead of
+   * a mission-by-mission walk, since the front page asks for this on a poll.
+   * Terminal missions are excluded: their items can no longer be acted on.
+   */
+  async listBlockedItems(limit = 50): Promise<BlockedItemRef[]> {
+    const { rows } = await this.pool.query(
+      `SELECT bi.id, bi.title, bi.risk, bi.verification, bi.updated_at,
+              m.id AS mission_id, m.goal, m.project_id, p.name AS project_name
+       FROM backlog_items bi
+       JOIN missions m ON m.id = bi.mission_id
+       JOIN projects p ON p.id = m.project_id
+       WHERE bi.status = 'blocked_needs_human'
+         AND m.status NOT IN ('done', 'failed', 'stopped')
+       ORDER BY bi.updated_at DESC
+       LIMIT $1`,
+      [limit],
+    );
+    return rows.map((r) => ({
+      itemId: r.id,
+      title: r.title,
+      risk: r.risk,
+      failedCheck: r.verification && !r.verification.passed ? r.verification.check : null,
+      missionId: r.mission_id,
+      missionGoal: r.goal,
+      projectId: r.project_id,
+      projectName: r.project_name,
+      updatedAt: new Date(r.updated_at).toISOString(),
+    }));
   }
 
   async listItems(missionId: string): Promise<BacklogItem[]> {

@@ -32,7 +32,13 @@ import {
 import type { ApiVerdict, RunDetail, RunEvent } from "@arzonic/agent-client";
 import { useEventStream, type StreamStatus } from "../../lib/useEventStream";
 
-type FeedItem = RunEvent & { key: string; t: number };
+/**
+ * `fromPersisted` marks an item rebuilt from the run's saved messages rather
+ * than received live. Those are a placeholder for runs with no stream left to
+ * replay; the moment the stream does speak it replays the full history itself,
+ * so the placeholders are dropped rather than left to double up.
+ */
+type FeedItem = RunEvent & { key: string; t: number; fromPersisted?: boolean };
 
 /** How long without a fresh event (while the stream isn't cleanly "open") before
  * we stop trusting the smooth "X is drafting" pulse and admit nothing's arrived
@@ -228,7 +234,13 @@ export default function RunView() {
     const eid = raw.lastEventId || `seq-${(seq.current += 1)}`;
     if (seenIds.current.has(eid)) return;
     seenIds.current.add(eid);
-    setFeed((prev) => [...prev, { ...event, key: eid, t: Date.now() }]);
+    // The stream is authoritative once it starts talking: drop anything the
+    // persisted-messages fallback put in first, or the two sources show the
+    // same message twice (the fallback races the stream on a fresh run).
+    setFeed((prev) => [
+      ...prev.filter((f) => !f.fromPersisted),
+      { ...event, key: eid, t: Date.now() },
+    ]);
     if ((event.type === "node" || event.type === "verdict") && typeof event.tokens === "number")
       setTokens(event.tokens);
     // A finalized builder/analyst message supersedes the streaming buffer.
@@ -285,6 +297,7 @@ export default function RunView() {
               content: m.content,
               key: `msg-${i}`,
               t: startRef.current + i,
+              fromPersisted: true,
             }) as FeedItem,
         );
       if (detail.verdict) {
@@ -297,6 +310,7 @@ export default function RunView() {
           criteria: detail.verdict.criteria,
           key: "verdict-final",
           t: startRef.current + detail.messages.length,
+          fromPersisted: true,
         } as FeedItem);
       }
       return items;
@@ -493,15 +507,31 @@ export default function RunView() {
       <section className="relative flex h-full min-h-0 min-w-0 flex-col">
         <header className="flex shrink-0 items-center justify-between gap-3 border-b border-line px-5 py-3.5">
           <div className="flex min-w-0 items-center gap-3">
+            {/* Back goes to THIS run's project, not to whatever was last active. */}
             <Link
-              href="/"
-              aria-label="Tilbage"
+              href={detail?.projectId ? `/?project=${detail.projectId}` : "/"}
+              aria-label={
+                detail?.projectName ? `Tilbage til ${detail.projectName}` : "Tilbage"
+              }
               className="btn btn-ghost btn-sm btn-circle shrink-0 text-dim hover:text-fg"
             >
               <LuArrowLeft className="h-4 w-4" />
             </Link>
-            <p className="truncate text-sm font-medium text-fg/90">
-              {detail?.task ?? "Indlæser…"}
+            <p className="flex min-w-0 items-center gap-1.5 text-sm">
+              {detail?.projectId && detail.projectName && (
+                <>
+                  <Link
+                    href={`/?project=${detail.projectId}`}
+                    className="shrink-0 max-w-[14rem] truncate text-dim transition hover:text-fg"
+                  >
+                    {detail.projectName}
+                  </Link>
+                  <span className="shrink-0 text-dim/50">/</span>
+                </>
+              )}
+              <span className="truncate font-medium text-fg/90">
+                {detail?.task ?? "Indlæser…"}
+              </span>
             </p>
           </div>
           <div className="flex shrink-0 items-center gap-2 text-xs">

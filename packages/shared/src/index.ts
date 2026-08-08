@@ -71,6 +71,7 @@ export {
   type CreateBacklogItemInput,
   type Risk,
   type Verification,
+  type BlockedItemRef,
 } from "./backlog.js";
 export {
   AppSettingsService,

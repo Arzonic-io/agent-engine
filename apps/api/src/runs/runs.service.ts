@@ -674,6 +674,11 @@ export class RunsService implements OnModuleDestroy {
     // task row outlives the in-memory registry (which the sweeper evicts), so
     // it wins for `startedAt`; both stay null for pre-timestamp runs.
     const row = await this.taskRow(runId);
+    // The run knows its project, but the UI never did — so "back" from a run
+    // landed on whatever project happened to be active, which for a run opened
+    // from the cross-project list is usually the wrong one.
+    const projectId = row?.projectId ?? state.projectId ?? this.runs.get(runId)?.projectId ?? null;
+    const projectName = projectId ? await this.projectName(projectId) : null;
     return {
       runId,
       threadId: runId,
@@ -686,9 +691,21 @@ export class RunsService implements OnModuleDestroy {
       messages: state.messages,
       topology: routerMsg ? state.topology : null,
       routerReason,
+      projectId,
+      projectName,
       startedAt: row?.createdAt ?? this.runs.get(runId)?.createdAt ?? null,
       finishedAt: row?.finishedAt ?? null,
     };
+  }
+
+  /** A project's display name for the run breadcrumb; null when unavailable. */
+  private async projectName(projectId: string): Promise<string | null> {
+    if (!this.memory) return null;
+    try {
+      return (await this.memory.getProject(projectId))?.name ?? null;
+    } catch {
+      return null; /* best-effort — the breadcrumb falls back to "Projekt" */
+    }
   }
 
   /** The persisted task row for a run (null when memory is off or it's ad-hoc). */
