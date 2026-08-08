@@ -194,6 +194,38 @@ export class BacklogService {
     );
     // The GitHub issue a mission was started from — the Publisher writes `Closes #n`.
     await this.pool.query(`ALTER TABLE missions ADD COLUMN IF NOT EXISTS issue_number integer`);
+    // Self-heal: guarantee a mission (and its backlog_items, which already cascade
+    // from missions) is deleted with its project even on a `missions` table created
+    // before ON DELETE CASCADE was in the schema. Runs only when the cascade is
+    // missing (no-op on healthy DBs); purges orphans first so ADD CONSTRAINT can't fail.
+    await this.pool.query(`
+      DO $$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1
+          FROM information_schema.referential_constraints rc
+          JOIN information_schema.table_constraints tc
+            ON tc.constraint_name = rc.constraint_name
+           AND tc.constraint_schema = rc.constraint_schema
+          WHERE tc.table_name = 'missions'
+            AND tc.constraint_type = 'FOREIGN KEY'
+            AND rc.delete_rule = 'CASCADE'
+        ) THEN
+          DELETE FROM missions WHERE project_id NOT IN (SELECT id FROM projects);
+          EXECUTE COALESCE((
+            SELECT string_agg(format('ALTER TABLE missions DROP CONSTRAINT %I;', tc.constraint_name), ' ')
+            FROM information_schema.table_constraints tc
+            JOIN information_schema.key_column_usage kcu
+              ON kcu.constraint_name = tc.constraint_name
+            WHERE tc.table_name = 'missions'
+              AND tc.constraint_type = 'FOREIGN KEY'
+              AND kcu.column_name = 'project_id'
+          ), 'SELECT 1');
+          ALTER TABLE missions
+            ADD CONSTRAINT missions_project_id_fkey
+            FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE;
+        END IF;
+      END $$;`);
     await this.pool.query(`
       CREATE TABLE IF NOT EXISTS backlog_items (
         id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),

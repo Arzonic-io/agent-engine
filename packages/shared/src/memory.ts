@@ -121,6 +121,50 @@ export class MemoryService {
         verdict     jsonb,
         created_at  timestamptz NOT NULL DEFAULT now()
       )`);
+    // Self-heal: guarantee a task is deleted with its project even on a `tasks`
+    // table created before ON DELETE CASCADE was in the schema — `CREATE TABLE IF
+    // NOT EXISTS` never retrofits a constraint, so an older DB (e.g. the VPS) could
+    // keep a plain/no-action FK and orphan tasks on project delete. Runs ONLY when
+    // the cascade is missing (no-op on healthy DBs), and clears any pre-existing
+    // orphans first so ADD CONSTRAINT can't fail on them.
+    await this.ensureProjectCascade("tasks");
+  }
+
+  /**
+   * Ensure `<table>.project_id` REFERENCES projects(id) ON DELETE CASCADE. Idempotent
+   * and self-healing: skips entirely when the cascade already exists, otherwise drops
+   * whatever FK is on the column (any name), purges orphaned rows, and re-adds it with
+   * the cascade. Shared shape with the backlog store's missions table.
+   */
+  private async ensureProjectCascade(table: string): Promise<void> {
+    await this.pool.query(`
+      DO $$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1
+          FROM information_schema.referential_constraints rc
+          JOIN information_schema.table_constraints tc
+            ON tc.constraint_name = rc.constraint_name
+           AND tc.constraint_schema = rc.constraint_schema
+          WHERE tc.table_name = '${table}'
+            AND tc.constraint_type = 'FOREIGN KEY'
+            AND rc.delete_rule = 'CASCADE'
+        ) THEN
+          DELETE FROM ${table} WHERE project_id NOT IN (SELECT id FROM projects);
+          EXECUTE COALESCE((
+            SELECT string_agg(format('ALTER TABLE ${table} DROP CONSTRAINT %I;', tc.constraint_name), ' ')
+            FROM information_schema.table_constraints tc
+            JOIN information_schema.key_column_usage kcu
+              ON kcu.constraint_name = tc.constraint_name
+            WHERE tc.table_name = '${table}'
+              AND tc.constraint_type = 'FOREIGN KEY'
+              AND kcu.column_name = 'project_id'
+          ), 'SELECT 1');
+          ALTER TABLE ${table}
+            ADD CONSTRAINT ${table}_project_id_fkey
+            FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE;
+        END IF;
+      END $$;`);
   }
 
   // ── embeddings ──
