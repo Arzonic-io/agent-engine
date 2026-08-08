@@ -23,11 +23,13 @@ import { ZodValidationPipe } from "../runs/dto/runs.dto.js";
 import {
   CreateMissionSchema,
   MissionItemDecisionSchema,
+  UpdateMissionBudgetSchema,
   UpdateMissionChecksSchema,
   UpdateMissionGuidanceSchema,
   UpdateMissionRoleModelsSchema,
   type CreateMissionDto,
   type MissionItemDecisionDto,
+  type UpdateMissionBudgetDto,
   type UpdateMissionChecksDto,
   type UpdateMissionGuidanceDto,
   type UpdateMissionRoleModelsDto,
@@ -84,9 +86,23 @@ export class MissionsController {
     return this.missions.updateGuidance(id, dto.guidance);
   }
 
+  @Patch(":id/budget")
+  updateBudget(
+    @Param("id") id: string,
+    @Body(new ZodValidationPipe(UpdateMissionBudgetSchema)) dto: UpdateMissionBudgetDto,
+  ): Promise<MissionDetail> {
+    return this.missions.updateBudget(id, dto.budget);
+  }
+
   @Post(":id/stop")
   stop(@Param("id") id: string): Promise<StopMissionResponse> {
     return this.missions.stop(id);
+  }
+
+  /** Requeue parked/failed items and put a stopped/blocked mission back in the worker's loop. */
+  @Post(":id/resume")
+  resume(@Param("id") id: string): Promise<MissionDetail> {
+    return this.missions.resume(id);
   }
 
   @Delete(":id")

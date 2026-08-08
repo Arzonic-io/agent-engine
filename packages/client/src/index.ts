@@ -152,9 +152,22 @@ export class AgentClient {
     return this.request(`/missions/${encodeURIComponent(id)}`);
   }
 
+  /** Raise (or clear, with null) a mission's token budget — e.g. before resuming a budget-stopped mission. */
+  updateMissionBudget(id: string, budget: number | null): Promise<MissionDetail> {
+    return this.request(`/missions/${encodeURIComponent(id)}/budget`, {
+      method: "PATCH",
+      body: JSON.stringify({ budget }),
+    });
+  }
+
   /** Kill switch — the worker halts the mission at its next checkpoint. */
   stopMission(id: string): Promise<StopMissionResponse> {
     return this.request(`/missions/${encodeURIComponent(id)}/stop`, { method: "POST" });
+  }
+
+  /** Resume a stopped/blocked mission: parked + failed items requeue and the worker re-picks it. */
+  resumeMission(id: string): Promise<MissionDetail> {
+    return this.request(`/missions/${encodeURIComponent(id)}/resume`, { method: "POST" });
   }
 
   /** Delete a mission and its backlog items. */

@@ -275,6 +275,52 @@ export class MissionsService {
     return this.detail(id);
   }
 
+  /**
+   * Update a mission's token budget — typically raised so a budget-stopped
+   * mission can be resumed with headroom. Deliberately NOT gated on terminal
+   * status: topping up a stopped mission is the whole point (the worker
+   * re-reads the row's budget on every pass, so a raise on a running mission
+   * also takes effect immediately). Null clears the cap.
+   */
+  async updateBudget(id: string, budget: number | null): Promise<MissionDetail> {
+    const backlog = this.require();
+    const mission = await backlog.getMission(id);
+    if (!mission) throw new NotFoundException(`No mission ${id}`);
+    await backlog.updateMission(id, { budget });
+    return this.detail(id);
+  }
+
+  /**
+   * Resume a stopped/blocked mission (a budget stop is the prime case). Parked
+   * and failed items are re-queued to `todo` with their stale verification
+   * cleared, so the board doesn't show a "failed check" on work that hasn't
+   * re-run yet. Risk is deliberately kept: a high-risk item still parks at the
+   * pre-run gate — resume is not a blanket approval (that's `decideItem`).
+   * The worker only scans `running` missions, so flipping status + clearing
+   * stop_reason is what actually puts it back in the loop. Note a budget-stopped
+   * mission resumed WITHOUT a raised budget re-stops on its next governor check.
+   */
+  async resume(id: string): Promise<MissionDetail> {
+    const backlog = this.require();
+    const mission = await backlog.getMission(id);
+    if (!mission) throw new NotFoundException(`No mission ${id}`);
+    if (mission.status !== "stopped" && mission.status !== "blocked") {
+      throw new ConflictException(
+        `Mission ${id} is ${mission.status} — only stopped or blocked missions can be resumed.`,
+      );
+    }
+    // Items first, mission-status last: the worker must never see a `running`
+    // mission whose backlog is still all-parked (it would instantly re-block).
+    const items = await backlog.listItems(id);
+    for (const it of items) {
+      if (it.status === "blocked_needs_human" || it.status === "failed") {
+        await backlog.updateItem(it.id, { status: "todo", verification: null });
+      }
+    }
+    await backlog.updateMission(id, { status: "running", stopReason: null });
+    return this.detail(id);
+  }
+
   /** Kill switch: the worker halts at its next checkpoint (status != running). */
   async stop(id: string): Promise<StopMissionResponse> {
     const backlog = this.require();

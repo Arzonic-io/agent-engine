@@ -12,6 +12,7 @@ import {
   LuFileDiff,
   LuGitPullRequest,
   LuActivity,
+  LuPlay,
   LuSave,
   LuTriangleAlert,
   LuUsers,
@@ -87,6 +88,10 @@ export default function MissionDashboard({ params }: { params: Promise<{ id: str
   /** Per-item note typed alongside a Godkend/Afvis decision, keyed by item id. */
   const [itemNotes, setItemNotes] = useState<Record<string, string>>({});
   const [stopping, setStopping] = useState(false);
+  // Resume-after-stop state: the optional new budget typed next to "Genoptag".
+  const [resuming, setResuming] = useState(false);
+  const [resumeBudget, setResumeBudget] = useState("");
+  const [resumeErr, setResumeErr] = useState<string | null>(null);
   // Edit-team-on-a-running-mission state.
   const [teamOpen, setTeamOpen] = useState(false);
   const [teamSel, setTeamSel] = useState<TeamSelection>({});
@@ -265,6 +270,40 @@ export default function MissionDashboard({ params }: { params: Promise<{ id: str
     }
   }
 
+  // Optionally raise the budget, then put the mission back in the worker's loop.
+  // Two calls on purpose (PATCH budget, POST resume) — the budget must be raised
+  // BEFORE the status flips, or the worker could re-pick the mission and re-stop
+  // it on the old cap between the two writes.
+  async function resume() {
+    setResuming(true);
+    setResumeErr(null);
+    try {
+      const raw = resumeBudget.trim();
+      if (raw) {
+        const budget = Number(raw);
+        if (!Number.isInteger(budget) || budget < 1) {
+          throw new Error("Budgettet skal være et positivt heltal (tokens).");
+        }
+        const res = await fetch(`/api/missions/${id}/budget`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ budget }),
+        });
+        if (!res.ok) throw new Error(await res.text());
+      }
+      const res = await fetch(`/api/missions/${id}/resume`, { method: "POST" });
+      if (!res.ok) throw new Error(await res.text());
+      setMission((await res.json()) as MissionDetail);
+      setResumeBudget("");
+      // The terminal snapshot stopped the SSE stream for good — start it again.
+      stream.reconnect();
+    } catch (e) {
+      setResumeErr(e instanceof Error ? e.message : "Kunne ikke genoptage missionen");
+    } finally {
+      setResuming(false);
+    }
+  }
+
   function openTeam() {
     setTeamSel(roleModelsToSelection(mission?.roleModels));
     setTeamErr(null);
@@ -326,6 +365,11 @@ export default function MissionDashboard({ params }: { params: Promise<{ id: str
   }
 
   const active = mission.status === "running" || mission.status === "paused";
+  // The API accepts resume from any stopped/blocked mission; the UI offers it
+  // where it's the natural next move — out of budget, or parked awaiting you.
+  const resumable =
+    mission.status === "blocked" ||
+    (mission.status === "stopped" && mission.stopReason === "budget");
   const burn = mission.budget ? Math.min(100, (mission.spentTokens / mission.budget) * 100) : null;
   const estCostText = estCost(mission.spentTokens, costPerMtok);
   const d = mission.digest;
@@ -423,10 +467,47 @@ export default function MissionDashboard({ params }: { params: Promise<{ id: str
               ) : (
                 <LuCircleStop className="mt-0.5 h-4 w-4 shrink-0" />
               )}
-              <div className="min-w-0">
+              <div className="min-w-0 flex-1">
                 <p>{stopReasonText(mission)}</p>
                 {!mission.prUrl && mission.publishNote && (
                   <p className="mt-0.5 text-xs opacity-75">Publicering: {mission.publishNote}</p>
+                )}
+                {/* Genoptag: requeue parked/failed punkter og send missionen tilbage til workeren. */}
+                {resumable && (
+                  <div className="mt-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <input
+                        value={resumeBudget}
+                        onChange={(e) => setResumeBudget(e.target.value)}
+                        inputMode="numeric"
+                        placeholder={
+                          mission.budget
+                            ? `Nyt budget (nu ${mission.budget.toLocaleString("da-DK")} tokens)`
+                            : "Nyt budget (tokens, valgfrit)"
+                        }
+                        className="w-60 rounded-field border border-line bg-ink/50 px-2 py-1 text-xs text-fg placeholder:text-dim/50 focus:border-success/50 focus:outline-none"
+                      />
+                      <button
+                        onClick={() => void resume()}
+                        disabled={resuming}
+                        className="btn btn-xs gap-1 border-line bg-elev text-success hover:border-success/50"
+                      >
+                        {resuming ? (
+                          <span className="loading loading-spinner loading-xs" />
+                        ) : (
+                          <LuPlay className="h-3.5 w-3.5" />
+                        )}
+                        Genoptag
+                      </button>
+                      {resumeErr && <span className="text-xs text-error">{resumeErr}</span>}
+                    </div>
+                    {mission.stopReason === "budget" && (
+                      <p className="mt-1 text-[11px] opacity-75">
+                        Uden et højere budget stopper missionen straks igen — forbruget er allerede{" "}
+                        {mission.spentTokens.toLocaleString("da-DK")} tokens.
+                      </p>
+                    )}
+                  </div>
                 )}
               </div>
             </div>

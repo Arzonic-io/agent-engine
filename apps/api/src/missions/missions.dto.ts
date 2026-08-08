@@ -47,6 +47,16 @@ export const MissionItemDecisionSchema = z.object({
 });
 export type MissionItemDecisionDto = z.infer<typeof MissionItemDecisionSchema>;
 
+/**
+ * Body of PATCH /missions/:id/budget — raise (or clear) a mission's token budget.
+ * The prime use is topping up a budget-stopped mission before resuming it; null
+ * removes the cap entirely.
+ */
+export const UpdateMissionBudgetSchema = z.object({
+  budget: z.number().int().min(1).nullable(),
+});
+export type UpdateMissionBudgetDto = z.infer<typeof UpdateMissionBudgetSchema>;
+
 /** Body of PATCH /missions/:id/role-models — re-point a running mission's team. */
 export const UpdateMissionRoleModelsSchema = z.object({
   roleModels: RoleModelsConfigSchema,
