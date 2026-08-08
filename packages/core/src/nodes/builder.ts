@@ -1,5 +1,7 @@
 import type { BaseChatModel } from "@langchain/core/language_models/chat_models";
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
+import type { RunnableConfig } from "@langchain/core/runnables";
+import { DEFAULT_LLM_CALL_TIMEOUT_MS, withLlmTimeout } from "../llmCallTimeout.js";
 import type { GraphStateType } from "../state.js";
 
 const SYSTEM_PROMPT = `You are the Builder in a builder/critic loop. You produce the best possible
@@ -12,8 +14,14 @@ LANGUAGE: Respond in the same language as the task. If the task is written in
 Danish, write entirely in Danish; otherwise write in English. Use only Danish
 or English — never any other language.`;
 
-export function makeBuilderNode(model: BaseChatModel) {
-  return async (state: GraphStateType): Promise<Partial<GraphStateType>> => {
+export function makeBuilderNode(
+  model: BaseChatModel,
+  llmCallTimeoutMs: number = DEFAULT_LLM_CALL_TIMEOUT_MS,
+) {
+  return async (
+    state: GraphStateType,
+    config?: RunnableConfig,
+  ): Promise<Partial<GraphStateType>> => {
     const parts = [`# Task\n${state.task}`];
     if (state.context) parts.push(`# Project context\n${state.context}`);
 
@@ -33,10 +41,14 @@ export function makeBuilderNode(model: BaseChatModel) {
       );
     }
 
-    const response = await model.invoke([
-      new SystemMessage(SYSTEM_PROMPT),
-      new HumanMessage(parts.join("\n\n")),
-    ]);
+    const response = await withLlmTimeout(
+      model.invoke(
+        [new SystemMessage(SYSTEM_PROMPT), new HumanMessage(parts.join("\n\n"))],
+        { signal: config?.signal },
+      ),
+      llmCallTimeoutMs,
+      "builder",
+    );
 
     const draft =
       typeof response.content === "string"

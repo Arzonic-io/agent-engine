@@ -49,6 +49,60 @@ Det store perspektiv — fra nu til Nordstjernen. Detaljerne lever i tiers + epi
 
 ## ✅ Senest leveret
 
+### 2026-07-10 — Run-siden hænger ikke længere permanent (stream-resilience, 3 faser)
+Et Multi Agent Team-forløb kunne fastfryse for evigt: "Connecting to the stream…" forsvandt
+aldrig, "Builder is drafting" pulserede uden fremgang (selv efter fanen blev forladt og
+genåbnet), og Artifact-panelet viste kun skeleton. Roden var en kæde af manglende
+sikkerhedsnet på tværs af frontend/backend/core — rettet i tre faser:
+- [x] **Fase 1 (frontend):** ny [useEventStream](../apps/web/app/lib/useEventStream.ts)-hook
+      erstatter `es.onerror = () => es.close()` (som slog browserens indbyggede reconnect fra)
+      med rigtig reconnect-med-backoff + `visibilitychange`/`online`-genopkobling. Wired i
+      [runs/[id]](../apps/web/app/runs/[id]/page.tsx) og [missions/[id]](../apps/web/app/missions/[id]/page.tsx).
+      Uafhængig polling-fallback holder status/tokens/Artifact friske selv når streamen er
+      helt død; `latestDraft`/`latestVerdict` sammenligner nu runde-numre (ikke bare "har feed
+      noget") så et tidligt event ikke låser panelet fast på forældet indhold for evigt;
+      `activeLine` er nu topologi-bevidst ("Architect is planning" for team, ikke hardkodet
+      "Builder is drafting") og eskalerer til en ærlig "intet nyt i et stykke tid"-besked ved
+      staleness i stedet for at blive ved med at pulsere glat.
+- [x] **Fase 2 (backend):** `decide()` (revideret-vejen efter critic→human) havde **intet**
+      timeout og intet catch — et hængende LLM-kald her hang selve HTTP-kaldet for evigt.
+      Ny delt `driveWithGuardrails`-helper ([runs.service.ts](../apps/api/src/runs/runs.service.ts))
+      giver `launch()` og `decide()` samme timeout+catch+persist-sikkerhedsnet; `launch()`s
+      fejl-handler synker nu status til DB'en (den stod fast på `'running'` for evigt før).
+      Nyt `{type:"heartbeat"}`-event holder streamen synligt levende under lange stille
+      node-kald (team-topologiens arkitekt/worker/lead/critic streamer ellers intet).
+      `X-Accel-Buffering: no` bevaret gennem Next-proxyen. `ReplaySubject`-bufferet capped
+      (500) + periodisk sweep evicter længe-terminerede runs fra in-memory-registret.
+- [x] **Fase 3 (core):** nyt [llmCallTimeout.ts](../packages/core/src/llmCallTimeout.ts)
+      (`withLlmTimeout`, provider-uafhængig via `Promise.race` — virker selv for Mistral,
+      appens default-provider, som ikke videresender `AbortSignal` til den underliggende
+      klient) wired ind i builder/architect/lead/worker/critic/implementer-node'rne + threaded
+      gennem `graph.ts`'s options. Et ægte hængende providerkald fejler nu efter
+      `LLM_CALL_TIMEOUT_MS` (default 120s) i stedet for at hænge for evigt.
+- [x] Bevist: nye [verify-llm-call-timeout.ts](../packages/core/verify-llm-call-timeout.ts)
+      (builder/architect timeout + regression-guard på et normalt kald) + udvidet
+      [verify-publish.ts](../packages/core/verify-publish.ts). Alle 17 eksisterende
+      core-harnesses stadig grønne (ingen regression). `pnpm build` grøn (6/6).
+
+### 2026-07-10 — Start en mission fra et GitHub issue (issue → PR-loop lukkes)
+- [x] **Issue-picker i composeren:** når projektets repo er GitHub-bundet, viser MissionComposer
+      ([GitHubIssuePicker](../apps/web/app/components/GitHubIssuePicker.tsx)) en søgbar liste af repoets
+      **åbne issues**. Vælg et → mål ← issue-titel, acceptkriterier ← task-list-checkboxes (`- [ ]`) fra
+      body'en, og issue-nummeret huskes. Skjuler sig selv uden `GITHUB_TOKEN` (503). Genbruger samme token
+      som repo-picker + Publisher — én credential, hele loopet.
+- [x] **`Closes #n` ved publish:** missionen persisterer `issueNumber` (ny nullable kolonne på `missions`,
+      idempotent ALTER — [backlog.ts](../packages/shared/src/backlog.ts)); Publisheren
+      ([publisher.ts](../packages/shared/src/publisher.ts)) skriver `Closes #n` i PR-body'en, så et merge
+      lukker issuet automatisk — loopet fra "issue" til "shipped" lukkes.
+- [x] **Transport + wire:** `listGitHubIssues` i [github.ts](../packages/shared/src/github.ts) (frafiltrerer
+      PR'er, normaliserer labels); `GET /repos/github/issues?owner=&repo=` + web-proxy; `issueNumber` gennem
+      DTO → `CreateMissionInput` → `Mission` (core + shared) → wire-typer.
+- [x] Bevist hermetisk: nye [verify-github.ts](../packages/shared/verify-github.ts) (PR-frafiltrering, label-
+      normalisering, fejl) + [verify-publish.ts](../packages/core/verify-publish.ts) udvidet (`Closes #12` med,
+      ingen `Closes` uden issue). `turbo build` grøn (6/6); publish/mission-harnesses grønne.
+- [ ] **Follow-up:** vis "fra issue #n" på mission-dashboardet (kræver owner/repo for et klikbart link);
+      evt. samme issue-picker for opgaver (men opgaver laver ingen PR, så mindre værdifuldt).
+
 ### 2026-07-06 — Danske rubric-labels + per-projekt topologi
 - [x] **Danske rubric-kriterier (item):** `RubricCriterion.label` (dansk, display-only) på default-kriterierne;
       vist i [DefinitionOfDone](../apps/web/app/components/DefinitionOfDone.tsx) + base-krav i rubric-editoren.

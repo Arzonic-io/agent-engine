@@ -28,8 +28,14 @@ import {
   LuX,
 } from "react-icons/lu";
 import type { ApiVerdict, RunDetail, RunEvent } from "@arzonic/agent-client";
+import { useEventStream, type StreamStatus } from "../../lib/useEventStream";
 
 type FeedItem = RunEvent & { key: string; t: number };
+
+/** How long without a fresh event (while the stream isn't cleanly "open") before
+ * we stop trusting the smooth "X is drafting" pulse and admit nothing's arrived
+ * in a while — tied loosely to the backend's heartbeat interval (~20s). */
+const STALE_AFTER_MS = 50_000;
 
 const AGENT: Record<
   string,
@@ -179,46 +185,66 @@ export default function RunView() {
     startRef.current = Date.now();
   }, [id]);
 
+  // Initial fetch — fires immediately, independent of the stream connecting.
   useEffect(() => {
     void refreshDetail();
-    const es = new EventSource(`/api/runs/${id}/stream`);
-    es.onmessage = (e) => {
-      let event: RunEvent;
-      try {
-        event = JSON.parse(e.data) as RunEvent;
-      } catch {
-        return;
-      }
-      // Token stream → accumulate into the live "typing" buffer (not deduped/keyed).
-      if (event.type === "token") {
-        setStreaming((prev) =>
-          prev && prev.node === event.node
-            ? { node: event.node, content: prev.content + event.content }
-            : { node: event.node, content: event.content },
-        );
-        return;
-      }
-
-      const eid = e.lastEventId || `seq-${(seq.current += 1)}`;
-      if (seenIds.current.has(eid)) return;
-      seenIds.current.add(eid);
-      setFeed((prev) => [...prev, { ...event, key: eid, t: Date.now() }]);
-      if ((event.type === "node" || event.type === "verdict") && typeof event.tokens === "number")
-        setTokens(event.tokens);
-      // A finalized builder/analyst message supersedes the streaming buffer.
-      if (event.type === "node") setStreaming(null);
-      if (event.type === "awaiting_human") setAwaiting(true);
-      if (event.type === "done") {
-        setStatus(event.status);
-        setAwaiting(false);
-        void refreshDetail();
-        es.close();
-      }
-      if (event.type === "error") es.close();
-    };
-    es.onerror = () => es.close();
-    return () => es.close();
   }, [id, refreshDetail]);
+
+  function handleRunEvent(event: RunEvent, raw: MessageEvent) {
+    // Token stream → accumulate into the live "typing" buffer (not deduped/keyed).
+    if (event.type === "token") {
+      setStreaming((prev) =>
+        prev && prev.node === event.node
+          ? { node: event.node, content: prev.content + event.content }
+          : { node: event.node, content: event.content },
+      );
+      return;
+    }
+    // Pure liveness signal, no domain content — `lastEventAt` is already
+    // updated generically by the hook before `onEvent` runs (that's what the
+    // staleness check in `activeLine` reads); never render it in the transcript.
+    if (event.type === "heartbeat") return;
+
+    const eid = raw.lastEventId || `seq-${(seq.current += 1)}`;
+    if (seenIds.current.has(eid)) return;
+    seenIds.current.add(eid);
+    setFeed((prev) => [...prev, { ...event, key: eid, t: Date.now() }]);
+    if ((event.type === "node" || event.type === "verdict") && typeof event.tokens === "number")
+      setTokens(event.tokens);
+    // A finalized builder/analyst message supersedes the streaming buffer.
+    if (event.type === "node") setStreaming(null);
+    if (event.type === "awaiting_human") setAwaiting(true);
+    if (event.type === "done") {
+      setStatus(event.status);
+      setAwaiting(false);
+      void refreshDetail();
+      // The run is genuinely over — stop reconnecting to a stream that will
+      // never emit again (the server closing cleanly still looks like a
+      // dropped connection to a naive EventSource, which would otherwise retry).
+      stream.stop();
+    }
+    if (event.type === "error") {
+      // Ambiguous over the wire: a genuine backend failure and the Next
+      // proxy's synthetic "upstream unreachable" frame look identical. Never
+      // set `status` from this directly — always re-derive it from the REST
+      // GET (the source of truth); the hook's own retry loop keeps trying.
+      void refreshDetail();
+    }
+  }
+
+  const stream = useEventStream<RunEvent>(`/api/runs/${id}/stream`, {
+    onEvent: handleRunEvent,
+    // Every (re)connect and every drop re-syncs from the REST source of
+    // truth — this is what actually fixes "nothing happens when I come
+    // back", independent of whether the SSE stream itself ever recovers.
+    onOpen: () => {
+      // A reconnect replays the server's full (capped) event history; without
+      // this the "typing" buffer would append onto stale pre-reconnect text.
+      setStreaming(null);
+      void refreshDetail();
+    },
+    onTransportError: () => void refreshDetail(),
+  });
 
   // Old runs (from earlier sessions) have no live stream to replay — the API
   // only keeps the event stream for runs still in memory. Rebuild the transcript
@@ -258,6 +284,14 @@ export default function RunView() {
   }, [detail]);
 
   const live = status === "running" || status === "awaiting_human";
+
+  // Independent polling fallback: keeps status/tokens/Artifact fresh even if
+  // the SSE stream is degraded or fully dead (mirrors MissionLiveFeed's pattern).
+  useEffect(() => {
+    if (!live) return;
+    const t = setInterval(() => void refreshDetail(), 5000);
+    return () => clearInterval(t);
+  }, [live, refreshDetail]);
 
   // make sure the gate is impossible to miss on mobile
   useEffect(() => {
@@ -338,25 +372,41 @@ export default function RunView() {
   }, [awaiting, decide]);
 
   // derived inspector data
+  // Compares round numbers rather than "whichever source has any match" — a
+  // single early builder/lead event would otherwise pin the panel on stale
+  // (possibly many-rounds-old) content forever, since `feed` never loses that
+  // match and a fresher `detail.draft` from a poll (see refreshDetail above)
+  // would never get a chance to win.
   const latestDraft = useMemo(() => {
+    let fromFeed: { content: string; round: number } | null = null;
     for (let i = feed.length - 1; i >= 0; i--) {
       const f = feed[i]!;
       if (
         f.type === "node" &&
         (f.node === "builder" || f.node === "analyst" || f.node === "lead") &&
         !f.content.startsWith("🔧")
-      )
-        return { content: f.content, round: f.round };
+      ) {
+        fromFeed = { content: f.content, round: f.round };
+        break;
+      }
     }
-    return detail?.draft ? { content: detail.draft, round: detail.round } : null;
+    const fromDetail = detail?.draft ? { content: detail.draft, round: detail.round } : null;
+    if (fromFeed && fromDetail) return fromFeed.round >= fromDetail.round ? fromFeed : fromDetail;
+    return fromFeed ?? fromDetail;
   }, [feed, detail]);
 
   const latestVerdict = useMemo<{ v: ApiVerdict; round: number } | null>(() => {
+    let fromFeed: { v: ApiVerdict; round: number } | null = null;
     for (let i = feed.length - 1; i >= 0; i--) {
       const f = feed[i]!;
-      if (f.type === "verdict") return { v: { pass: f.pass, score: f.score, issues: f.issues }, round: f.round };
+      if (f.type === "verdict") {
+        fromFeed = { v: { pass: f.pass, score: f.score, issues: f.issues }, round: f.round };
+        break;
+      }
     }
-    return detail?.verdict ? { v: detail.verdict, round: detail.round } : null;
+    const fromDetail = detail?.verdict ? { v: detail.verdict, round: detail.round } : null;
+    if (fromFeed && fromDetail) return fromFeed.round >= fromDetail.round ? fromFeed : fromDetail;
+    return fromFeed ?? fromDetail;
   }, [feed, detail]);
 
   const round = useMemo(
@@ -366,13 +416,29 @@ export default function RunView() {
 
   const activeLine = useMemo(() => {
     if (!live || awaiting) return null;
+    // `elapsed` isn't read directly, but ticks every second while live — it's
+    // what makes the staleness check below actually re-evaluate over time
+    // instead of only when a new stream event changes lastEventAt/status.
+    void elapsed;
+    if (
+      stream.status !== "open" &&
+      stream.lastEventAt !== null &&
+      Date.now() - stream.lastEventAt > STALE_AFTER_MS
+    ) {
+      return "Intet nyt i et stykke tid — tjekker status…";
+    }
+    const isTeam = detail?.topology === "team";
     const last = [...feed].reverse().find((f) => f.type === "node" || f.type === "verdict");
-    if (!last) return "Builder is drafting";
-    if (last.type === "node" && (last.node === "builder" || last.node === "analyst"))
+    if (!last) return isTeam ? "Architect is planning" : "Builder is drafting";
+    if (last.type === "verdict") return isTeam ? "Lead is revising" : "Builder is revising";
+    // last.type === "node" — the team graph is architect → worker(s) → lead →
+    // critic → (revise) → lead, so a lead node hands off to critic just like a
+    // single-topology builder/analyst does.
+    if (last.node === "builder" || last.node === "analyst" || last.node === "lead")
       return "Critic is reviewing";
-    if (last.type === "verdict") return "Builder is revising";
-    return "Working";
-  }, [feed, live, awaiting]);
+    if (last.node === "architect") return "Worker is building";
+    return `${AGENT[last.node]?.name ?? "Team"} is working`;
+  }, [feed, live, awaiting, detail?.topology, stream.status, stream.lastEventAt, elapsed]);
 
   return (
     <div className="grid h-full min-h-0 grid-cols-1 2xl:grid-cols-[1fr_384px]">
@@ -407,6 +473,16 @@ export default function RunView() {
             <span className={`uppercase tracking-[0.18em] ${STATUS_LABEL[status]?.cls ?? "text-dim"}`}>
               {STATUS_LABEL[status]?.text ?? status}
             </span>
+            {live && stream.status !== "open" && (
+              <span className="text-warning">
+                ·{" "}
+                {stream.status === "failed"
+                  ? "forbindelse afbrudt"
+                  : stream.status === "retrying"
+                    ? "genopretter forbindelse…"
+                    : "forbinder…"}
+              </span>
+            )}
           </div>
         </header>
 
@@ -421,7 +497,7 @@ export default function RunView() {
 
         <div ref={scrollRef} onScroll={onScroll} className="min-h-0 flex-1 overflow-y-auto px-6 py-6">
           <div className="mx-auto max-w-3xl space-y-1">
-            <Transcript feed={feed} />
+            <Transcript feed={feed} streamStatus={stream.status} onRetry={stream.reconnect} />
             {streaming && <StreamingBubble node={streaming.node} content={streaming.content} />}
             {!streaming && activeLine && <ActiveIndicator label={activeLine} />}
             {awaiting && <div ref={gateRef} className="h-px" />}
@@ -490,7 +566,15 @@ export default function RunView() {
 
 /* ───────────────────────── center pieces ───────────────────────── */
 
-function Transcript({ feed }: { feed: FeedItem[] }) {
+function Transcript({
+  feed,
+  streamStatus,
+  onRetry,
+}: {
+  feed: FeedItem[];
+  streamStatus: StreamStatus;
+  onRetry: () => void;
+}) {
   let lastRound = 0;
   const out: React.ReactNode[] = [];
   for (const item of feed) {
@@ -503,9 +587,20 @@ function Transcript({ feed }: { feed: FeedItem[] }) {
   }
   if (feed.length === 0) {
     out.push(
-      <p key="empty" className="py-10 text-center text-sm text-dim">
-        Connecting to the stream…
-      </p>,
+      <div key="empty" className="flex flex-col items-center gap-3 py-10 text-center text-sm text-dim">
+        {streamStatus === "failed" ? (
+          <>
+            <p>Kunne ikke forbinde til strømmen.</p>
+            <button onClick={onRetry} className="btn btn-outline btn-sm gap-1.5">
+              <LuRefreshCw className="h-3.5 w-3.5" /> Prøv igen
+            </button>
+          </>
+        ) : streamStatus === "retrying" ? (
+          <p>Genopretter forbindelse…</p>
+        ) : (
+          <p>Connecting to the stream…</p>
+        )}
+      </div>,
     );
   }
   return <>{out}</>;

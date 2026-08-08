@@ -4,7 +4,9 @@ import {
   SystemMessage,
   type AIMessage,
 } from "@langchain/core/messages";
+import type { RunnableConfig } from "@langchain/core/runnables";
 import { z } from "zod";
+import { DEFAULT_LLM_CALL_TIMEOUT_MS, withLlmTimeout } from "../llmCallTimeout.js";
 import type { GraphStateType } from "../state.js";
 
 const SYSTEM_PROMPT = `You are the Architect of a small agent team. Break the task into a short,
@@ -24,20 +26,30 @@ const PlanSchema = z.object({
     .describe("Ordered list of concrete steps, each one imperative sentence."),
 });
 
-export function makeArchitectNode(model: BaseChatModel) {
+export function makeArchitectNode(
+  model: BaseChatModel,
+  llmCallTimeoutMs: number = DEFAULT_LLM_CALL_TIMEOUT_MS,
+) {
   const structured = model.withStructuredOutput(PlanSchema, {
     name: "plan",
     includeRaw: true,
   });
 
-  return async (state: GraphStateType): Promise<Partial<GraphStateType>> => {
+  return async (
+    state: GraphStateType,
+    config?: RunnableConfig,
+  ): Promise<Partial<GraphStateType>> => {
     const prompt = state.context
       ? `# Task\n${state.task}\n\n# Project context\n${state.context}`
       : `# Task\n${state.task}`;
-    const { raw, parsed } = await structured.invoke([
-      new SystemMessage(SYSTEM_PROMPT),
-      new HumanMessage(prompt),
-    ]);
+    const { raw, parsed } = await withLlmTimeout(
+      structured.invoke(
+        [new SystemMessage(SYSTEM_PROMPT), new HumanMessage(prompt)],
+        { signal: config?.signal },
+      ),
+      llmCallTimeoutMs,
+      "architect",
+    );
     const plan = PlanSchema.parse(parsed).plan;
     const tokens = (raw as AIMessage).usage_metadata?.total_tokens ?? 0;
 

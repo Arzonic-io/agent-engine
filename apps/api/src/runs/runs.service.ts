@@ -9,7 +9,15 @@ import {
   ServiceUnavailableException,
   type OnModuleDestroy,
 } from "@nestjs/common";
-import { ReplaySubject, type Observable } from "rxjs";
+import {
+  ignoreElements,
+  interval,
+  map,
+  merge,
+  ReplaySubject,
+  takeUntil,
+  type Observable,
+} from "rxjs";
 import {
   createAgentGraph,
   createProjectGraph,
@@ -28,7 +36,9 @@ import {
   discoverRepos,
   ensureWorkspace,
   listGitHubRepos,
+  listGitHubIssues,
   type GitHubRepo,
+  type GitHubIssue,
   type MemoryService,
   type RepoInfo,
 } from "@arzonic/agent-shared";
@@ -48,6 +58,21 @@ import { CHECKPOINTER, ENV, MEMORY, MODEL, ROLE_MODELS } from "../tokens.js";
 import type { DecisionDto, StartRunDto } from "./dto/runs.dto.js";
 
 const REJECTION_MARKER = "Rejected final draft.";
+
+/**
+ * Cap on each run's ReplaySubject buffer — unbounded before this, so a long
+ * run's token/node/verdict history could grow without limit. A reconnecting
+ * client that misses more than this many historical events falls back to the
+ * "rebuild transcript from persisted messages" path (frontend) plus a REST
+ * refetch, both of which recover full fidelity from the checkpointer/DB.
+ */
+const EVENTS_REPLAY_BUFFER = 500;
+
+/** Runs that will never emit again — eligible for eviction once old enough. */
+const TERMINAL_RUN_STATUSES = new Set<ApiRunStatus>(["accepted", "rejected", "failed"]);
+
+/** How often the in-memory registry is swept for long-terminal runs. */
+const RUN_SWEEP_INTERVAL_MS = 10 * 60_000;
 
 /** Graph nodes that surface their work through returned messages (vs. builder's draft). */
 const MESSAGE_NODES = new Set(["analyst", "architect", "worker", "lead"]);
@@ -77,6 +102,8 @@ type GraphInput = Parameters<AgentGraph["stream"]>[0];
 export class RunsService implements OnModuleDestroy {
   /** In-process registry for the list view + live event subjects. State itself lives in the checkpointer. */
   private readonly runs = new Map<string, RunMeta>();
+  /** Periodic eviction of long-terminal runs — see sweepTerminalRuns(). */
+  private readonly sweepTimer: ReturnType<typeof setInterval>;
 
   constructor(
     @Inject(ENV) private readonly env: ApiEnv,
@@ -84,11 +111,32 @@ export class RunsService implements OnModuleDestroy {
     @Inject(ROLE_MODELS) private readonly roleModels: RoleModels,
     @Inject(CHECKPOINTER) private readonly checkpointer: CheckpointerHandle,
     @Inject(MEMORY) private readonly memory: MemoryService | null,
-  ) {}
+  ) {
+    this.sweepTimer = setInterval(() => this.sweepTerminalRuns(), RUN_SWEEP_INTERVAL_MS);
+  }
 
   async onModuleDestroy(): Promise<void> {
+    clearInterval(this.sweepTimer);
     for (const meta of this.runs.values()) meta.abort.abort();
     await this.checkpointer.close();
+  }
+
+  /**
+   * Evict long-terminal runs from the in-memory registry. Each entry holds a
+   * ReplaySubject that can buffer a fair amount of token text, so without this
+   * the map grows without bound until PM2's `max_memory_restart` force-kills
+   * the whole process — destroying every OTHER in-flight run's live stream at
+   * once. Never touches "running"/"awaiting_human" regardless of age (a human
+   * may not act on a gate for a long time). Only drops the in-memory entry —
+   * the checkpointer/DB task row is untouched, since `getRun()`'s checkpointer
+   * fallback still needs to serve historical data after eviction.
+   */
+  private sweepTerminalRuns(): void {
+    const cutoff = Date.now() - this.env.RUN_RETENTION_MS;
+    for (const [runId, meta] of this.runs) {
+      if (!TERMINAL_RUN_STATUSES.has(meta.status)) continue;
+      if (new Date(meta.createdAt).getTime() < cutoff) this.runs.delete(runId);
+    }
   }
 
   private rubricFor(rubricId?: string): Rubric {
@@ -140,6 +188,7 @@ export class RunsService implements OnModuleDestroy {
       checkpointer: this.checkpointer.saver,
       rubric: this.rubricFor(rubricId),
       guardrails: this.guardrails(options),
+      llmCallTimeoutMs: this.env.LLM_CALL_TIMEOUT_MS,
     });
   }
 
@@ -179,6 +228,7 @@ export class RunsService implements OnModuleDestroy {
       checkpointer: this.checkpointer.saver,
       rubric: this.rubricFor(rubricId),
       guardrails: this.guardrails(options),
+      llmCallTimeoutMs: this.env.LLM_CALL_TIMEOUT_MS,
     });
   }
 
@@ -206,6 +256,7 @@ export class RunsService implements OnModuleDestroy {
       rubric: rubric ?? this.rubricFor(rubricId),
       guardrails: this.guardrails(options),
       adaptiveRubric: this.env.ADAPTIVE_RUBRIC,
+      llmCallTimeoutMs: this.env.LLM_CALL_TIMEOUT_MS,
     }) as unknown as AgentGraph;
   }
 
@@ -220,6 +271,7 @@ export class RunsService implements OnModuleDestroy {
       tools: createRepoTools(this.resolveRepoPath(repoPath), {
         allowedChecks: this.env.REPO_ALLOWED_CHECKS,
       }),
+      llmCallTimeoutMs: this.env.LLM_CALL_TIMEOUT_MS,
     });
   }
 
@@ -255,6 +307,20 @@ export class RunsService implements OnModuleDestroy {
       );
     }
     return listGitHubRepos({ token: this.env.GITHUB_TOKEN });
+  }
+
+  /**
+   * A repo's open GitHub issues — for the "start a mission from an issue" picker.
+   * Same token as the repo picker / Publisher. Throws a clear 503 when no token is
+   * configured so the UI can hide the feature.
+   */
+  listGitHubIssues(owner: string, repo: string): Promise<GitHubIssue[]> {
+    if (!this.env.GITHUB_TOKEN) {
+      throw new ServiceUnavailableException(
+        "GITHUB_TOKEN is not configured — set it to pick GitHub issues.",
+      );
+    }
+    return listGitHubIssues({ token: this.env.GITHUB_TOKEN, owner, repo });
   }
 
   /**
@@ -371,30 +437,59 @@ export class RunsService implements OnModuleDestroy {
       task,
       createdAt: new Date().toISOString(),
       status: "running",
-      events: new ReplaySubject<RunEvent>(),
+      events: new ReplaySubject<RunEvent>(EVENTS_REPLAY_BUFFER),
       abort: new AbortController(),
       graph,
       projectId,
     };
     this.runs.set(runId, meta);
 
-    const timeout = setTimeout(() => meta.abort.abort(), this.env.RUN_TIMEOUT_MS);
-    void this.consume(graph, meta, input)
-      .catch((err: unknown) => {
-        meta.status = "failed";
-        meta.events.next({
-          type: "error",
-          message: meta.abort.signal.aborted
-            ? `Run timed out after ${this.env.RUN_TIMEOUT_MS} ms`
-            : err instanceof Error
-              ? err.message
-              : String(err),
-        });
-        meta.events.complete();
-      })
-      .finally(() => clearTimeout(timeout));
+    // Fire-and-forget: launch() returns to the caller immediately with
+    // status "running" — the SSE stream (or the frontend's polling fallback)
+    // is how progress and the eventual outcome surface.
+    void this.driveWithGuardrails(graph, meta, input);
 
     return { runId, threadId: runId, status: "running" };
+  }
+
+  /**
+   * Drive one graph segment with a whole-segment timeout, turning a thrown
+   * error (or a timeout-triggered abort) into a wire `error` event AND a
+   * persisted, corrected `tasks` row — without this, a timed-out/failed run's
+   * DB status stays stuck on `"running"` forever even though `meta.status`
+   * in memory is right. Shared by `launch()` (fire-and-forget) and `decide()`
+   * (awaited, so the resume/"revise" path — previously the one place with NO
+   * timeout or catch at all — gets the exact same safety net rather than
+   * hanging the HTTP request indefinitely on a stuck LLM call).
+   */
+  private async driveWithGuardrails(
+    graph: AgentGraph,
+    meta: RunMeta,
+    input: GraphInput,
+  ): Promise<void> {
+    const timeout = setTimeout(() => meta.abort.abort(), this.env.RUN_TIMEOUT_MS);
+    try {
+      await this.consume(graph, meta, input);
+    } catch (err) {
+      meta.status = "failed";
+      meta.events.next({
+        type: "error",
+        message: meta.abort.signal.aborted
+          ? `Run timed out after ${this.env.RUN_TIMEOUT_MS} ms`
+          : err instanceof Error
+            ? err.message
+            : String(err),
+      });
+      meta.events.complete();
+      try {
+        const snapshot = await graph.getState(this.config(meta.runId));
+        await this.syncTask(meta, snapshot.values as GraphStateType);
+      } catch {
+        /* best-effort — matches syncTask's own swallow-on-failure style */
+      }
+    } finally {
+      clearTimeout(timeout);
+    }
   }
 
   /** Drive one graph segment and translate updates into typed wire events. */
@@ -609,7 +704,7 @@ export class RunsService implements OnModuleDestroy {
         task: state.task,
         createdAt: new Date().toISOString(),
         status: "awaiting_human",
-        events: new ReplaySubject<RunEvent>(),
+        events: new ReplaySubject<RunEvent>(EVENTS_REPLAY_BUFFER),
         abort: new AbortController(),
         graph,
         projectId: state.projectId || undefined,
@@ -620,7 +715,11 @@ export class RunsService implements OnModuleDestroy {
     // Resume with the decision + notes. On 'revise' the graph loops back to the
     // builder with the notes as guidance, streams the new round(s), and pauses
     // at the gate again (or terminates) — all handled inside consume().
-    await this.consume(
+    // Routed through the same timeout+catch+persist safety net launch() uses
+    // (driveWithGuardrails) — previously this call had NEITHER, so a hung
+    // LLM call on a revise loop would hang this HTTP request forever with no
+    // way for the run to ever be marked failed.
+    await this.driveWithGuardrails(
       graph,
       meta,
       new Command({ resume: { decision: dto.decision, notes: dto.notes } }) as GraphInput,
@@ -636,6 +735,20 @@ export class RunsService implements OnModuleDestroy {
         `No live event stream for run ${runId} (it may predate a restart — poll GET /runs/${runId} instead)`,
       );
     }
-    return meta.events.asObservable();
+    const events$ = meta.events.asObservable();
+    // Long team-topology node calls (architect/worker/lead/critic) stream
+    // zero bytes over the wire otherwise, which an idle-timeout proxy/tunnel
+    // can silently kill with nothing in the app ever noticing. Merge in a
+    // periodic pure-liveness frame — `takeUntil(events$.ignoreElements())` is
+    // NOT optional: a bare `merge(events$, interval$)` would never complete,
+    // since `interval()` never completes on its own and `merge()` only
+    // completes once every source does — that would leave the HTTP response
+    // (and the CLI SDK's stream readers, which wait for the body to end) open
+    // forever after a run has actually finished.
+    const heartbeat$ = interval(this.env.RUN_HEARTBEAT_MS).pipe(
+      map((): RunEvent => ({ type: "heartbeat" })),
+      takeUntil(events$.pipe(ignoreElements())),
+    );
+    return merge(events$, heartbeat$);
   }
 }

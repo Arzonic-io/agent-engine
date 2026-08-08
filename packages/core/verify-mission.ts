@@ -115,6 +115,7 @@ const baseMission: Mission = {
   stopReason: null,
   prUrl: null,
   publishNote: null,
+  issueNumber: null,
   createdAt: iso(),
 };
 

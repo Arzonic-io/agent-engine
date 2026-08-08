@@ -505,6 +505,7 @@ export default function Composer() {
           <MissionComposer
             projectId={projectId}
             repoPath={projectRepo}
+            githubRepo={projectGithubRepo}
             allowedChecks={allowedChecks}
             defaultChecks={defaultChecks}
           />

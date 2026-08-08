@@ -40,6 +40,7 @@ const mission: Mission = {
   stopReason: null,
   prUrl: null,
   publishNote: null,
+  issueNumber: null,
   createdAt: new Date(1_700_000_000_000).toISOString(),
 };
 const digest = buildDigest(mission, []);
@@ -114,6 +115,23 @@ async function main(): Promise<void> {
     const body = JSON.parse(String(post.init!.body));
     ok(body.head === BRANCH && body.base === "main" && body.draft === true, "PR targets default branch as a draft");
     ok(String(body.body).includes(mission.goal), "PR body includes the goal");
+    ok(!/Closes #/.test(String(body.body)), "no `Closes` line when the mission has no linked issue");
+  }
+
+  console.log("\nlinks the originating issue (Closes #n):");
+  {
+    const git = fakeGit({});
+    const fetcher = fakeFetch((url, init) => {
+      if (url.endsWith("/repos/arzonic/agent-engine")) return { status: 200, body: { default_branch: "main" } };
+      if (url.includes("/pulls?head=")) return { status: 200, body: [] };
+      if (init?.method === "POST") return { status: 201, body: { html_url: "https://github.com/arzonic/agent-engine/pull/8", number: 8 } };
+      return { status: 404, body: "" };
+    });
+    const pub = createGitHubPublisher({ token: TOKEN, gitImpl: git.run, fetchImpl: fetcher.impl });
+    await pub.publish({ mission: { ...mission, issueNumber: 12 }, branch: BRANCH, digest });
+    const post = fetcher.reqs.find((r) => r.init?.method === "POST")!;
+    const body = JSON.parse(String(post.init!.body));
+    ok(/(^|\n)Closes #12(\n|$)/.test(String(body.body)), "PR body carries `Closes #12` so merging shuts the issue");
   }
 
   console.log("\nidempotent reuse:");

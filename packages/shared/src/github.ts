@@ -95,3 +95,83 @@ export async function listGitHubRepos(
 
   return out;
 }
+
+/** One open issue on a repo — for the "start a mission from an issue" picker. */
+export interface GitHubIssue {
+  /** Issue number — what `Closes #N` references so a merged PR shuts the issue. */
+  number: number;
+  title: string;
+  /** Issue body (markdown); "" when empty. */
+  body: string;
+  /** Web URL to the issue. */
+  url: string;
+  /** Label names, for a glance in the picker. */
+  labels: string[];
+}
+
+export interface ListGitHubIssuesOptions {
+  /** Fine-grained PAT (Issues: read on the target repo — the same token as elsewhere). */
+  token: string;
+  owner: string;
+  repo: string;
+  /** GitHub REST base URL, for GitHub Enterprise. Default "https://api.github.com". */
+  apiBaseUrl?: string;
+  /** Max issues to return (newest first). Default 100 (one page). */
+  limit?: number;
+  /** Injectable fetch, for tests. Defaults to the global `fetch`. */
+  fetchImpl?: typeof fetch;
+}
+
+/** One row from `GET /repos/:owner/:repo/issues`, narrowed to what we use. */
+interface RawIssue {
+  number: number;
+  title: string;
+  body: string | null;
+  html_url: string;
+  labels: Array<{ name?: string } | string>;
+  /** Present ⇒ this "issue" is actually a pull request (the endpoint mixes them in). */
+  pull_request?: unknown;
+}
+
+/**
+ * List a repo's OPEN issues, newest first — so the composer can start a mission
+ * from an existing issue (prefill goal/criteria; a merged PR later closes it).
+ * The REST issues endpoint also returns pull requests; those carry a
+ * `pull_request` field and are filtered out so only real issues show.
+ */
+export async function listGitHubIssues(
+  options: ListGitHubIssuesOptions,
+): Promise<GitHubIssue[]> {
+  const { token, owner, repo } = options;
+  const apiBaseUrl = (options.apiBaseUrl ?? "https://api.github.com").replace(/\/$/, "");
+  const limit = Math.min(options.limit ?? 100, 100);
+  const doFetch = options.fetchImpl ?? fetch;
+
+  const res = await doFetch(
+    `${apiBaseUrl}/repos/${owner}/${repo}/issues?state=open&per_page=${limit}&sort=created&direction=desc`,
+    {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+        "User-Agent": "agent-engine-mission-worker",
+      },
+    },
+  );
+  if (!res.ok) {
+    throw new Error(`listing GitHub issues failed (HTTP ${res.status})`);
+  }
+  const rows = (await res.json()) as RawIssue[];
+  if (!Array.isArray(rows)) return [];
+  return rows
+    .filter((r) => !r.pull_request) // drop PRs — the issues endpoint mixes them in
+    .map((r) => ({
+      number: r.number,
+      title: r.title,
+      body: r.body ?? "",
+      url: r.html_url,
+      labels: (r.labels ?? [])
+        .map((l) => (typeof l === "string" ? l : (l.name ?? "")))
+        .filter(Boolean),
+    }));
+}

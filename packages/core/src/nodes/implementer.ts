@@ -5,9 +5,11 @@ import {
   isToolMessage,
   type BaseMessage,
 } from "@langchain/core/messages";
+import type { RunnableConfig } from "@langchain/core/runnables";
 import { tool, type StructuredToolInterface } from "@langchain/core/tools";
 import { createReactAgent } from "@langchain/langgraph/prebuilt";
 import { z } from "zod";
+import { DEFAULT_LLM_CALL_TIMEOUT_MS, withLlmTimeout } from "../llmCallTimeout.js";
 import type { AgentMessage, GraphStateType } from "../state.js";
 import type { WritableRepoTools } from "../tools.js";
 
@@ -17,6 +19,15 @@ import type { WritableRepoTools } from "../tools.js";
  * Keeps the implementer provably terminating even if the model never settles.
  */
 const RECURSION_LIMIT = 48;
+
+/**
+ * The ReAct loop can take several LLM↔tool round trips (up to ~24 turns per
+ * RECURSION_LIMIT above), so a single flat per-call timeout sized for "one
+ * message exchange" would cut it off far too early. Bound the WHOLE loop
+ * generously instead of each turn individually — an outer safety net layered
+ * on top of (not instead of) RECURSION_LIMIT.
+ */
+const IMPLEMENTER_TIMEOUT_MULTIPLIER = 8;
 
 const SYSTEM_PROMPT = `You are the Implementer, an autonomous coding agent working DIRECTLY on a git
 worktree. Unlike a planner, you produce real, running code: you write files, edit
@@ -183,6 +194,7 @@ export function makeImplementerNode(
   model: BaseChatModel,
   repo: WritableRepoTools,
   extraTools: StructuredToolInterface[] = [],
+  llmCallTimeoutMs: number = DEFAULT_LLM_CALL_TIMEOUT_MS,
 ) {
   if (typeof model.bindTools !== "function") {
     throw new Error("The configured LLM does not support tool calling (bindTools).");
@@ -193,12 +205,19 @@ export function makeImplementerNode(
   const prompt = extraTools.length > 0 ? SYSTEM_PROMPT + EXTRA_TOOLS_HINT : SYSTEM_PROMPT;
   const agent = createReactAgent({ llm: model, tools, prompt });
 
-  return async (state: GraphStateType): Promise<Partial<GraphStateType>> => {
+  return async (
+    state: GraphStateType,
+    config?: RunnableConfig,
+  ): Promise<Partial<GraphStateType>> => {
     let messages: BaseMessage[];
     try {
-      const result = (await agent.invoke(
-        { messages: [new HumanMessage(buildPrompt(state))] },
-        { recursionLimit: RECURSION_LIMIT },
+      const result = (await withLlmTimeout(
+        agent.invoke(
+          { messages: [new HumanMessage(buildPrompt(state))] },
+          { recursionLimit: RECURSION_LIMIT, signal: config?.signal },
+        ),
+        llmCallTimeoutMs * IMPLEMENTER_TIMEOUT_MULTIPLIER,
+        "implementer",
       )) as { messages: BaseMessage[] };
       messages = result.messages;
     } catch (err) {

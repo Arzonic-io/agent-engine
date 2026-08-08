@@ -96,6 +96,19 @@ export interface GitHubRepo {
   private: boolean;
 }
 
+/** An open GitHub issue — for the "start a mission from an issue" picker. */
+export interface GitHubIssue {
+  /** Issue number — a merged PR's `Closes #n` references this. */
+  number: number;
+  title: string;
+  /** Issue body (markdown); "" when empty. */
+  body: string;
+  /** Web URL to the issue. */
+  url: string;
+  /** Label names, for a glance in the picker. */
+  labels: string[];
+}
+
 /** Rollups the composer shows alongside a project. */
 export interface ProjectStats {
   /** Remembered items — non-brief project_memory rows. */
@@ -276,6 +289,8 @@ export interface MissionSummary {
   prUrl: string | null;
   /** One-line publish outcome (which PR was opened/reused, or why none). */
   publishNote: string | null;
+  /** The GitHub issue this mission was started from; the PR `Closes #n` on merge. Null = none. */
+  issueNumber: number | null;
   createdAt: string;
 }
 
@@ -343,6 +358,8 @@ export interface CreateMissionRequest {
   roleModels?: RoleModelsConfig;
   /** Optional initial operator guidance steering the first decompose (M3 Trin 6). */
   guidance?: string;
+  /** GitHub issue number this mission is started from — the PR later `Closes #n`. */
+  issueNumber?: number | null;
 }
 
 /** Body of PATCH /missions/:id/guidance — course-correct a running mission (M3 Trin 6). */
@@ -412,4 +429,12 @@ export type RunEvent =
     }
   | { type: "awaiting_human"; runId: string }
   | { type: "done"; status: ApiRunStatus; result: { draft: string; verdict: ApiVerdict | null } }
-  | { type: "error"; message: string };
+  | { type: "error"; message: string }
+  /**
+   * Pure liveness signal — no domain content. Long team-topology node calls
+   * (architect/worker/lead/critic) emit zero bytes otherwise, which idle
+   * proxies/tunnels can silently kill; a periodic heartbeat keeps the
+   * connection visibly alive and gives the client's staleness check a
+   * trailing signal even during a genuinely quiet stretch.
+   */
+  | { type: "heartbeat" };

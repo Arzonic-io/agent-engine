@@ -4,7 +4,9 @@ import {
   SystemMessage,
   type AIMessage,
 } from "@langchain/core/messages";
+import type { RunnableConfig } from "@langchain/core/runnables";
 import { z } from "zod";
+import { DEFAULT_LLM_CALL_TIMEOUT_MS, withLlmTimeout } from "../llmCallTimeout.js";
 import { augmentRubric, renderRubric, type Rubric } from "../rubric.js";
 import type { GraphStateType, Verdict } from "../state.js";
 
@@ -45,13 +47,20 @@ const CriticOutputSchema = z.object({
     ),
 });
 
-export function makeCriticNode(model: BaseChatModel, rubric: Rubric) {
+export function makeCriticNode(
+  model: BaseChatModel,
+  rubric: Rubric,
+  llmCallTimeoutMs: number = DEFAULT_LLM_CALL_TIMEOUT_MS,
+) {
   const structured = model.withStructuredOutput(CriticOutputSchema, {
     name: "verdict",
     includeRaw: true,
   });
 
-  return async (state: GraphStateType): Promise<Partial<GraphStateType>> => {
+  return async (
+    state: GraphStateType,
+    config?: RunnableConfig,
+  ): Promise<Partial<GraphStateType>> => {
     // Fold in this run's adaptive criteria (optional-only) so a proposed,
     // task-relevant check is scored alongside the base rubric.
     const effective = augmentRubric(rubric, state.extraCriteria ?? []);
@@ -62,10 +71,14 @@ export function makeCriticNode(model: BaseChatModel, rubric: Rubric) {
       `# Rubric\nJudge each criterion by its id:\n${renderRubric(effective)}`,
     ].join("\n\n");
 
-    const { raw, parsed } = await structured.invoke([
-      new SystemMessage(SYSTEM_PROMPT),
-      new HumanMessage(prompt),
-    ]);
+    const { raw, parsed } = await withLlmTimeout(
+      structured.invoke(
+        [new SystemMessage(SYSTEM_PROMPT), new HumanMessage(prompt)],
+        { signal: config?.signal },
+      ),
+      llmCallTimeoutMs,
+      "critic",
+    );
 
     const output = CriticOutputSchema.parse(parsed);
     const tokens = (raw as AIMessage).usage_metadata?.total_tokens ?? 0;

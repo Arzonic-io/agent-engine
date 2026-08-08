@@ -2,14 +2,33 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { LuCircleCheck, LuSettings2, LuTarget, LuTriangleAlert, LuUsers } from "react-icons/lu";
-import type { MissionDetail } from "@arzonic/agent-client";
+import {
+  LuCircleCheck,
+  LuCircleDot,
+  LuSettings2,
+  LuTarget,
+  LuTriangleAlert,
+  LuUsers,
+  LuX,
+} from "react-icons/lu";
+import type { GitHubIssue, MissionDetail } from "@arzonic/agent-client";
+import { GitHubIssuePicker } from "./GitHubIssuePicker";
 import {
   TEAM_ROLES,
   TeamModelPicker,
   selectionToRoleModels,
   type TeamSelection,
 } from "./TeamModelPicker";
+
+/** Extract GitHub task-list checkboxes (`- [ ] …`) from an issue body as acceptance criteria. */
+function criteriaFromIssueBody(body: string): string[] {
+  return body
+    .split("\n")
+    .map((l) => l.trim())
+    .filter((l) => /^[-*]\s*\[[ xX]\]\s+/.test(l))
+    .map((l) => l.replace(/^[-*]\s*\[[ xX]\]\s+/, "").trim())
+    .filter(Boolean);
+}
 
 /**
  * Realistic token-budget rungs (hard ceiling per mission). Free-text invited
@@ -34,11 +53,14 @@ const BUDGET_OPTIONS: { value: string; label: string }[] = [
 export function MissionComposer({
   projectId,
   repoPath,
+  githubRepo = null,
   allowedChecks = [],
   defaultChecks = [],
 }: {
   projectId: string;
   repoPath: string;
+  /** The project's bound GitHub repo (owner/repo), enabling the "start from an issue" picker. */
+  githubRepo?: { owner: string; repo: string } | null;
   /** Named pnpm scripts a mission may verify with (server allowlist). */
   allowedChecks?: string[];
   /** The set pre-selected when the composer opens (the server's MISSION_CHECKS default). */
@@ -47,6 +69,8 @@ export function MissionComposer({
   const router = useRouter();
   const [goal, setGoal] = useState("");
   const [criteria, setCriteria] = useState("");
+  // The GitHub issue this mission is started from (its PR later `Closes #n`). Null = none.
+  const [issueNumber, setIssueNumber] = useState<number | null>(null);
   const [items, setItems] = useState("");
   const [budget, setBudget] = useState("100000");
   const [deadline, setDeadline] = useState("");
@@ -94,6 +118,14 @@ export function MissionComposer({
     });
   }
 
+  /** Prefill the mission from a GitHub issue: goal ← title, criteria ← task-list, link the number. */
+  function applyIssue(issue: GitHubIssue) {
+    setGoal(issue.title);
+    const crit = criteriaFromIssueBody(issue.body);
+    if (crit.length > 0) setCriteria(crit.join("\n"));
+    setIssueNumber(issue.number);
+  }
+
   async function start() {
     if (!goal.trim() || noRepo || creating) return;
     setCreating(true);
@@ -120,6 +152,8 @@ export function MissionComposer({
           roleModels: selectionToRoleModels(team),
           // Which checks make an item "done". Empty ⇒ server's MISSION_CHECKS default.
           checks: [...checks],
+          // The originating GitHub issue, if any — the PR later `Closes #n`.
+          issueNumber,
         }),
       });
       if (!res.ok) throw new Error(await res.text());
@@ -201,6 +235,35 @@ export function MissionComposer({
           </div>
         )}
       </div>
+
+      {/* Start from a GitHub issue: prefill goal/criteria and link it (PR `Closes #n`). */}
+      {githubRepo && (
+        <div className="mb-3">
+          <GitHubIssuePicker
+            owner={githubRepo.owner}
+            repo={githubRepo.repo}
+            selectedNumber={issueNumber}
+            onSelect={applyIssue}
+          />
+          {issueNumber != null && (
+            <div className="mt-1.5 flex items-center gap-1.5 text-[11px] text-dim">
+              <LuCircleDot className="h-3 w-3 text-success" />
+              <span>
+                Linket til issue <span className="font-mono text-fg/80">#{issueNumber}</span> —
+                PR&apos;en lukker det ved merge.
+              </span>
+              <button
+                type="button"
+                onClick={() => setIssueNumber(null)}
+                className="inline-flex items-center gap-0.5 text-dim hover:text-fg"
+                title="Fjern issue-linket"
+              >
+                <LuX className="h-3 w-3" /> fjern
+              </button>
+            </div>
+          )}
+        </div>
+      )}
 
       <label className="block text-xs text-dim">
         Mål

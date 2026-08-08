@@ -63,6 +63,8 @@ export interface Mission {
   prUrl: string | null;
   /** One-line publish outcome (which PR was opened/reused, or why none). */
   publishNote: string | null;
+  /** GitHub issue this mission was started from; the Publisher writes `Closes #n`. Null = none. */
+  issueNumber: number | null;
   createdAt: string;
 }
 
@@ -94,6 +96,8 @@ export interface CreateMissionInput {
   deadline?: string | null;
   roleModels?: RoleModelsConfig;
   guidance?: string | null;
+  /** GitHub issue number this mission is linked to (for `Closes #n` on publish). */
+  issueNumber?: number | null;
 }
 
 export type MissionPatch = Partial<
@@ -162,6 +166,7 @@ export class BacklogService {
         stop_reason         text,
         pr_url              text,
         publish_note        text,
+        issue_number        integer,
         created_at          timestamptz NOT NULL DEFAULT now()
       )`);
     // Add the per-mission team-config column to pre-existing missions tables.
@@ -187,6 +192,8 @@ export class BacklogService {
     await this.pool.query(
       `ALTER TABLE missions ADD COLUMN IF NOT EXISTS checks jsonb NOT NULL DEFAULT '[]'`,
     );
+    // The GitHub issue a mission was started from — the Publisher writes `Closes #n`.
+    await this.pool.query(`ALTER TABLE missions ADD COLUMN IF NOT EXISTS issue_number integer`);
     await this.pool.query(`
       CREATE TABLE IF NOT EXISTS backlog_items (
         id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -213,8 +220,8 @@ export class BacklogService {
   // ── missions ──
   async createMission(input: CreateMissionInput): Promise<Mission> {
     const { rows } = await this.pool.query(
-      `INSERT INTO missions (project_id, goal, repo_path, acceptance_criteria, checks, budget, deadline, role_models, guidance)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
+      `INSERT INTO missions (project_id, goal, repo_path, acceptance_criteria, checks, budget, deadline, role_models, guidance, issue_number)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
       [
         input.projectId,
         input.goal,
@@ -225,6 +232,7 @@ export class BacklogService {
         input.deadline ?? null,
         JSON.stringify(input.roleModels ?? {}),
         input.guidance ?? null,
+        input.issueNumber ?? null,
       ],
     );
     return this.mapMission(rows[0]);
@@ -384,6 +392,7 @@ export class BacklogService {
       stopReason: r.stop_reason ?? null,
       prUrl: r.pr_url ?? null,
       publishNote: r.publish_note ?? null,
+      issueNumber: r.issue_number === null || r.issue_number === undefined ? null : Number(r.issue_number),
       createdAt: new Date(r.created_at).toISOString(),
     };
   }

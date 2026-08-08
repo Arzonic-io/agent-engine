@@ -49,6 +49,7 @@ export {
   isBudgetExceeded,
   type GuardrailConfig,
 } from "./guardrails.js";
+export { DEFAULT_LLM_CALL_TIMEOUT_MS, withLlmTimeout } from "./llmCallTimeout.js";
 export {
   MissionSchema,
   MissionStatusSchema,

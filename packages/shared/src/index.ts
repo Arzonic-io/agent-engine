@@ -19,8 +19,11 @@ export {
 export { discoverRepos, type RepoInfo } from "./repos.js";
 export {
   listGitHubRepos,
+  listGitHubIssues,
   type GitHubRepo,
+  type GitHubIssue,
   type ListGitHubReposOptions,
+  type ListGitHubIssuesOptions,
 } from "./github.js";
 export {
   ensureWorkspace,

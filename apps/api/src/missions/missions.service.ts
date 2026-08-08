@@ -126,6 +126,7 @@ export class MissionsService {
       deadline: dto.deadline ?? null,
       roleModels,
       guidance: dto.guidance ?? null,
+      issueNumber: dto.issueNumber ?? null,
     });
     // Seed the initial backlog, classifying risk up front so the board shows it
     // (the controller re-checks at run-time too — this is just for visibility).

@@ -30,6 +30,10 @@ export async function GET(
       "Content-Type": "text/event-stream",
       "Cache-Control": "no-cache, no-transform",
       Connection: "keep-alive",
+      // Nest's own SSE transport sets this upstream; a plain fetch-and-repipe
+      // otherwise drops it, reopening the door to response buffering by any
+      // intermediary (nginx, etc.) sitting between the browser and this proxy.
+      "X-Accel-Buffering": "no",
     },
   });
 }

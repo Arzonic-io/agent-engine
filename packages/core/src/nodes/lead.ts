@@ -1,5 +1,7 @@
 import type { BaseChatModel } from "@langchain/core/language_models/chat_models";
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
+import type { RunnableConfig } from "@langchain/core/runnables";
+import { DEFAULT_LLM_CALL_TIMEOUT_MS, withLlmTimeout } from "../llmCallTimeout.js";
 import type { GraphStateType } from "../state.js";
 
 const SYSTEM_PROMPT = `You are the Lead of an agent team. The workers each produced one step of the
@@ -12,8 +14,14 @@ Output only the final deliverable.
 LANGUAGE: Respond in the same language as the task — Danish if the task is in
 Danish, otherwise English. Use only Danish or English.`;
 
-export function makeLeadNode(model: BaseChatModel) {
-  return async (state: GraphStateType): Promise<Partial<GraphStateType>> => {
+export function makeLeadNode(
+  model: BaseChatModel,
+  llmCallTimeoutMs: number = DEFAULT_LLM_CALL_TIMEOUT_MS,
+) {
+  return async (
+    state: GraphStateType,
+    config?: RunnableConfig,
+  ): Promise<Partial<GraphStateType>> => {
     const work = state.stepResults
       .map((r, i) => `## Step ${i + 1}: ${r.step}\n${r.output}`)
       .join("\n\n");
@@ -30,10 +38,14 @@ export function makeLeadNode(model: BaseChatModel) {
       parts.push(`# Human guidance (highest priority)\n${state.humanNotes}`);
     }
 
-    const response = await model.invoke([
-      new SystemMessage(SYSTEM_PROMPT),
-      new HumanMessage(parts.join("\n\n")),
-    ]);
+    const response = await withLlmTimeout(
+      model.invoke(
+        [new SystemMessage(SYSTEM_PROMPT), new HumanMessage(parts.join("\n\n"))],
+        { signal: config?.signal },
+      ),
+      llmCallTimeoutMs,
+      "lead",
+    );
     const synthesis =
       typeof response.content === "string"
         ? response.content

@@ -24,6 +24,7 @@ import type {
   MissionStreamEvent,
 } from "@arzonic/agent-client";
 import { estCost, ITEM_STATUS, MISSION_DOT } from "../../lib/format";
+import { useEventStream } from "../../lib/useEventStream";
 import { ErrorState, LoadingState } from "../../components/StateViews";
 import { MissionLiveFeed } from "../../components/MissionLiveFeed";
 import {
@@ -100,7 +101,6 @@ export default function MissionDashboard({ params }: { params: Promise<{ id: str
   const [savingGuidance, setSavingGuidance] = useState(false);
   const [guidanceErr, setGuidanceErr] = useState<string | null>(null);
   const guidanceSeeded = useRef(false);
-  const esRef = useRef<EventSource | null>(null);
   // Blended $/1M-token rate for an estimated cost readout (null = tokens only) +
   // an optional LangSmith traces deep link (null = tracing off / no URL set).
   const [costPerMtok, setCostPerMtok] = useState<number | null>(null);
@@ -158,7 +158,7 @@ export default function MissionDashboard({ params }: { params: Promise<{ id: str
     }
   }
 
-  // Initial load + live snapshot stream.
+  // Initial load.
   useEffect(() => {
     let alive = true;
     void (async () => {
@@ -167,29 +167,57 @@ export default function MissionDashboard({ params }: { params: Promise<{ id: str
         if (res.ok && alive) setMission((await res.json()) as MissionDetail);
         else if (!res.ok) setError(await res.text());
       } catch {
-        /* stream will retry */
+        /* stream/poll will retry */
       }
     })();
-
-    const es = new EventSource(`/api/missions/${id}/stream`);
-    esRef.current = es;
-    es.onmessage = (e) => {
-      try {
-        const ev = JSON.parse(e.data) as MissionStreamEvent;
-        if (ev.type === "snapshot") {
-          setMission({ ...ev.mission, items: ev.items, digest: ev.digest });
-        }
-      } catch {
-        /* ignore malformed frame */
-      }
-    };
-    // Stream closes when the mission goes terminal; that's expected.
-    es.onerror = () => es.close();
     return () => {
       alive = false;
-      es.close();
     };
   }, [id]);
+
+  // Best-effort re-sync from the REST source of truth — used by the reconnect
+  // hook (on a dropped connection) and by the polling fallback below. Never
+  // sets `error`: a transient background refresh failing must not blow away
+  // an already-loaded board.
+  async function pollMission() {
+    try {
+      const res = await fetch(`/api/missions/${id}`);
+      if (res.ok) setMission((await res.json()) as MissionDetail);
+    } catch {
+      /* best-effort */
+    }
+  }
+
+  function handleMissionEvent(ev: MissionStreamEvent) {
+    if (ev.type === "snapshot") {
+      setMission({ ...ev.mission, items: ev.items, digest: ev.digest });
+      if (ev.mission.status !== "running" && ev.mission.status !== "paused") {
+        // The mission is terminal — the backend's poll loop completes its
+        // Observable here too, but a clean server-side end still looks like a
+        // dropped connection to a naive EventSource; stop reconnecting to a
+        // stream that will never emit again.
+        stream.stop();
+      }
+    }
+  }
+
+  // Live snapshot stream — reconnecting with backoff, plus a visibility-
+  // triggered reconnect (see useEventStream) so "nothing happens when I come
+  // back to the tab" can't happen here either.
+  const stream = useEventStream<MissionStreamEvent>(`/api/missions/${id}/stream`, {
+    onEvent: handleMissionEvent,
+    onTransportError: () => void pollMission(),
+  });
+
+  // Independent polling fallback for the top-level mission object.
+  // MissionLiveFeed already polls per-item activity independently of SSE, but
+  // the mission object/status itself was only ever updated by the SSE
+  // snapshot — no equivalent fallback existed for it until now.
+  useEffect(() => {
+    if (!mission || (mission.status !== "running" && mission.status !== "paused")) return;
+    const t = setInterval(() => void pollMission(), 4000);
+    return () => clearInterval(t);
+  }, [id, mission?.status]);
 
   async function decide(itemId: string, decision: "approve" | "reject") {
     setDeciding(itemId);
@@ -313,6 +341,16 @@ export default function MissionDashboard({ params }: { params: Promise<{ id: str
                   }`}
                 />
                 <span className="text-xs uppercase tracking-[0.28em] text-dim">{mission.status}</span>
+                {active && stream.status !== "open" && (
+                  <span className="text-xs text-warning">
+                    ·{" "}
+                    {stream.status === "failed"
+                      ? "forbindelse afbrudt"
+                      : stream.status === "retrying"
+                        ? "genopretter forbindelse…"
+                        : "forbinder…"}
+                  </span>
+                )}
               </div>
               <h1 className="display text-2xl font-extrabold leading-snug tracking-tight">
                 {mission.goal}

@@ -24,6 +24,8 @@ export const CreateMissionSchema = z.object({
   roleModels: RoleModelsConfigSchema.optional(),
   /** Optional initial operator guidance steering the first decompose (M3 Trin 6). */
   guidance: z.string().max(10_000).optional(),
+  /** GitHub issue number this mission is started from — the PR later `Closes #n`. */
+  issueNumber: z.number().int().positive().nullable().optional(),
 });
 export type CreateMissionDto = z.infer<typeof CreateMissionSchema>;
 

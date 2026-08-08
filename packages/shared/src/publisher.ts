@@ -62,6 +62,9 @@ const truncate = (s: string, n: number): string =>
 function buildPrBody(mission: Mission, digest: MissionDigest): string {
   const lines: string[] = [];
   lines.push("> 🤖 Opened autonomously by the agent-engine mission worker — review before merging.", "");
+  // Link the originating issue so merging this PR auto-closes it (GitHub scans the
+  // body for the `Closes #n` keyword) — closing the loop from "issue" to "shipped".
+  if (mission.issueNumber != null) lines.push(`Closes #${mission.issueNumber}`, "");
   lines.push(`**Goal:** ${mission.goal}`, "");
   if (mission.acceptanceCriteria.length > 0) {
     lines.push("**Acceptance criteria:**");

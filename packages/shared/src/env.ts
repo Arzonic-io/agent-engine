@@ -61,6 +61,20 @@ const EnvSchema = z
     MAX_ROUNDS: z.coerce.number().int().min(1).default(3),
     RUN_TOKEN_BUDGET: z.coerce.number().int().min(1).optional(),
     RUN_TIMEOUT_MS: z.coerce.number().int().min(1).default(300_000),
+    // How often the SSE stream sends a pure liveness `{type:"heartbeat"}` frame.
+    // Long team-topology node calls (architect/worker/lead/critic) otherwise emit
+    // zero bytes for their whole duration — a prime target for an idle-timeout
+    // proxy/tunnel to silently kill the connection.
+    RUN_HEARTBEAT_MS: z.coerce.number().int().min(1000).default(20_000),
+    // How long a terminal run stays in the in-memory registry (its ReplaySubject
+    // can buffer a lot of token text) before a periodic sweep evicts it. Running/
+    // awaiting_human runs are NEVER evicted regardless of age.
+    RUN_RETENTION_MS: z.coerce.number().int().min(60_000).default(3_600_000),
+    // Per-call LLM timeout (ms): a genuinely hung provider call rejects after
+    // this instead of hanging a graph node forever — enforced in code
+    // (Promise.race), not just via AbortSignal, since some providers (e.g.
+    // Mistral, this app's default) don't honor a signal on the underlying call.
+    LLM_CALL_TIMEOUT_MS: z.coerce.number().int().min(1000).default(120_000),
     // Commands an agent is allowed to run via the run_check tool (Layer 2).
     REPO_ALLOWED_CHECKS: z
       .string()

@@ -140,6 +140,12 @@ export const MissionSchema = z.object({
   prUrl: z.string().nullable(),
   /** One-line publish outcome (which PR was opened/reused, or why none). */
   publishNote: z.string().nullable(),
+  /**
+   * The GitHub issue this mission was started from (its number), or null. The
+   * Publisher writes `Closes #<n>` into the PR body so merging the PR shuts the
+   * issue — closing the loop from "issue" to "shipped". Set at creation.
+   */
+  issueNumber: z.number().int().positive().nullable().default(null),
   createdAt: z.string(),
 });
 export type Mission = z.infer<typeof MissionSchema>;
@@ -179,6 +185,8 @@ export interface CreateMissionInput {
   roleModels?: RoleModelsConfig;
   /** Optional initial course-correction text; usually set later on a running mission. */
   guidance?: string | null;
+  /** GitHub issue number this mission is linked to (for `Closes #n` on publish). */
+  issueNumber?: number | null;
 }
 
 export type MissionPatch = Partial<

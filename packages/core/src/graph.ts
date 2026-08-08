@@ -11,6 +11,7 @@ import {
   isBudgetExceeded,
   type GuardrailConfig,
 } from "./guardrails.js";
+import { DEFAULT_LLM_CALL_TIMEOUT_MS } from "./llmCallTimeout.js";
 import { makeAnalystNode } from "./nodes/analyst.js";
 import { makeArchitectNode } from "./nodes/architect.js";
 import { makeBuilderNode } from "./nodes/builder.js";
@@ -42,11 +43,19 @@ export interface CreateAgentGraphOptions {
    * that keeps this package importable anywhere, including Next.js.
    */
   checkpointer: BaseCheckpointSaver;
+  /**
+   * Per-call LLM timeout (ms): a genuinely hung provider call rejects after
+   * this instead of hanging the node — and, since some providers don't honor
+   * an AbortSignal, this is enforced regardless of whether the provider
+   * cooperates. Default DEFAULT_LLM_CALL_TIMEOUT_MS.
+   */
+  llmCallTimeoutMs?: number;
 }
 
 export function createAgentGraph(options: CreateAgentGraphOptions) {
   const rubric = options.rubric ?? defaultRubric;
   const guardrails = options.guardrails ?? DEFAULT_GUARDRAILS;
+  const llmCallTimeoutMs = options.llmCallTimeoutMs ?? DEFAULT_LLM_CALL_TIMEOUT_MS;
   const pick = (role: ModelRole) => options.models?.[role] ?? options.model;
 
   const failNode = async (
@@ -75,8 +84,8 @@ export function createAgentGraph(options: CreateAgentGraphOptions) {
   };
 
   return new StateGraph(GraphState)
-    .addNode("builder", makeBuilderNode(pick("builder")))
-    .addNode("critic", makeCriticNode(pick("critic"), rubric))
+    .addNode("builder", makeBuilderNode(pick("builder"), llmCallTimeoutMs))
+    .addNode("critic", makeCriticNode(pick("critic"), rubric, llmCallTimeoutMs))
     .addNode("markAwaitingHuman", markAwaitingHuman)
     .addNode("humanGate", humanGateNode)
     .addNode("fail", failNode)
@@ -209,6 +218,8 @@ export interface CreateRepoAnalysisGraphOptions {
   rubric?: Rubric;
   guardrails?: GuardrailConfig;
   checkpointer: BaseCheckpointSaver;
+  /** Per-call LLM timeout (ms) for the critic. Default DEFAULT_LLM_CALL_TIMEOUT_MS. */
+  llmCallTimeoutMs?: number;
 }
 
 /**
@@ -219,6 +230,7 @@ export interface CreateRepoAnalysisGraphOptions {
 export function createRepoAnalysisGraph(options: CreateRepoAnalysisGraphOptions) {
   const rubric = options.rubric ?? defaultRubric;
   const guardrails = options.guardrails ?? DEFAULT_GUARDRAILS;
+  const llmCallTimeoutMs = options.llmCallTimeoutMs ?? DEFAULT_LLM_CALL_TIMEOUT_MS;
   const pick = (role: ModelRole) => options.models?.[role] ?? options.model;
 
   const failNode = async (
@@ -252,7 +264,7 @@ export function createRepoAnalysisGraph(options: CreateRepoAnalysisGraphOptions)
 
   return new StateGraph(GraphState)
     .addNode("analyst", makeAnalystNode(pick("analyst"), options.tools))
-    .addNode("critic", makeCriticNode(pick("critic"), rubric))
+    .addNode("critic", makeCriticNode(pick("critic"), rubric, llmCallTimeoutMs))
     .addNode("done", done)
     .addNode("fail", failNode)
     .addEdge(START, "analyst")
@@ -273,6 +285,8 @@ export interface CreateTeamGraphOptions {
   rubric?: Rubric;
   guardrails?: GuardrailConfig;
   checkpointer: BaseCheckpointSaver;
+  /** Per-call LLM timeout (ms) for every role. Default DEFAULT_LLM_CALL_TIMEOUT_MS. */
+  llmCallTimeoutMs?: number;
 }
 
 /**
@@ -286,6 +300,7 @@ export interface CreateTeamGraphOptions {
 export function createTeamGraph(options: CreateTeamGraphOptions) {
   const rubric = options.rubric ?? defaultRubric;
   const guardrails = options.guardrails ?? DEFAULT_GUARDRAILS;
+  const llmCallTimeoutMs = options.llmCallTimeoutMs ?? DEFAULT_LLM_CALL_TIMEOUT_MS;
   const pick = (role: ModelRole) => options.models?.[role] ?? options.model;
 
   const failNode = async (
@@ -327,11 +342,11 @@ export function createTeamGraph(options: CreateTeamGraphOptions) {
     state.status === "running" ? "lead" : END;
 
   return new StateGraph(GraphState)
-    .addNode("architect", makeArchitectNode(pick("architect")))
-    .addNode("worker", makeWorkerNode(pick("worker")))
+    .addNode("architect", makeArchitectNode(pick("architect"), llmCallTimeoutMs))
+    .addNode("worker", makeWorkerNode(pick("worker"), llmCallTimeoutMs))
     .addNode("advance", advance)
-    .addNode("lead", makeLeadNode(pick("lead")))
-    .addNode("critic", makeCriticNode(pick("critic"), rubric))
+    .addNode("lead", makeLeadNode(pick("lead"), llmCallTimeoutMs))
+    .addNode("critic", makeCriticNode(pick("critic"), rubric, llmCallTimeoutMs))
     .addNode("markAwaitingHuman", markAwaitingHuman)
     .addNode("humanGate", humanGateNode)
     .addNode("fail", failNode)
@@ -365,6 +380,8 @@ export interface CreateProjectGraphOptions {
    * a pure no-op, so behavior + cost are unchanged.
    */
   adaptiveRubric?: boolean;
+  /** Per-call LLM timeout (ms) for builder/architect/worker/lead/critic. Default DEFAULT_LLM_CALL_TIMEOUT_MS. */
+  llmCallTimeoutMs?: number;
 }
 
 /**
@@ -376,6 +393,7 @@ export interface CreateProjectGraphOptions {
 export function createProjectGraph(options: CreateProjectGraphOptions) {
   const rubric = options.rubric ?? defaultRubric;
   const guardrails = options.guardrails ?? DEFAULT_GUARDRAILS;
+  const llmCallTimeoutMs = options.llmCallTimeoutMs ?? DEFAULT_LLM_CALL_TIMEOUT_MS;
   const { memory } = options;
   const pick = (role: ModelRole) => options.models?.[role] ?? options.model;
 
@@ -432,12 +450,12 @@ export function createProjectGraph(options: CreateProjectGraphOptions) {
   return new StateGraph(GraphState)
     .addNode("retrieveContext", makeRetrieveContextNode(memory))
     .addNode("router", makeRouterNode(pick("router")))
-    .addNode("builder", makeBuilderNode(pick("builder")))
-    .addNode("architect", makeArchitectNode(pick("architect")))
-    .addNode("worker", makeWorkerNode(pick("worker")))
+    .addNode("builder", makeBuilderNode(pick("builder"), llmCallTimeoutMs))
+    .addNode("architect", makeArchitectNode(pick("architect"), llmCallTimeoutMs))
+    .addNode("worker", makeWorkerNode(pick("worker"), llmCallTimeoutMs))
     .addNode("advance", advance)
-    .addNode("lead", makeLeadNode(pick("lead")))
-    .addNode("critic", makeCriticNode(pick("critic"), rubric))
+    .addNode("lead", makeLeadNode(pick("lead"), llmCallTimeoutMs))
+    .addNode("critic", makeCriticNode(pick("critic"), rubric, llmCallTimeoutMs))
     .addNode(
       "proposeCriteria",
       makeProposeCriteriaNode(pick("architect"), { enabled: !!options.adaptiveRubric }),
