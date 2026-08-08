@@ -366,7 +366,7 @@ export function MissionComposer({
       </div>
 
       <div className="mt-3 flex justify-end">
-        <div className={creating || noRepo || !goal.trim() ? "inline-block" : "aura aura-dual text-primary"}>
+        <div className={creating || noRepo || !goal.trim() ? "inline-block" : "aura aura-xs aura-dual text-primary"}>
           <button
             onClick={() => void start()}
             disabled={creating || noRepo || !goal.trim()}

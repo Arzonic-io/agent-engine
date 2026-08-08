@@ -483,7 +483,7 @@ export default function Composer() {
                     ? `→ grundet i projektets repo (${repoLabel(projectRepo, repos)})`
                     : "→ router vælger single / team"}
                 </span>
-                <div className={starting || !task.trim() ? "inline-block" : "aura aura-dual text-primary"}>
+                <div className={starting || !task.trim() ? "inline-block" : "aura aura-xs aura-dual text-primary"}>
                   <button
                     onClick={() => void run()}
                     disabled={starting || !task.trim()}

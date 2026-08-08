@@ -562,7 +562,7 @@ export function LeftRail({ onNavigate }: { onNavigate?: () => void } = {}) {
       <div className="min-h-4 flex-1" />
 
       <div className="border-t border-line px-4 py-3">
-        <div className="aura aura-dual w-full text-builder">
+        <div className="aura aura-xs aura-dual w-full text-builder">
           <button
             onClick={newProject}
             className="btn btn-secondary btn-soft w-full"
