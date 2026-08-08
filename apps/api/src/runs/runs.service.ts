@@ -3,6 +3,7 @@ import { relative, resolve, sep } from "node:path";
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Inject,
   Injectable,
   NotFoundException,
@@ -314,13 +315,28 @@ export class RunsService implements OnModuleDestroy {
    * Same token as the repo picker / Publisher. Throws a clear 503 when no token is
    * configured so the UI can hide the feature.
    */
-  listGitHubIssues(owner: string, repo: string): Promise<GitHubIssue[]> {
+  async listGitHubIssues(owner: string, repo: string): Promise<GitHubIssue[]> {
     if (!this.env.GITHUB_TOKEN) {
       throw new ServiceUnavailableException(
         "GITHUB_TOKEN is not configured — set it to pick GitHub issues.",
       );
     }
-    return listGitHubIssues({ token: this.env.GITHUB_TOKEN, owner, repo });
+    try {
+      return await listGitHubIssues({ token: this.env.GITHUB_TOKEN, owner, repo });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      // A 403/404 on the issues endpoint means the fine-grained PAT can't read
+      // issues on this repo — Contents/Pull-requests access (what the repo picker
+      // + Publisher need) does NOT include Issues. Surface a clean, actionable
+      // message instead of a bare 500 so the picker can tell the human what to fix.
+      if (/HTTP 40[134]|not accessible/i.test(msg)) {
+        throw new ForbiddenException(
+          `GITHUB_TOKEN mangler adgang til issues på ${owner}/${repo}. ` +
+            `Tilføj "Issues: Read" til det fine-grained token på GitHub.`,
+        );
+      }
+      throw new ServiceUnavailableException(msg);
+    }
   }
 
   /**

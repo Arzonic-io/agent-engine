@@ -159,7 +159,17 @@ export async function listGitHubIssues(
     },
   );
   if (!res.ok) {
-    throw new Error(`listing GitHub issues failed (HTTP ${res.status})`);
+    // Include GitHub's own message (e.g. "Resource not accessible by personal
+    // access token") so the caller can tell a permission gap from a real outage.
+    const body = await res.text().catch(() => "");
+    let detail = "";
+    try {
+      const j = JSON.parse(body) as { message?: string };
+      if (j?.message) detail = `: ${j.message}`;
+    } catch {
+      /* non-JSON body — the status alone has to do */
+    }
+    throw new Error(`listing GitHub issues failed (HTTP ${res.status})${detail}`);
   }
   const rows = (await res.json()) as RawIssue[];
   if (!Array.isArray(rows)) return [];

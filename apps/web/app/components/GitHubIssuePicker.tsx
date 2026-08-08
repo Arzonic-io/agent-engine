@@ -49,7 +49,18 @@ export function GitHubIssuePicker({
           if (alive) setTokenMissing(true);
           return;
         }
-        if (!res.ok) throw new Error(await res.text());
+        if (!res.ok) {
+          // The API returns { message } (NestJS shape) — show that, not raw JSON.
+          const body = await res.text();
+          let msg = body;
+          try {
+            const j = JSON.parse(body) as { message?: string };
+            if (j?.message) msg = j.message;
+          } catch {
+            /* non-JSON — show the body as-is */
+          }
+          throw new Error(msg);
+        }
         const data = (await res.json()) as GitHubIssue[];
         if (alive) setIssues(data);
       } catch (e) {
