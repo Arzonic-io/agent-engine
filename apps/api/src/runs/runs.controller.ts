@@ -50,7 +50,12 @@ export class RunsController {
 
   @Sse(":id/stream")
   stream(@Param("id") id: string): Observable<MessageEvent> {
-    return this.runs.events(id).pipe(map((event) => ({ data: event })));
+    // `id:` carries the run's own sequence number so a reconnecting client can
+    // recognise the replayed prefix instead of appending it twice. Heartbeats
+    // (seq 0) are deliberately id-less — they aren't part of the history.
+    return this.runs
+      .events(id)
+      .pipe(map((event) => (event.seq ? { data: event, id: String(event.seq) } : { data: event })));
   }
 
   @Delete(":id")

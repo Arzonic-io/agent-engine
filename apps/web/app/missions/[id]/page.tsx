@@ -84,6 +84,8 @@ export default function MissionDashboard({ params }: { params: Promise<{ id: str
   const [mission, setMission] = useState<MissionDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [deciding, setDeciding] = useState<string | null>(null);
+  /** Per-item note typed alongside a Godkend/Afvis decision, keyed by item id. */
+  const [itemNotes, setItemNotes] = useState<Record<string, string>>({});
   const [stopping, setStopping] = useState(false);
   // Edit-team-on-a-running-mission state.
   const [teamOpen, setTeamOpen] = useState(false);
@@ -221,11 +223,16 @@ export default function MissionDashboard({ params }: { params: Promise<{ id: str
 
   async function decide(itemId: string, decision: "approve" | "reject") {
     setDeciding(itemId);
+    const notes = itemNotes[itemId]?.trim();
     try {
       await fetch(`/api/missions/${id}/items/${itemId}/decision`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ decision }),
+        body: JSON.stringify(notes ? { decision, notes } : { decision }),
+      });
+      setItemNotes((n) => {
+        const { [itemId]: _sent, ...rest } = n;
+        return rest;
       });
       // Optimistic: reflect immediately; the next snapshot confirms.
       setMission((m) =>
@@ -589,7 +596,18 @@ export default function MissionDashboard({ params }: { params: Promise<{ id: str
                           )}
                         </div>
                         {it.status === "blocked_needs_human" && (
-                          <div className="flex shrink-0 gap-1.5">
+                          <div className="flex shrink-0 items-center gap-1.5">
+                            {/* Same deal as the run gate: a decision can carry a
+                                note, so an approved item is re-attempted with the
+                                correction instead of exactly as it was parked. */}
+                            <input
+                              value={itemNotes[it.id] ?? ""}
+                              onChange={(e) =>
+                                setItemNotes((n) => ({ ...n, [it.id]: e.target.value }))
+                              }
+                              placeholder="Note til teamet (valgfri)…"
+                              className="w-44 rounded-field border border-line bg-ink/50 px-2 py-1 text-xs text-fg placeholder:text-dim/50 focus:border-warning/50 focus:outline-none"
+                            />
                             <button
                               onClick={() => void decide(it.id, "approve")}
                               disabled={deciding === it.id}

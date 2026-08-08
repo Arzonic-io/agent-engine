@@ -20,9 +20,11 @@ import {
   LuFileText,
   LuGavel,
   LuHammer,
+  LuLightbulb,
   LuRefreshCw,
   LuSearch,
   LuTerminal,
+  LuTriangleAlert,
   LuUser,
   LuWrench,
   LuX,
@@ -37,31 +39,47 @@ type FeedItem = RunEvent & { key: string; t: number };
  * in a while — tied loosely to the backend's heartbeat interval (~20s). */
 const STALE_AFTER_MS = 50_000;
 
+/** How long an armed keyboard decision stays armed before it disarms itself. */
+const ARM_TIMEOUT_MS = 4_000;
+
 const AGENT: Record<
   string,
   { color: string; name: string; side: "left" | "right"; Icon: IconType }
 > = {
-  builder: { color: "var(--color-builder)", name: "Builder", side: "left", Icon: LuHammer },
-  analyst: { color: "var(--color-analyst)", name: "Analyst", side: "left", Icon: LuSearch },
-  architect: { color: "var(--color-analyst)", name: "Architect", side: "left", Icon: LuCompass },
-  worker: { color: "var(--color-builder)", name: "Worker", side: "left", Icon: LuWrench },
-  implementer: { color: "var(--color-builder)", name: "Implementer", side: "left", Icon: LuWrench },
+  // One Danish name per role, matching the mission feed and team settings —
+  // the same agent used to be "Builder" here, "Udvikler" there, "Worker" in a
+  // third place, leaving the reader to translate between screens.
+  builder: { color: "var(--color-builder)", name: "Udvikler", side: "left", Icon: LuHammer },
+  analyst: { color: "var(--color-analyst)", name: "Analytiker", side: "left", Icon: LuSearch },
+  architect: { color: "var(--color-analyst)", name: "Arkitekt", side: "left", Icon: LuCompass },
+  worker: { color: "var(--color-builder)", name: "Udvikler", side: "left", Icon: LuWrench },
+  implementer: { color: "var(--color-builder)", name: "Udvikler", side: "left", Icon: LuWrench },
   lead: { color: "var(--color-lead)", name: "Lead", side: "left", Icon: LuCrown },
-  critic: { color: "var(--color-critic)", name: "Critic", side: "right", Icon: LuGavel },
-  human: { color: "var(--color-human)", name: "You", side: "right", Icon: LuUser },
+  critic: { color: "var(--color-critic)", name: "Kritiker", side: "right", Icon: LuGavel },
+  human: { color: "var(--color-human)", name: "Dig", side: "right", Icon: LuUser },
   system: { color: "var(--color-dim)", name: "System", side: "left", Icon: LuTerminal },
 };
 
 const STATUS_LABEL: Record<string, { text: string; cls: string }> = {
-  running: { text: "running", cls: "text-builder" },
-  awaiting_human: { text: "awaiting you", cls: "text-warning" },
-  accepted: { text: "accepted", cls: "text-success" },
-  rejected: { text: "rejected", cls: "text-error" },
-  failed: { text: "failed", cls: "text-error" },
+  running: { text: "kører", cls: "text-builder" },
+  awaiting_human: { text: "venter på dig", cls: "text-warning" },
+  accepted: { text: "godkendt", cls: "text-success" },
+  rejected: { text: "afvist", cls: "text-error" },
+  failed: { text: "fejlet", cls: "text-error" },
 };
 
+/** Time of day only — seconds made "15.07.23" read as a date. */
 const clock = (t: number) =>
-  new Date(t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  new Date(t).toLocaleTimeString("da-DK", { hour: "2-digit", minute: "2-digit" });
+
+/** "1t 4m" / "3m 12s" / "14s" — a duration, not a clock reading. */
+function duration(ms: number): string {
+  const s = Math.max(0, Math.floor(ms / 1000));
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ${s % 60}s`;
+  return `${Math.floor(m / 60)}t ${m % 60}m`;
+}
 
 /** Strip raw markdown (** , leading bullets) so issues read cleanly in the UI. */
 const cleanIssue = (s: string) =>
@@ -104,23 +122,23 @@ function CopyMenu({ content }: { content: string }) {
       <button
         tabIndex={0}
         className="btn btn-ghost btn-xs gap-1 text-dim hover:text-fg"
-        aria-label="Copy"
+        aria-label="Kopiér"
       >
         <LuCopy className="h-3.5 w-3.5" />
-        {copied ? copied : "Copy"}
+        {copied ? copied : "Kopiér"}
       </button>
       <ul
         tabIndex={0}
         className="menu dropdown-content z-50 mt-1 w-44 rounded-box border border-line bg-elev p-1 shadow-xl"
       >
         <li>
-          <button onClick={() => copy(mdToPlain(content), "Copied ✓")}>
-            <LuFileText className="h-4 w-4" /> Copy as text
+          <button onClick={() => copy(mdToPlain(content), "Kopieret ✓")}>
+            <LuFileText className="h-4 w-4" /> Kopiér som tekst
           </button>
         </li>
         <li>
-          <button onClick={() => copy(content, "Copied ✓")}>
-            <LuCode className="h-4 w-4" /> Copy as markdown
+          <button onClick={() => copy(content, "Kopieret ✓")}>
+            <LuCode className="h-4 w-4" /> Kopiér som markdown
           </button>
         </li>
       </ul>
@@ -143,6 +161,8 @@ export default function RunView() {
   const [tokens, setTokens] = useState(0);
   const [atBottom, setAtBottom] = useState(true);
   const [inspectorOpen, setInspectorOpen] = useState(false);
+  /** Keyboard decision waiting for its confirming second press (see the key handler). */
+  const [armed, setArmed] = useState<"approve" | "reject" | null>(null);
   // Optional LangSmith traces deep link (null = tracing off / no URL configured).
   const [traceUrl, setTraceUrl] = useState<string | null>(null);
   useEffect(() => {
@@ -293,17 +313,28 @@ export default function RunView() {
     return () => clearInterval(t);
   }, [live, refreshDetail]);
 
-  // make sure the gate is impossible to miss on mobile
-  useEffect(() => {
-    if (awaiting) setInspectorOpen(true);
-  }, [awaiting]);
 
-  // elapsed timer
+  // Elapsed — measured from the run's real start (the API's startedAt), not
+  // from when this tab happened to mount, so reopening an old run no longer
+  // reports a few seconds. Falls back to mount time only for runs that predate
+  // timestamp tracking; a finished run shows its final duration and stops.
+  const startedAtMs = useMemo(() => {
+    const t = detail?.startedAt ? Date.parse(detail.startedAt) : NaN;
+    return Number.isNaN(t) ? null : t;
+  }, [detail?.startedAt]);
+
   useEffect(() => {
+    const base = startedAtMs ?? startRef.current;
+    const finished = detail?.finishedAt ? Date.parse(detail.finishedAt) : NaN;
+    if (!live && !Number.isNaN(finished)) {
+      setElapsed(finished - base);
+      return;
+    }
     if (!live) return;
-    const t = setInterval(() => setElapsed(Date.now() - startRef.current), 1000);
+    setElapsed(Date.now() - base);
+    const t = setInterval(() => setElapsed(Date.now() - base), 1000);
     return () => clearInterval(t);
-  }, [live]);
+  }, [live, startedAtMs, detail?.finishedAt]);
 
   // auto-scroll (also follows the live token buffer)
   useEffect(() => {
@@ -358,18 +389,34 @@ export default function RunView() {
     [rerunning, id, router],
   );
 
-  // keyboard: A approve · R reject · G jump to gate
+  // Keyboard: A approve · R reject · G jump to gate. A decision can't be taken
+  // back, so the shortcut arms first and commits on a second press — a stray
+  // keystroke used to approve a run outright. The click path stays one-click.
+  useEffect(() => {
+    if (!armed) return;
+    const t = setTimeout(() => setArmed(null), ARM_TIMEOUT_MS);
+    return () => clearTimeout(t);
+  }, [armed]);
+
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLInputElement)
         return;
-      if (e.key === "a" && awaiting) void decide("approve");
-      if (e.key === "r" && awaiting) void decide("reject");
+      if (e.key === "Escape") setArmed(null);
       if (e.key === "g") gateRef.current?.scrollIntoView({ behavior: "smooth" });
+      if (!awaiting) return;
+      const wanted = e.key === "a" ? "approve" : e.key === "r" ? "reject" : null;
+      if (!wanted) return;
+      if (armed === wanted) {
+        setArmed(null);
+        void decide(wanted);
+      } else {
+        setArmed(wanted);
+      }
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [awaiting, decide]);
+  }, [awaiting, armed, decide]);
 
   // derived inspector data
   // Compares round numbers rather than "whichever source has any match" — a
@@ -429,15 +476,15 @@ export default function RunView() {
     }
     const isTeam = detail?.topology === "team";
     const last = [...feed].reverse().find((f) => f.type === "node" || f.type === "verdict");
-    if (!last) return isTeam ? "Architect is planning" : "Builder is drafting";
-    if (last.type === "verdict") return isTeam ? "Lead is revising" : "Builder is revising";
+    if (!last) return isTeam ? "Arkitekten planlægger" : "Udvikleren skriver";
+    if (last.type === "verdict") return isTeam ? "Lead retter til" : "Udvikleren retter til";
     // last.type === "node" — the team graph is architect → worker(s) → lead →
     // critic → (revise) → lead, so a lead node hands off to critic just like a
     // single-topology builder/analyst does.
     if (last.node === "builder" || last.node === "analyst" || last.node === "lead")
-      return "Critic is reviewing";
-    if (last.node === "architect") return "Worker is building";
-    return `${AGENT[last.node]?.name ?? "Team"} is working`;
+      return "Kritikeren gennemgår";
+    if (last.node === "architect") return "Udvikleren bygger";
+    return `${AGENT[last.node]?.name ?? "Teamet"} arbejder`;
   }, [feed, live, awaiting, detail?.topology, stream.status, stream.lastEventAt, elapsed]);
 
   return (
@@ -448,13 +495,13 @@ export default function RunView() {
           <div className="flex min-w-0 items-center gap-3">
             <Link
               href="/"
-              aria-label="Back to new task"
+              aria-label="Tilbage"
               className="btn btn-ghost btn-sm btn-circle shrink-0 text-dim hover:text-fg"
             >
               <LuArrowLeft className="h-4 w-4" />
             </Link>
             <p className="truncate text-sm font-medium text-fg/90">
-              {detail?.task ?? "Loading…"}
+              {detail?.task ?? "Indlæser…"}
             </p>
           </div>
           <div className="flex shrink-0 items-center gap-2 text-xs">
@@ -495,6 +542,19 @@ export default function RunView() {
           />
         )}
 
+        {/* The decision lives in the main column at every width — it used to sit
+            in the inspector, which only became a static panel at 2xl, so on a
+            normal laptop the run's whole point was hidden behind an edge tab. */}
+        {awaiting && (
+          <GateBar
+            verdict={latestVerdict?.v ?? null}
+            deciding={deciding}
+            armed={armed}
+            onDisarm={() => setArmed(null)}
+            onDecide={decide}
+          />
+        )}
+
         <div ref={scrollRef} onScroll={onScroll} className="min-h-0 flex-1 overflow-y-auto px-6 py-6">
           <div className="mx-auto max-w-3xl space-y-1">
             <Transcript feed={feed} streamStatus={stream.status} onRetry={stream.reconnect} />
@@ -512,7 +572,7 @@ export default function RunView() {
             }}
             className="btn btn-sm btn-primary absolute bottom-5 left-1/2 -translate-x-1/2 gap-1.5 rounded-full shadow-lg"
           >
-            Jump to latest <LuArrowDown className="h-3.5 w-3.5" />
+            Nyeste <LuArrowDown className="h-3.5 w-3.5" />
           </button>
         )}
       </section>
@@ -553,9 +613,6 @@ export default function RunView() {
           inspectorOpen ? "translate-x-0" : "translate-x-full"
         }`}
       >
-        {awaiting && (
-          <GatePanel verdict={latestVerdict?.v ?? null} deciding={deciding} onDecide={decide} />
-        )}
         <ArtifactPanel draft={latestDraft} />
         <RubricPanel verdict={latestVerdict?.v ?? null} round={latestVerdict?.round ?? round} />
         <MetaPanel status={status} round={round} elapsed={elapsed} tokens={tokens} live={live} />
@@ -598,7 +655,7 @@ function Transcript({
         ) : streamStatus === "retrying" ? (
           <p>Genopretter forbindelse…</p>
         ) : (
-          <p>Connecting to the stream…</p>
+          <p>Forbinder til strømmen…</p>
         )}
       </div>,
     );
@@ -610,7 +667,7 @@ function RoundDivider({ round }: { round: number }) {
   return (
     <div className="flex items-center gap-3 py-5">
       <span className="text-[11px] font-semibold uppercase tracking-[0.25em] text-dim">
-        Round {round}
+        Runde {round}
       </span>
       <span className="sweep h-px flex-1 bg-gradient-to-r from-transparent via-line to-transparent" />
     </div>
@@ -634,17 +691,17 @@ function Turn({ item }: { item: FeedItem }) {
           <span
             className={`badge badge-sm border-0 font-bold ${item.pass ? "badge-success" : "badge-warning"}`}
           >
-            {item.pass ? "PASS" : "REVISE"} · {item.score}
+            {item.pass ? "BESTÅET" : "REVIDÉR"} · {item.score}
           </span>
           <span className="text-xs text-dim">
-            {item.issues.length} {item.issues.length === 1 ? "issue" : "issues"}
+            {item.issues.length} {item.issues.length === 1 ? "bemærkning" : "bemærkninger"}
           </span>
         </div>
         {item.issues.length > 0 && (
           <div className="collapse-arrow collapse mt-2 rounded-field border border-line bg-ink/50">
             <input type="checkbox" />
             <div className="collapse-title min-h-0 px-3 py-2 text-sm font-medium text-dim">
-              View {item.issues.length} {item.issues.length === 1 ? "issue" : "issues"}
+              Se {item.issues.length} {item.issues.length === 1 ? "bemærkning" : "bemærkninger"}
             </div>
             <div className="collapse-content px-3 text-sm">
               <ul className="space-y-1 pb-1">
@@ -710,7 +767,7 @@ function Bubble({
           <span className="text-xs font-semibold" style={{ color: meta.color }}>
             {meta.name}
           </span>
-          <span className="text-[11px] text-dim">round {round}</span>
+          <span className="text-[11px] text-dim">runde {round}</span>
           <span className="text-[11px] text-dim/60">{clock(t)}</span>
           {copy && (
             <span className="opacity-0 transition group-hover:opacity-100">
@@ -742,7 +799,7 @@ function StreamingBubble({ node, content }: { node: "builder" | "analyst"; conte
           <span className="text-xs font-semibold" style={{ color: meta.color }}>
             {meta.name}
           </span>
-          <span className="shimmer-text text-[11px]">writing…</span>
+          <span className="shimmer-text text-[11px]">skriver…</span>
         </div>
         <div className="inline-block rounded-box border border-line bg-elev px-4 py-3 text-left">
           {content ? <Md>{content}</Md> : <span className="text-dim">…</span>}
@@ -801,10 +858,10 @@ function Panel({
 
 function ArtifactPanel({ draft }: { draft: { content: string; round: number } | null }) {
   return (
-    <Panel title="Artifact" action={draft ? <CopyMenu content={draft.content} /> : undefined}>
+    <Panel title="Resultat" action={draft ? <CopyMenu content={draft.content} /> : undefined}>
       {draft ? (
         <>
-          <div className="mb-2 text-[11px] text-dim">updated · round {draft.round}</div>
+          <div className="mb-2 text-[11px] text-dim">opdateret · runde {draft.round}</div>
           <div className="max-h-72 overflow-y-auto rounded-field bg-ink/60 p-3">
             <Md>{draft.content}</Md>
           </div>
@@ -822,7 +879,7 @@ function ArtifactPanel({ draft }: { draft: { content: string; round: number } | 
 
 function RubricPanel({ verdict, round }: { verdict: ApiVerdict | null; round: number }) {
   return (
-    <Panel title="Rubric" accent="var(--color-critic)">
+    <Panel title="Kvalitetskrav" accent="var(--color-critic)">
       {verdict ? (
         <div className="space-y-3">
           <div className="flex items-center gap-4">
@@ -844,9 +901,9 @@ function RubricPanel({ verdict, round }: { verdict: ApiVerdict | null; round: nu
               <span
                 className={`badge border-0 font-bold ${verdict.pass ? "badge-success" : "badge-warning"}`}
               >
-                {verdict.pass ? "PASS" : "NEEDS WORK"}
+                {verdict.pass ? "BESTÅET" : "MANGLER"}
               </span>
-              <p className="mt-1 text-[11px] text-dim">round {round}</p>
+              <p className="mt-1 text-[11px] text-dim">runde {round}</p>
             </div>
           </div>
 
@@ -874,16 +931,25 @@ function RubricPanel({ verdict, round }: { verdict: ApiVerdict | null; round: nu
             </ul>
           )}
 
+          {/* A passing verdict's remaining notes are improvements, not blockers —
+              labelling them "BLOCKERS ✗" next to a green PASS said two opposite
+              things at once. Same list, honest name and tone per outcome. */}
           <div>
             <p className="mb-1.5 text-[11px] uppercase tracking-wide text-dim">
-              {verdict.issues.length > 0
-                ? `Blockers · ${verdict.issues.length}`
-                : "No blockers"}
+              {verdict.issues.length === 0
+                ? "Ingen bemærkninger"
+                : verdict.pass
+                  ? `Forslag · ${verdict.issues.length}`
+                  : `Blokeringer · ${verdict.issues.length}`}
             </p>
             <ul className="max-h-60 space-y-1.5 overflow-y-auto pr-1">
               {verdict.issues.map((iss, i) => (
                 <li key={i} className="flex gap-2 text-[13px] leading-snug text-fg/75">
-                  <LuX className="mt-0.5 h-3.5 w-3.5 shrink-0 text-critic" />
+                  {verdict.pass ? (
+                    <LuLightbulb className="mt-0.5 h-3.5 w-3.5 shrink-0 text-dim" />
+                  ) : (
+                    <LuX className="mt-0.5 h-3.5 w-3.5 shrink-0 text-critic" />
+                  )}
                   <span className="line-clamp-4">{cleanIssue(iss)}</span>
                 </li>
               ))}
@@ -891,7 +957,7 @@ function RubricPanel({ verdict, round }: { verdict: ApiVerdict | null; round: nu
           </div>
         </div>
       ) : (
-        <p className="text-sm text-dim">Awaiting the first verdict…</p>
+        <p className="text-sm text-dim">Venter på kritikerens første vurdering…</p>
       )}
     </Panel>
   );
@@ -947,16 +1013,15 @@ function MetaPanel({
   tokens: number;
   live: boolean;
 }) {
-  const secs = Math.floor(elapsed / 1000);
-  const time = secs > 0 ? `${Math.floor(secs / 60)}m ${secs % 60}s` : "—";
+  const time = elapsed > 0 ? duration(elapsed) : "—";
   const tok = tokens >= 1000 ? `${(tokens / 1000).toFixed(1)}k` : String(tokens);
   return (
-    <Panel title="Run">
+    <Panel title="Kørsel">
       <dl className="grid grid-cols-2 gap-3 text-center">
         <Stat label="status" value={STATUS_LABEL[status]?.text ?? status} cls={STATUS_LABEL[status]?.cls} />
-        <Stat label="round" value={String(round)} />
+        <Stat label="runde" value={String(round)} />
         <Stat label="tokens" value={tok} />
-        <Stat label="elapsed" value={time} />
+        <Stat label="varighed" value={time} />
       </dl>
     </Panel>
   );
@@ -971,65 +1036,96 @@ function Stat({ label, value, cls }: { label: string; value: string; cls?: strin
   );
 }
 
-function GatePanel({
+/**
+ * The human gate, as a bar at the top of the run — not a panel in the
+ * inspector. Everything needed to decide is here: what the critic concluded,
+ * a note field, and the three actions the loop actually accepts.
+ */
+function GateBar({
   verdict,
   deciding,
+  armed,
+  onDisarm,
   onDecide,
 }: {
   verdict: ApiVerdict | null;
   deciding: boolean;
+  armed: "approve" | "reject" | null;
+  onDisarm: () => void;
   onDecide: (d: "approve" | "reject" | "revise", notes?: string) => void;
 }) {
   const [notes, setNotes] = useState("");
+  const summary = verdict
+    ? verdict.pass
+      ? `Kritikeren bestod arbejdet (score ${verdict.score})${
+          verdict.issues.length > 0
+            ? ` med ${verdict.issues.length} forslag`
+            : ""
+        }.`
+      : `Score ${verdict.score} · ${verdict.issues.length} ${
+          verdict.issues.length === 1 ? "blokering" : "blokeringer"
+        } tilbage.`
+    : "Kørslen er sat på pause og venter på din beslutning.";
+
   return (
-    <div className="rounded-box border border-warning/50 bg-warning/5 p-4 shadow-lg shadow-warning/5 ring-1 ring-warning/20">
-      <div className="mb-2 flex items-center gap-2">
-        <span className="pulse-dot inline-block h-2 w-2 rounded-full bg-warning" />
-        <span className="text-[11px] font-semibold uppercase tracking-[0.2em] text-warning">
-          Human gate
-        </span>
-      </div>
-      <p className="mb-3 text-sm text-fg/85">
-        {verdict
-          ? verdict.pass
-            ? `Rubric passed (score ${verdict.score}). Accept, or send notes for another round.`
-            : `Score ${verdict.score}, ${verdict.issues.length} open issue(s). Your call.`
-          : "The loop is paused for your decision."}
-      </p>
+    <div className="shrink-0 border-b border-warning/40 bg-warning/5 px-5 py-3">
+      <div className="mx-auto flex max-w-3xl flex-col gap-2.5">
+        <div className="flex items-center gap-2">
+          <span className="pulse-dot inline-block h-2 w-2 rounded-full bg-warning" />
+          <span className="text-[11px] font-semibold uppercase tracking-[0.2em] text-warning">
+            Venter på dig
+          </span>
+          <span className="truncate text-sm text-fg/85">{summary}</span>
+        </div>
 
-      <textarea
-        value={notes}
-        onChange={(e) => setNotes(e.target.value)}
-        rows={2}
-        placeholder="Notes for the agents (optional) — used when you Revise…"
-        className="mb-3 w-full resize-none rounded-field border border-line bg-ink/50 px-3 py-2 text-sm text-fg placeholder:text-dim/50 focus:border-warning/50 focus:outline-none"
-      />
+        <div className="flex flex-wrap items-center gap-2">
+          <input
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            placeholder="Note til teamet (bruges når du reviderer)…"
+            className="min-w-0 flex-1 rounded-field border border-line bg-ink/50 px-3 py-2 text-sm text-fg placeholder:text-dim/50 focus:border-warning/50 focus:outline-none"
+          />
+          <button
+            onClick={() => onDecide("revise", notes)}
+            disabled={deciding || !notes.trim()}
+            title={notes.trim() ? "Send noten og kør en runde til" : "Skriv en note først"}
+            className="btn btn-warning btn-sm gap-1.5 font-bold"
+          >
+            <LuRefreshCw className="h-4 w-4" /> Revidér
+          </button>
+          <button
+            onClick={() => onDecide("approve")}
+            disabled={deciding}
+            className="btn btn-success btn-sm gap-1.5 font-bold"
+          >
+            {deciding ? (
+              <span className="loading loading-spinner loading-xs" />
+            ) : (
+              <LuCheck className="h-4 w-4" />
+            )}
+            Godkend <kbd className="kbd kbd-xs opacity-70">A</kbd>
+          </button>
+          <button
+            onClick={() => onDecide("reject")}
+            disabled={deciding}
+            className="btn btn-outline btn-error btn-sm gap-1.5 font-bold"
+          >
+            <LuX className="h-4 w-4" /> Afvis <kbd className="kbd kbd-xs opacity-70">R</kbd>
+          </button>
+        </div>
 
-      <div className="flex flex-wrap gap-2">
-        <button
-          onClick={() => onDecide("approve")}
-          disabled={deciding}
-          className="btn btn-success btn-sm flex-1 gap-1.5 font-bold"
-        >
-          {deciding ? <span className="loading loading-spinner loading-xs" /> : <LuCheck className="h-4 w-4" />}
-          Approve <kbd className="kbd kbd-xs opacity-70">A</kbd>
-        </button>
-        <button
-          onClick={() => onDecide("reject")}
-          disabled={deciding}
-          className="btn btn-outline btn-error btn-sm flex-1 gap-1.5 font-bold"
-        >
-          <LuX className="h-4 w-4" />
-          Reject <kbd className="kbd kbd-xs opacity-70">R</kbd>
-        </button>
-        <button
-          onClick={() => onDecide("revise", notes)}
-          disabled={deciding || !notes.trim()}
-          className="btn btn-warning btn-sm btn-block gap-1.5 font-bold"
-        >
-          <LuRefreshCw className="h-4 w-4" />
-          Revise with notes
-        </button>
+        {armed && (
+          <div className="flex items-center gap-2 text-xs text-warning">
+            <LuTriangleAlert className="h-3.5 w-3.5 shrink-0" />
+            <span>
+              Tryk <kbd className="kbd kbd-xs">{armed === "approve" ? "A" : "R"}</kbd> igen for at{" "}
+              {armed === "approve" ? "godkende" : "afvise"} — beslutningen kan ikke fortrydes.
+            </span>
+            <button onClick={onDisarm} className="btn btn-ghost btn-xs text-dim hover:text-fg">
+              Fortryd (Esc)
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

@@ -37,6 +37,13 @@ export type UpdateMissionChecksDto = z.infer<typeof UpdateMissionChecksSchema>;
 
 export const MissionItemDecisionSchema = z.object({
   decision: z.enum(["approve", "reject"]),
+  /**
+   * Optional note from the human, appended to the item's detail so the
+   * implementer actually reads it on the next attempt — the run gate has
+   * always accepted notes with a decision; a parked mission item forced the
+   * human to Approve/Reject blind and put the note somewhere else entirely.
+   */
+  notes: z.string().trim().max(2000).optional(),
 });
 export type MissionItemDecisionDto = z.infer<typeof MissionItemDecisionSchema>;
 

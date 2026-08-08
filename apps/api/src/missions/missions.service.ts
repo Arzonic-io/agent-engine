@@ -306,6 +306,16 @@ export class MissionsService {
         `Item ${itemId} is not parked (status: ${item.status})`,
       );
     }
+    // Carry the human's note into the item itself, so an approved item is
+    // re-attempted WITH the correction rather than identically to the attempt
+    // that got parked. Written before the status flip so the worker can never
+    // pick the item up between the two writes and miss it.
+    const note = dto.notes?.trim();
+    if (note) {
+      await backlog.updateItem(itemId, {
+        detail: `${item.detail}\n\nNote fra mennesket: ${note}`.trim(),
+      });
+    }
     const updated =
       dto.decision === "approve"
         ? await approveParkedItem(backlog, itemId)

@@ -85,12 +85,23 @@ const RUBRICS: Record<string, Rubric> = {
   default: defaultRubric,
 };
 
+/**
+ * A wire event plus the monotonic per-run sequence number the SSE layer sends
+ * as the frame's `id:`. Reconnects replay the buffered history, so without a
+ * stable id per event a client can only key on arrival order — and appends the
+ * whole replayed prefix a second time (the "every system message shows twice"
+ * bug). The id travels *with* the buffered event so it survives replay.
+ */
+type StampedRunEvent = RunEvent & { seq: number };
+
 interface RunMeta {
   runId: string;
   task: string;
   createdAt: string;
   status: ApiRunStatus;
-  events: ReplaySubject<RunEvent>;
+  /** Last sequence number handed out by `emit()` for this run. */
+  seq: number;
+  events: ReplaySubject<StampedRunEvent>;
   abort: AbortController;
   /** The exact compiled graph this run uses — reused for resume so topology matches. */
   graph: AgentGraph;
@@ -453,7 +464,8 @@ export class RunsService implements OnModuleDestroy {
       task,
       createdAt: new Date().toISOString(),
       status: "running",
-      events: new ReplaySubject<RunEvent>(EVENTS_REPLAY_BUFFER),
+      seq: 0,
+      events: new ReplaySubject<StampedRunEvent>(EVENTS_REPLAY_BUFFER),
       abort: new AbortController(),
       graph,
       projectId,
@@ -466,6 +478,11 @@ export class RunsService implements OnModuleDestroy {
     void this.driveWithGuardrails(graph, meta, input);
 
     return { runId, threadId: runId, status: "running" };
+  }
+
+  /** Publish one wire event, stamped with this run's next sequence number. */
+  private emit(meta: RunMeta, event: RunEvent): void {
+    meta.events.next({ ...event, seq: ++meta.seq });
   }
 
   /**
@@ -488,7 +505,7 @@ export class RunsService implements OnModuleDestroy {
       await this.consume(graph, meta, input);
     } catch (err) {
       meta.status = "failed";
-      meta.events.next({
+      this.emit(meta, {
         type: "error",
         message: meta.abort.signal.aborted
           ? `Run timed out after ${this.env.RUN_TIMEOUT_MS} ms`
@@ -529,7 +546,7 @@ export class RunsService implements OnModuleDestroy {
         // structured JSON, and the analyst makes many intermediate tool-deciding
         // calls — neither is useful to stream token-by-token.
         if (text && node === "builder") {
-          meta.events.next({ type: "token", node, content: text });
+          this.emit(meta, { type: "token", node, content: text });
         }
         continue;
       }
@@ -538,7 +555,7 @@ export class RunsService implements OnModuleDestroy {
       for (const [node, patch] of Object.entries(update)) {
         if (node === "builder" && patch) {
           // Finalize the streamed message with the authoritative full draft.
-          meta.events.next({
+          this.emit(meta, {
             type: "node",
             node: "builder",
             round: patch.round ?? 0,
@@ -549,7 +566,7 @@ export class RunsService implements OnModuleDestroy {
           // analyst / architect / worker / lead surface their work via the
           // messages they returned (tool traces, plan, step outputs, synthesis).
           for (const m of patch.messages ?? []) {
-            meta.events.next({
+            this.emit(meta, {
               type: "node",
               node: node as "analyst" | "architect" | "worker" | "lead",
               round: patch.round ?? 0,
@@ -558,7 +575,7 @@ export class RunsService implements OnModuleDestroy {
             });
           }
         } else if (node === "critic" && patch?.verdict) {
-          meta.events.next({
+          this.emit(meta, {
             type: "verdict",
             round: await this.currentRound(graph, meta.runId),
             pass: patch.verdict.pass,
@@ -571,7 +588,7 @@ export class RunsService implements OnModuleDestroy {
           // retrieveContext / router / persistMemory — surface their system note
           // (e.g. "Router → team: …", "Retrieved brief + N memories").
           for (const m of patch.messages ?? []) {
-            meta.events.next({
+            this.emit(meta, {
               type: "node",
               node: "system",
               round: patch.round ?? 0,
@@ -590,13 +607,13 @@ export class RunsService implements OnModuleDestroy {
 
     if (interrupted) {
       meta.status = "awaiting_human";
-      meta.events.next({ type: "awaiting_human", runId: meta.runId });
+      this.emit(meta, { type: "awaiting_human", runId: meta.runId });
       void this.syncTask(meta, state);
       return; // subject stays open — decision() continues it
     }
 
     meta.status = this.mapStatus(state);
-    meta.events.next({
+    this.emit(meta, {
       type: "done",
       status: meta.status,
       result: { draft: state.draft, verdict: state.verdict },
@@ -652,6 +669,11 @@ export class RunsService implements OnModuleDestroy {
     const routerReason = routerMsg
       ? routerMsg.content.replace(/^Router → (?:single|team): /, "")
       : null;
+    // Real wall-clock bounds for the run, so the UI can show how long it
+    // actually took rather than how long the tab has been open. The persisted
+    // task row outlives the in-memory registry (which the sweeper evicts), so
+    // it wins for `startedAt`; both stay null for pre-timestamp runs.
+    const row = await this.taskRow(runId);
     return {
       runId,
       threadId: runId,
@@ -664,7 +686,19 @@ export class RunsService implements OnModuleDestroy {
       messages: state.messages,
       topology: routerMsg ? state.topology : null,
       routerReason,
+      startedAt: row?.createdAt ?? this.runs.get(runId)?.createdAt ?? null,
+      finishedAt: row?.finishedAt ?? null,
     };
+  }
+
+  /** The persisted task row for a run (null when memory is off or it's ad-hoc). */
+  private async taskRow(runId: string) {
+    if (!this.memory) return null;
+    try {
+      return await this.memory.getTask(runId);
+    } catch {
+      return null; /* best-effort — the UI just falls back to "—" */
+    }
   }
 
   list(): RunSummary[] {
@@ -720,7 +754,8 @@ export class RunsService implements OnModuleDestroy {
         task: state.task,
         createdAt: new Date().toISOString(),
         status: "awaiting_human",
-        events: new ReplaySubject<RunEvent>(EVENTS_REPLAY_BUFFER),
+        seq: 0,
+        events: new ReplaySubject<StampedRunEvent>(EVENTS_REPLAY_BUFFER),
         abort: new AbortController(),
         graph,
         projectId: state.projectId || undefined,
@@ -744,7 +779,7 @@ export class RunsService implements OnModuleDestroy {
     return { runId, status: meta.status };
   }
 
-  events(runId: string): Observable<RunEvent> {
+  events(runId: string): Observable<StampedRunEvent> {
     const meta = this.runs.get(runId);
     if (!meta) {
       throw new NotFoundException(
@@ -761,8 +796,11 @@ export class RunsService implements OnModuleDestroy {
     // completes once every source does — that would leave the HTTP response
     // (and the CLI SDK's stream readers, which wait for the body to end) open
     // forever after a run has actually finished.
+    // seq 0 marks "not part of the run's event history" — heartbeats are
+    // per-subscription liveness, never replayed, so they carry no SSE id and
+    // can't disturb a reconnecting client's dedupe cursor.
     const heartbeat$ = interval(this.env.RUN_HEARTBEAT_MS).pipe(
-      map((): RunEvent => ({ type: "heartbeat" })),
+      map((): StampedRunEvent => ({ type: "heartbeat", seq: 0 })),
       takeUntil(events$.pipe(ignoreElements())),
     );
     return merge(events$, heartbeat$);

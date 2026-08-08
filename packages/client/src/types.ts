@@ -70,6 +70,10 @@ export interface RunDetail {
   topology: "single" | "team" | null;
   /** One-sentence reason the router gave for its choice; null when no router ran. */
   routerReason: string | null;
+  /** When the run started (ISO); null when it predates timestamp tracking. */
+  startedAt: string | null;
+  /** When the run reached a terminal status (ISO); null while still open. */
+  finishedAt: string | null;
 }
 
 export interface RunSummary {

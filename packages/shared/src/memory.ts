@@ -3,6 +3,9 @@ import pg from "pg";
 
 const { Pool } = pg;
 
+/** Task statuses a run never leaves — the point where `finished_at` is stamped. */
+const TERMINAL_TASK_STATUSES = new Set(["accepted", "rejected", "failed"]);
+
 export interface Project {
   id: string;
   name: string;
@@ -20,6 +23,8 @@ export interface Task {
   draft: string | null;
   verdict: unknown;
   createdAt: string;
+  /** When the run reached a terminal status; null while it is still open. */
+  finishedAt: string | null;
 }
 
 /** Lightweight rollups the composer shows before the user types. */
@@ -121,6 +126,12 @@ export class MemoryService {
         verdict     jsonb,
         created_at  timestamptz NOT NULL DEFAULT now()
       )`);
+    // Added after the table shipped — CREATE TABLE IF NOT EXISTS never retrofits
+    // a column, so an existing DB needs this to record when a run actually ended
+    // (the run view's "varighed" reads created_at → finished_at, not wall clock).
+    await this.pool.query(
+      `ALTER TABLE tasks ADD COLUMN IF NOT EXISTS finished_at timestamptz`,
+    );
     // Self-heal: guarantee a task is deleted with its project even on a `tasks`
     // table created before ON DELETE CASCADE was in the schema — `CREATE TABLE IF
     // NOT EXISTS` never retrofits a constraint, so an older DB (e.g. the VPS) could
@@ -286,6 +297,11 @@ export class MemoryService {
       sets.push(`${col} = $${i++}`);
       vals.push(k === "verdict" ? JSON.stringify(v) : v);
     }
+    // Stamp the end of the run the first time it lands on a terminal status —
+    // COALESCE keeps the original moment if a later write repeats the status.
+    if (patch.status && TERMINAL_TASK_STATUSES.has(patch.status)) {
+      sets.push(`finished_at = COALESCE(finished_at, now())`);
+    }
     if (sets.length === 0) return;
     vals.push(id);
     await this.pool.query(`UPDATE tasks SET ${sets.join(", ")} WHERE id = $${i}`, vals);
@@ -320,6 +336,12 @@ export class MemoryService {
       status: r.status,
       createdAt: new Date(r.created_at).toISOString(),
     }));
+  }
+
+  /** A single task row by id (= its runId), or null. Source of a run's real timestamps. */
+  async getTask(id: string): Promise<Task | null> {
+    const { rows } = await this.pool.query(`SELECT * FROM tasks WHERE id=$1`, [id]);
+    return rows[0] ? this.mapTask(rows[0]) : null;
   }
 
   async listTasks(projectId: string): Promise<Task[]> {
@@ -389,6 +411,7 @@ export class MemoryService {
       draft: r.draft,
       verdict: r.verdict,
       createdAt: new Date(r.created_at).toISOString(),
+      finishedAt: r.finished_at ? new Date(r.finished_at).toISOString() : null,
     };
   }
 }
