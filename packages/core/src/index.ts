@@ -160,16 +160,26 @@ export {
   AgentMessageSchema,
   CriterionResultSchema,
   GraphState,
+  PlanStepSchema,
   RunStateSchema,
   RunStatusSchema,
   VerdictSchema,
   type AgentMessage,
   type CriterionResult,
+  formatPlanStep,
+  toPlanStep,
   type GraphStateType,
+  type PlanStep,
   type RunState,
   type RunStatus,
   type Verdict,
 } from "./state.js";
+export {
+  buildReadOnlyTools,
+  surveyRepo,
+  type RepoSurveyResult,
+  type SurveyRepoOptions,
+} from "./nodes/repoSurvey.js";
 export type {
   HumanDecision,
   HumanGatePayload,

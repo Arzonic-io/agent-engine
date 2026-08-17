@@ -2,7 +2,7 @@ import type { BaseChatModel } from "@langchain/core/language_models/chat_models"
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import type { RunnableConfig } from "@langchain/core/runnables";
 import { DEFAULT_LLM_CALL_TIMEOUT_MS, withLlmTimeout } from "../llmCallTimeout.js";
-import type { GraphStateType } from "../state.js";
+import { formatPlanStep, toPlanStep, type GraphStateType } from "../state.js";
 
 const SYSTEM_PROMPT = `You are a Worker on an agent team, executing exactly ONE step of a plan.
 Produce the concrete deliverable for your step — the actual content, not a
@@ -21,8 +21,16 @@ export function makeWorkerNode(
     state: GraphStateType,
     config?: RunnableConfig,
   ): Promise<Partial<GraphStateType>> => {
-    const step = state.plan[state.currentStep] ?? "(no step)";
-    const planList = state.plan.map((s, i) => `${i + 1}. ${s}`).join("\n");
+    // Coerce on read: a checkpoint written before the plan became structured is
+    // rehydrated verbatim as string[], bypassing the channel's reducer.
+    const raw = state.plan[state.currentStep];
+    const step = raw ? toPlanStep(raw) : { title: "(no step)", files: [] };
+    // The full plan stays titles-only — the worker needs the shape of the whole,
+    // but only its OWN step's spec. Repeating every step's files/verify would
+    // bloat the prompt with detail for work it must not do.
+    const planList = state.plan
+      .map((s, i) => `${i + 1}. ${toPlanStep(s).title}`)
+      .join("\n");
     const prior = state.stepResults
       .map((r, i) => `## Step ${i + 1}: ${r.step}\n${r.output}`)
       .join("\n\n");
@@ -32,7 +40,7 @@ export function makeWorkerNode(
       state.context ? `# Project context\n${state.context}` : "",
       `# Full plan\n${planList}`,
       prior ? `# Completed so far\n${prior}` : "",
-      `# Your step (${state.currentStep + 1}/${state.plan.length})\n${step}`,
+      `# Your step (${state.currentStep + 1}/${state.plan.length})\n${formatPlanStep(step)}`,
     ].filter(Boolean);
 
     const response = await withLlmTimeout(
@@ -50,7 +58,7 @@ export function makeWorkerNode(
     const tokens = response.usage_metadata?.total_tokens ?? 0;
 
     return {
-      stepResults: [{ step, output }],
+      stepResults: [{ step: step.title, output }],
       draft: output,
       status: "running",
       tokensUsed: state.tokensUsed + tokens,
@@ -58,7 +66,7 @@ export function makeWorkerNode(
         {
           agent: "worker",
           role: "assistant",
-          content: `**Step ${state.currentStep + 1}: ${step}**\n\n${output}`,
+          content: `**Step ${state.currentStep + 1}: ${step.title}**\n\n${output}`,
         },
       ],
     };

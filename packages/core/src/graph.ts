@@ -284,6 +284,13 @@ export interface CreateTeamGraphOptions {
   models?: RoleModels;
   rubric?: Rubric;
   guardrails?: GuardrailConfig;
+  /**
+   * Optional read-only repo access for the Architect. When supplied it surveys
+   * the code before planning, so its steps name real files and real checks —
+   * which is what makes handing execution to a cheaper worker model pay off.
+   * Omit for non-code tasks: the Architect then plans from the task text alone.
+   */
+  repo?: RepoTools;
   checkpointer: BaseCheckpointSaver;
   /** Per-call LLM timeout (ms) for every role. Default DEFAULT_LLM_CALL_TIMEOUT_MS. */
   llmCallTimeoutMs?: number;
@@ -342,7 +349,10 @@ export function createTeamGraph(options: CreateTeamGraphOptions) {
     state.status === "running" ? "lead" : END;
 
   return new StateGraph(GraphState)
-    .addNode("architect", makeArchitectNode(pick("architect"), llmCallTimeoutMs))
+    .addNode(
+      "architect",
+      makeArchitectNode(pick("architect"), { repo: options.repo, llmCallTimeoutMs }),
+    )
     .addNode("worker", makeWorkerNode(pick("worker"), llmCallTimeoutMs))
     .addNode("advance", advance)
     .addNode("lead", makeLeadNode(pick("lead"), llmCallTimeoutMs))
@@ -380,6 +390,11 @@ export interface CreateProjectGraphOptions {
    * a pure no-op, so behavior + cost are unchanged.
    */
   adaptiveRubric?: boolean;
+  /**
+   * Optional read-only repo access for the Architect — see CreateTeamGraphOptions.
+   * Omit for projects that aren't a codebase; the Architect plans from text alone.
+   */
+  repo?: RepoTools;
   /** Per-call LLM timeout (ms) for builder/architect/worker/lead/critic. Default DEFAULT_LLM_CALL_TIMEOUT_MS. */
   llmCallTimeoutMs?: number;
 }
@@ -451,7 +466,10 @@ export function createProjectGraph(options: CreateProjectGraphOptions) {
     .addNode("retrieveContext", makeRetrieveContextNode(memory))
     .addNode("router", makeRouterNode(pick("router")))
     .addNode("builder", makeBuilderNode(pick("builder"), llmCallTimeoutMs))
-    .addNode("architect", makeArchitectNode(pick("architect"), llmCallTimeoutMs))
+    .addNode(
+      "architect",
+      makeArchitectNode(pick("architect"), { repo: options.repo, llmCallTimeoutMs }),
+    )
     .addNode("worker", makeWorkerNode(pick("worker"), llmCallTimeoutMs))
     .addNode("advance", advance)
     .addNode("lead", makeLeadNode(pick("lead"), llmCallTimeoutMs))

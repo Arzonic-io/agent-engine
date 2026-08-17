@@ -5,6 +5,8 @@ import {
   type AIMessage,
 } from "@langchain/core/messages";
 import { z } from "zod";
+import type { RepoTools } from "../tools.js";
+import { surveyRepo } from "./repoSurvey.js";
 import type {
   DecomposedItem,
   DecomposeInput,
@@ -52,7 +54,21 @@ const DecomposeItemSchema = z.object({
     .string()
     .describe("Short unique slug naming this item, e.g. 'schema' — used to declare dependencies."),
   title: z.string().describe("Concrete, imperative, self-contained item title."),
-  detail: z.string().optional().describe("One or two sentences of specifics."),
+  detail: z
+    .string()
+    .optional()
+    .describe("The specifics: what to actually do, and the approach — not a reworded title."),
+  // files/verify are folded INTO `detail` by the guards below rather than stored
+  // as columns: the implementer reads the item as one task string, so a separate
+  // shape would mean a backlog migration for text that ends up concatenated anyway.
+  files: z
+    .array(z.string())
+    .default([])
+    .describe("Exact paths this item creates or changes, taken from the survey — never guessed."),
+  verify: z
+    .string()
+    .optional()
+    .describe("The concrete check that proves this item works — prefer one the survey confirmed exists."),
   priority: z
     .number()
     .int()
@@ -85,6 +101,26 @@ export interface DecomposeGuardOptions {
 }
 
 /**
+ * Flatten an item's specifics into the single `detail` string the backlog stores
+ * and the runner concatenates into the implementer's task. Empty sections are
+ * dropped, so a blind (no-survey) decomposition still yields exactly the old
+ * shape — plain prose, no empty headings.
+ */
+function composeDetail(raw: {
+  detail?: string;
+  files?: string[];
+  verify?: string;
+}): string | undefined {
+  const files = (raw.files ?? []).map((f) => f.trim()).filter(Boolean);
+  const parts = [
+    raw.detail?.trim(),
+    files.length ? `Files: ${files.join(", ")}` : "",
+    raw.verify?.trim() ? `Verify: ${raw.verify.trim()}` : "",
+  ].filter(Boolean);
+  return parts.length ? parts.join("\n") : undefined;
+}
+
+/**
  * Make the model's plan safe deterministically: cap the count, drop empty titles,
  * force unique keys, and strip dependsOn entries that point at unknown keys (or at
  * the item itself). The controller's `createDecomposedItems` then resolves the
@@ -111,7 +147,7 @@ export function applyDecomposeGuards(
     items.push({
       key,
       title,
-      detail: raw.detail?.trim() || undefined,
+      detail: composeDetail(raw),
       priority: raw.priority,
       dependsOn: raw.dependsOn ?? [],
       risk: raw.risk,
@@ -163,7 +199,36 @@ function buildPrompt(input: DecomposeInput): string {
     .join("\n\n");
 }
 
-export interface MakeDecomposerOptions extends DecomposeGuardOptions {}
+/**
+ * Appended when a survey succeeded. A mission's backlog is the highest-leverage
+ * handoff in the system: every item is executed later, in a fresh worktree, by an
+ * implementer that starts with no memory of this planning step. Whatever the
+ * planner knows and does not write down here is re-derived per item — paid for
+ * once at planning and again at every execution.
+ */
+const GROUNDED_PROMPT = `
+
+A survey of the actual codebase is provided below. Plan against it, not against
+assumptions. Each item is handed to an implementer that starts fresh in a clean
+worktree with no memory of this planning — so put what it needs INTO the item:
+
+- "files": the exact paths, taken from the survey. Never invent a path.
+- "detail": what to actually do there, and the approach.
+- "verify": the check that proves it — prefer one the survey confirmed exists.
+
+Leave a field out rather than guessing. A missing field costs the implementer one
+look; a wrong one sends it to the wrong file.`;
+
+export interface MakeDecomposerOptions extends DecomposeGuardOptions {
+  /**
+   * Read-only repo access. When present the planner SURVEYS the code before
+   * decomposing, so items name real files and real checks instead of describing
+   * work in the abstract. Omit to keep the original blind behaviour.
+   */
+  repo?: RepoTools;
+  /** Per-call LLM timeout for the survey loop. */
+  llmCallTimeoutMs?: number;
+}
 
 export function makeDecomposer(
   model: BaseChatModel,
@@ -173,15 +238,39 @@ export function makeDecomposer(
     name: "decompose",
     includeRaw: true,
   });
+  const { repo, llmCallTimeoutMs } = options;
 
   return {
     async decompose(input: DecomposeInput): Promise<DecomposeResult> {
+      // Best-effort by contract — a failed survey degrades to blind planning
+      // rather than blocking a mission from starting at all.
+      const surveyed = repo
+        ? await surveyRepo({
+            model,
+            repo,
+            brief: [
+              input.mission.goal,
+              input.mission.acceptanceCriteria.length
+                ? `Acceptance criteria:\n${input.mission.acceptanceCriteria.map((c) => `- ${c}`).join("\n")}`
+                : "",
+            ]
+              .filter(Boolean)
+              .join("\n\n"),
+            llmCallTimeoutMs,
+          })
+        : { survey: "", tokensUsed: 0 };
+
+      const prompt = surveyed.survey
+        ? `${buildPrompt(input)}\n\n# Survey of the codebase (verified — plan against this)\n${surveyed.survey}`
+        : buildPrompt(input);
+
       const { raw, parsed } = await structured.invoke([
-        new SystemMessage(SYSTEM_PROMPT),
-        new HumanMessage(buildPrompt(input)),
+        new SystemMessage(SYSTEM_PROMPT + (surveyed.survey ? GROUNDED_PROMPT : "")),
+        new HumanMessage(prompt),
       ]);
       const output = DecomposeOutputSchema.parse(parsed);
-      const tokens = (raw as AIMessage).usage_metadata?.total_tokens ?? 0;
+      const tokens =
+        surveyed.tokensUsed + ((raw as AIMessage).usage_metadata?.total_tokens ?? 0);
       return applyDecomposeGuards(output, tokens, options);
     },
   };

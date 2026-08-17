@@ -22,6 +22,53 @@ export type AgentMessage = z.infer<typeof AgentMessageSchema>;
 export const StepResultSchema = z.object({ step: z.string(), output: z.string() });
 export type StepResult = z.infer<typeof StepResultSchema>;
 
+/**
+ * One step of an architect's plan. `title` alone is what a plan used to be — a
+ * bare imperative sentence. The rest is the handoff: a worker on a CHEAPER model
+ * should be able to execute this step without re-deriving what the architect
+ * already worked out. When only `title` is set the step degrades to the old
+ * behaviour, which is what makes a blind (no-repo) architect still valid.
+ */
+export const PlanStepSchema = z.object({
+  title: z.string().describe("The step as one concrete, imperative sentence."),
+  files: z
+    .array(z.string())
+    .default([])
+    .describe("Exact paths this step creates or changes, as verified in the repo."),
+  change: z
+    .string()
+    .optional()
+    .describe("What specifically to do in those files — the approach, not a restatement of the title."),
+  verify: z
+    .string()
+    .optional()
+    .describe("The concrete check that proves this step works, e.g. a real allowlisted check name."),
+  done: z.string().optional().describe("The observable condition that makes this step finished."),
+});
+export type PlanStep = z.infer<typeof PlanStepSchema>;
+
+/**
+ * Accept both plan shapes. Checkpoints written before the plan became structured
+ * hold `string[]`, and LangGraph rehydrates them verbatim on resume — coercing
+ * here (rather than migrating stored state) means an in-flight run resumes into
+ * the new code instead of crashing on `step.title` of a string.
+ */
+export function toPlanStep(step: PlanStep | string): PlanStep {
+  return typeof step === "string" ? { title: step, files: [] } : step;
+}
+
+/** Render a step for a prompt: the title alone, or the full brief when there is one. */
+export function formatPlanStep(step: PlanStep | string): string {
+  const s = toPlanStep(step);
+  const parts = [
+    s.files.length ? `Files: ${s.files.join(", ")}` : "",
+    s.change ? `Change: ${s.change}` : "",
+    s.verify ? `Verify: ${s.verify}` : "",
+    s.done ? `Done when: ${s.done}` : "",
+  ].filter(Boolean);
+  return parts.length ? `${s.title}\n${parts.map((p) => `  - ${p}`).join("\n")}` : s.title;
+}
+
 export const CriterionResultSchema = z.object({
   id: z.string(),
   label: z.string(),
@@ -91,8 +138,10 @@ export const GraphState = Annotation.Root({
     default: () => "",
   }),
   // ── team mode (architect → workers → lead) ──
-  plan: Annotation<string[]>({
-    reducer: (_a, b) => b,
+  // Reads tolerate `string[]` from pre-structured checkpoints (see `toPlanStep`);
+  // the reducer normalises on write so everything downstream sees PlanStep.
+  plan: Annotation<PlanStep[], ReadonlyArray<PlanStep | string>>({
+    reducer: (_a, b) => b.map(toPlanStep),
     default: () => [],
   }),
   currentStep: Annotation<number>({

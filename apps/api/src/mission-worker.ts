@@ -28,6 +28,7 @@ import {
   createMissionEvidence,
   createVerifier,
   createWebhookNotifier,
+  createRepoTools,
   createWritableRepoTools,
   createWorktreeManager,
   ensureGitBranch,
@@ -253,7 +254,16 @@ async function main(): Promise<void> {
       });
       // The decomposer grows the initial backlog from the goal (M3 Trin 1), only
       // when the backlog is empty (a resume / hand-seed never re-plans).
-      const decomposer = makeDecomposer(pickModel(model, "decompose", missionModels));
+      // It plans against the REAL repo: read-only tools rooted at the mission
+      // checkout, so items name files and checks that actually exist instead of
+      // describing work in the abstract. Read-only by type — a planner cannot
+      // write, and each item still runs isolated in its own worktree.
+      // Best-effort inside the node: if the survey fails, it plans blind rather
+      // than blocking the mission from starting.
+      const decomposer = makeDecomposer(pickModel(model, "decompose", missionModels), {
+        repo: createRepoTools(mission.repoPath, { allowedChecks: env.REPO_ALLOWED_CHECKS }),
+        llmCallTimeoutMs: env.LLM_CALL_TIMEOUT_MS,
+      });
       // The project-level rubric assessor (rubric-driven "done"): at the idle
       // boundary it scores the WHOLE project against the rubric, grounded in the
       // mission branch's real accumulated diff. A pass ends the mission "done";
