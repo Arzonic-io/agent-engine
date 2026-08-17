@@ -12,6 +12,7 @@ import {
   resolveProjectRubric,
   runMission,
   RubricSchema,
+  surveyRepo,
   type MissionGovernors,
   type Rubric,
   type RunnableMissionGraph,
@@ -212,8 +213,21 @@ async function main(): Promise<void> {
     digestTimer.unref?.();
   }
 
+  /**
+   * One repo survey per mission, reused across worker ticks and across every item
+   * in the mission. Surveying is a real LLM cost, and without this cache it would
+   * be paid again on each tick — while the thing it describes barely moves. The
+   * TTL bounds drift: items merge into the mission branch as the night goes on, so
+   * an unbounded cache would eventually describe code that has changed underneath
+   * it. Keyed by mission, cleared when a mission leaves `running`.
+   */
+  const surveys = new Map<string, { survey: string; at: number }>();
+
   while (!stopping) {
     const running = (await backlog.listMissions()).filter((m) => m.status === "running");
+    // Don't leak survey text for missions that finished or were stopped.
+    const runningIds = new Set(running.map((m) => m.id));
+    for (const id of surveys.keys()) if (!runningIds.has(id)) surveys.delete(id);
     // The UI-editable global default team config — re-read each scan so a change
     // in settings takes effect on the next mission iteration.
     const globalDefault = await settings.getRoleModels();
@@ -254,14 +268,33 @@ async function main(): Promise<void> {
       });
       // The decomposer grows the initial backlog from the goal (M3 Trin 1), only
       // when the backlog is empty (a resume / hand-seed never re-plans).
-      // It plans against the REAL repo: read-only tools rooted at the mission
-      // checkout, so items name files and checks that actually exist instead of
-      // describing work in the abstract. Read-only by type — a planner cannot
-      // write, and each item still runs isolated in its own worktree.
-      // Best-effort inside the node: if the survey fails, it plans blind rather
-      // than blocking the mission from starting.
+      // Survey the REAL repo once, then spend it everywhere: the planner plans
+      // against it, and every item carries it into its own worktree. Read-only by
+      // type (createRepoTools has no write methods), and best-effort — a failed
+      // survey yields "" and everything downstream degrades to the blind
+      // behaviour rather than blocking the mission.
+      const cached = surveys.get(mission.id);
+      const fresh =
+        cached && env.MISSION_SURVEY_TTL_MS > 0 && Date.now() - cached.at < env.MISSION_SURVEY_TTL_MS;
+      if (!fresh) {
+        const result = await surveyRepo({
+          model: pickModel(model, "decompose", missionModels),
+          repo: createRepoTools(mission.repoPath, { allowedChecks: env.REPO_ALLOWED_CHECKS }),
+          brief: [
+            mission.goal,
+            mission.acceptanceCriteria.length
+              ? `Acceptance criteria:\n${mission.acceptanceCriteria.map((c) => `- ${c}`).join("\n")}`
+              : "",
+          ]
+            .filter(Boolean)
+            .join("\n\n"),
+          llmCallTimeoutMs: env.LLM_CALL_TIMEOUT_MS,
+        });
+        surveys.set(mission.id, { survey: result.survey, at: Date.now() });
+      }
+      const repoSurvey = surveys.get(mission.id)?.survey ?? "";
       const decomposer = makeDecomposer(pickModel(model, "decompose", missionModels), {
-        repo: createRepoTools(mission.repoPath, { allowedChecks: env.REPO_ALLOWED_CHECKS }),
+        survey: repoSurvey,
         llmCallTimeoutMs: env.LLM_CALL_TIMEOUT_MS,
       });
       // The project-level rubric assessor (rubric-driven "done"): at the idle
@@ -381,6 +414,9 @@ async function main(): Promise<void> {
             isTransientError: isTransientLlmError,
             // Per-mission checks win; an empty list falls back to the env default.
             checks: mission.checks?.length ? mission.checks : env.MISSION_CHECKS,
+            // Every item's implementer starts in a clean worktree — this is what it
+            // starts knowing, instead of re-discovering the repo item by item.
+            repoSurvey,
             highRiskPatterns: env.MISSION_HIGH_RISK_PATTERNS,
             signal: abort.signal,
           },

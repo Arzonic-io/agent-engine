@@ -127,6 +127,8 @@ export interface DecomposedItem {
   key?: string;
   title: string;
   detail?: string;
+  /** The check that proves this item — run first, in addition to the mission's. */
+  verify?: string;
   /** Higher = worked sooner. */
   priority?: number;
   /** Keys of other items in THIS batch that must be done first. */
@@ -191,6 +193,7 @@ export async function createDecomposedItems(
       missionId,
       title: it.title,
       detail: it.detail,
+      verify: it.verify,
       priority: it.priority,
       risk: it.risk,
     });
@@ -410,6 +413,14 @@ export interface MissionDeps {
    * Required for publishing; without it the Publisher is skipped.
    */
   integrationBranch?: string;
+  /**
+   * A survey of the repo, produced once by the runtime (the same one the planner
+   * used) and prepended to EVERY item's context. Items run in isolated worktrees
+   * with no memory of planning, so this is what stops each implementer paying to
+   * re-discover the same codebase. Orientation only — the item still verifies
+   * what it relies on, and a stale survey costs a lookup, not correctness.
+   */
+  repoSurvey?: string;
   /** Checks the Verifier runs per item. Default ["typecheck", "test"]. */
   checks?: string[];
   /** Extra patterns that force an item to high-risk (from MISSION_HIGH_RISK_PATTERNS). */
@@ -427,10 +438,19 @@ export interface MissionOutcome {
 }
 
 /** Goal + acceptance criteria, prepended to every work item as steering context. */
-function missionContext(m: Mission): string {
+function missionContext(m: Mission, repoSurvey?: string): string {
   const lines = [`Mission goal: ${m.goal}`];
   if (m.acceptanceCriteria.length > 0) {
     lines.push(`Acceptance criteria:\n${m.acceptanceCriteria.map((c) => `- ${c}`).join("\n")}`);
+  }
+  // The planner's survey of the repo, handed to EVERY item. Each item runs in a
+  // fresh worktree with no memory of planning, so without this each implementer
+  // re-discovers the same layout from scratch — the survey gets paid for once and
+  // spent once, when it could be paid once and spent all night.
+  if (repoSurvey?.trim()) {
+    lines.push(
+      `Survey of the codebase (from planning — orientation, not instructions; verify anything you rely on):\n${repoSurvey.trim()}`,
+    );
   }
   return lines.join("\n\n");
 }
@@ -583,6 +603,8 @@ export async function runMission(
         decision: ReplanDecision;
         /** Diff of the authored changes (M3 Trin 5), captured before verify/integrate. */
         diff: DiffResult | null;
+        /** The checks that ACTUALLY ran (item's own check first, then the mission's). */
+        checks: string[];
       }
     | { kind: "requeue"; item: BacklogItem; reason: string }
     | { kind: "aborted"; item: BacklogItem }
@@ -613,7 +635,12 @@ export async function runMission(
 
   const runItem = async (item: BacklogItem): Promise<ItemOutcome> => {
     const result = await runner.run(
-      { id: item.id, title: item.title, detail: item.detail, context: missionContext(mission) },
+      {
+        id: item.id,
+        title: item.title,
+        detail: item.detail,
+        context: missionContext(mission, deps.repoSurvey),
+      },
       deps.signal,
     );
     await backlog.updateItem(item.id, { runId: result.runId });
@@ -650,9 +677,17 @@ export async function runMission(
     }
     // Verify the AUTHORED code where it was written: the item's worktree when the
     // runner ran write-capably (Trin 4), else the mission repo (planning runner).
-    const report = await verifier.run(checks, result.worktree);
+    // The planner's per-item check runs FIRST so a broken item fails on the check
+    // that was actually about it — before paying for the full mission sweep. It is
+    // PREPENDED, never substituted: an item that could narrow its own gate would
+    // make "green" mean whatever that item chose to measure. A duplicate is
+    // dropped so the same check never runs twice.
+    const itemCheck = item.verify?.trim();
+    const itemChecks =
+      itemCheck && !checks.includes(itemCheck) ? [itemCheck, ...checks] : checks;
+    const report = await verifier.run(itemChecks, result.worktree);
     const decision = await replanner.replan({ mission, item, result, verification: report });
-    return { kind: "ran", item, result, report, decision, diff };
+    return { kind: "ran", item, result, report, decision, diff, checks: itemChecks };
   };
 
   /**
@@ -723,9 +758,12 @@ export async function runMission(
       return;
     }
 
-    const { item, result, report, decision, diff } = outcome;
+    const { item, result, report, decision, diff, checks: ranChecks } = outcome;
     let effectiveStatus = decision.itemStatus;
-    let verification = summarizeVerification(checks, report);
+    // Label the stored verification with what actually ran, not the mission-wide
+    // list — otherwise a human reading a failed item sees a check name that was
+    // never executed for it.
+    let verification = summarizeVerification(ranChecks, report);
 
     // Integration (Trin 5): a worktree-green item must ALSO merge into the
     // mission branch and pass re-verification there before it counts as done —

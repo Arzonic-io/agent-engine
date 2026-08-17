@@ -11,6 +11,7 @@ import type {
   Replanner,
 } from "../controller.js";
 import type { VerifierReport } from "../verifier.js";
+import { billableTokens } from "../tokens.js";
 
 /**
  * Trin 5 — the Lead's replan agent. After an item runs and the Verifier reports,
@@ -141,7 +142,7 @@ export function makeReplanner(
         new HumanMessage(buildPrompt(input, titles)),
       ]);
       const output = ReplanOutputSchema.parse(parsed);
-      const tokens = (raw as AIMessage).usage_metadata?.total_tokens ?? 0;
+      const tokens = billableTokens((raw as AIMessage).usage_metadata);
       return applyReplanGuards(output, input.verification, tokens);
     },
   };

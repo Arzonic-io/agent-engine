@@ -30,6 +30,15 @@ export interface ReadFileOptions {
   limit?: number;
 }
 
+export interface SearchCodeOptions {
+  /**
+   * Lines of context to show around each match. Defaults to a few; 0 gives the
+   * old bare-hit output, which is worth asking for when scanning for sheer
+   * breadth (how many call sites) rather than reading any of them.
+   */
+  context?: number;
+}
+
 export interface RepoTools {
   /** List entries in a directory relative to the repo root (dirs end with "/"). */
   listFiles(dir: string): Promise<string>;
@@ -39,8 +48,12 @@ export interface RepoTools {
    * for reading, NOT for feeding back into an exact-match edit verbatim.
    */
   readFile(path: string, options?: ReadFileOptions): Promise<string>;
-  /** Case-insensitive substring search across the repo; returns `path:line: text` hits. */
-  searchCode(query: string): Promise<string>;
+  /**
+   * Case-insensitive substring search across the repo. Returns hits with a few
+   * lines of surrounding context — `path:line: text` for a match, `path:line- text`
+   * for context — so a hit can usually be judged without reading the whole file.
+   */
+  searchCode(query: string, options?: SearchCodeOptions): Promise<string>;
   /**
    * Run an allowlisted verification check (e.g. "test", "lint", "typecheck",
    * "build") in the repo and return its output + exit status. The runtime

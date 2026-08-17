@@ -3,6 +3,7 @@ import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import type { RunnableConfig } from "@langchain/core/runnables";
 import { DEFAULT_LLM_CALL_TIMEOUT_MS, withLlmTimeout } from "../llmCallTimeout.js";
 import type { GraphStateType } from "../state.js";
+import { billableTokens } from "../tokens.js";
 
 const SYSTEM_PROMPT = `You are the Builder in a builder/critic loop. You produce the best possible
 draft for the given task. When critic feedback is provided, you revise the
@@ -54,7 +55,7 @@ export function makeBuilderNode(
       typeof response.content === "string"
         ? response.content
         : JSON.stringify(response.content);
-    const tokens = response.usage_metadata?.total_tokens ?? 0;
+    const tokens = billableTokens(response.usage_metadata);
 
     return {
       draft,

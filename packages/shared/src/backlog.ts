@@ -90,6 +90,8 @@ export interface BacklogItem {
   missionId: string;
   title: string;
   detail: string;
+  /** The check that proves THIS item; prepended to the mission's checks, never replacing them. */
+  verify: string;
   status: BacklogItemStatus;
   priority: number;
   dependsOn: string[];
@@ -139,6 +141,8 @@ export interface CreateBacklogItemInput {
   missionId: string;
   title: string;
   detail?: string;
+  /** The check that proves this item — see BacklogItem.verify. */
+  verify?: string;
   priority?: number;
   dependsOn?: string[];
   risk?: Risk;
@@ -147,7 +151,16 @@ export interface CreateBacklogItemInput {
 export type BacklogItemPatch = Partial<
   Pick<
     BacklogItem,
-    "title" | "detail" | "status" | "priority" | "dependsOn" | "risk" | "runId" | "verification" | "diff"
+    | "title"
+    | "detail"
+    | "verify"
+    | "status"
+    | "priority"
+    | "dependsOn"
+    | "risk"
+    | "runId"
+    | "verification"
+    | "diff"
   >
 >;
 
@@ -261,6 +274,11 @@ export class BacklogService {
       )`);
     // Add the authored-diff column (M3 Trin 5) to pre-existing backlog_items tables.
     await this.pool.query(`ALTER TABLE backlog_items ADD COLUMN IF NOT EXISTS diff jsonb`);
+    // The per-item check the planner named. Additive like `diff` above: existing
+    // rows default to '' and behave exactly as before (mission checks only).
+    await this.pool.query(
+      `ALTER TABLE backlog_items ADD COLUMN IF NOT EXISTS verify text NOT NULL DEFAULT ''`,
+    );
     await this.pool.query(`
       CREATE INDEX IF NOT EXISTS backlog_items_mission_status_idx
       ON backlog_items (mission_id, status)`);
@@ -339,12 +357,13 @@ export class BacklogService {
   // ── backlog items ──
   async createItem(input: CreateBacklogItemInput): Promise<BacklogItem> {
     const { rows } = await this.pool.query(
-      `INSERT INTO backlog_items (mission_id, title, detail, priority, depends_on, risk)
-       VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
+      `INSERT INTO backlog_items (mission_id, title, detail, verify, priority, depends_on, risk)
+       VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
       [
         input.missionId,
         input.title,
         input.detail ?? "",
+        input.verify ?? "",
         input.priority ?? 0,
         JSON.stringify(input.dependsOn ?? []),
         input.risk ?? "low",
@@ -403,6 +422,7 @@ export class BacklogService {
     const cols: Record<keyof BacklogItemPatch, string> = {
       title: "title",
       detail: "detail",
+      verify: "verify",
       status: "status",
       priority: "priority",
       dependsOn: "depends_on",
@@ -484,6 +504,7 @@ export class BacklogService {
       missionId: r.mission_id,
       title: r.title,
       detail: r.detail,
+      verify: r.verify ?? "",
       status: r.status,
       priority: Number(r.priority ?? 0),
       dependsOn: r.depends_on ?? [],

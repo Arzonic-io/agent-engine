@@ -13,6 +13,7 @@ import type {
   DecomposeResult,
   Decomposer,
 } from "../controller.js";
+import { billableTokens } from "../tokens.js";
 
 /**
  * M3 Trin 1 — the Lead's decomposer. At mission start, when the backlog is empty,
@@ -58,9 +59,11 @@ const DecomposeItemSchema = z.object({
     .string()
     .optional()
     .describe("The specifics: what to actually do, and the approach — not a reworded title."),
-  // files/verify are folded INTO `detail` by the guards below rather than stored
-  // as columns: the implementer reads the item as one task string, so a separate
-  // shape would mean a backlog migration for text that ends up concatenated anyway.
+  // `files` folds into `detail` — the implementer reads the item as one task
+  // string, so a column for it would be a migration for text that ends up
+  // concatenated anyway. `verify` also becomes a real column, because unlike
+  // `files` it drives control flow (which check the Verifier runs), and control
+  // flow should not be parsed back out of prose.
   files: z
     .array(z.string())
     .default([])
@@ -148,6 +151,10 @@ export function applyDecomposeGuards(
       key,
       title,
       detail: composeDetail(raw),
+      // Also kept in `detail` as prose: the column drives the Verifier, the prose
+      // tells the implementer which check to run on itself while it works. One
+      // source, two readers — not two sources that can drift.
+      verify: raw.verify?.trim() || undefined,
       priority: raw.priority,
       dependsOn: raw.dependsOn ?? [],
       risk: raw.risk,
@@ -226,6 +233,12 @@ export interface MakeDecomposerOptions extends DecomposeGuardOptions {
    * work in the abstract. Omit to keep the original blind behaviour.
    */
   repo?: RepoTools;
+  /**
+   * A survey the runtime already produced. Takes precedence over `repo` — the
+   * mission worker surveys once and shares that text with both the planner and
+   * every item, so passing it here avoids surveying the same repo twice.
+   */
+  survey?: string;
   /** Per-call LLM timeout for the survey loop. */
   llmCallTimeoutMs?: number;
 }
@@ -238,13 +251,18 @@ export function makeDecomposer(
     name: "decompose",
     includeRaw: true,
   });
-  const { repo, llmCallTimeoutMs } = options;
+  const { repo, survey: providedSurvey, llmCallTimeoutMs } = options;
 
   return {
     async decompose(input: DecomposeInput): Promise<DecomposeResult> {
-      // Best-effort by contract — a failed survey degrades to blind planning
-      // rather than blocking a mission from starting at all.
-      const surveyed = repo
+      // A survey supplied by the runtime wins: it is the same text every item
+      // gets, so planning against a second, differently-worded survey of the same
+      // repo would cost tokens to create a needless discrepancy.
+      // Otherwise survey here — best-effort by contract, so a failure degrades to
+      // blind planning rather than blocking a mission from starting at all.
+      const surveyed = providedSurvey?.trim()
+        ? { survey: providedSurvey.trim(), tokensUsed: 0 }
+        : repo
         ? await surveyRepo({
             model,
             repo,
@@ -270,7 +288,7 @@ export function makeDecomposer(
       ]);
       const output = DecomposeOutputSchema.parse(parsed);
       const tokens =
-        surveyed.tokensUsed + ((raw as AIMessage).usage_metadata?.total_tokens ?? 0);
+        surveyed.tokensUsed + (billableTokens((raw as AIMessage).usage_metadata));
       return applyDecomposeGuards(output, tokens, options);
     },
   };

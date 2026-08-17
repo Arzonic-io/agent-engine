@@ -3,6 +3,7 @@ import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import type { RunnableConfig } from "@langchain/core/runnables";
 import { DEFAULT_LLM_CALL_TIMEOUT_MS, withLlmTimeout } from "../llmCallTimeout.js";
 import { formatPlanStep, toPlanStep, type GraphStateType } from "../state.js";
+import { billableTokens } from "../tokens.js";
 
 const SYSTEM_PROMPT = `You are a Worker on an agent team, executing exactly ONE step of a plan.
 Produce the concrete deliverable for your step — the actual content, not a
@@ -55,7 +56,7 @@ export function makeWorkerNode(
       typeof response.content === "string"
         ? response.content
         : JSON.stringify(response.content);
-    const tokens = response.usage_metadata?.total_tokens ?? 0;
+    const tokens = billableTokens(response.usage_metadata);
 
     return {
       stepResults: [{ step: step.title, output }],

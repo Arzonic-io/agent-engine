@@ -12,6 +12,7 @@ import { z } from "zod";
 import { DEFAULT_LLM_CALL_TIMEOUT_MS, withLlmTimeout } from "../llmCallTimeout.js";
 import type { AgentMessage, GraphStateType } from "../state.js";
 import type { WritableRepoTools } from "../tools.js";
+import { billableTokens } from "../tokens.js";
 
 /**
  * Recursion limit for the ReAct loop — each model↔tool round-trip is ~2
@@ -115,12 +116,28 @@ export function buildImplementerTools(
         }),
       },
     ),
-    tool(async ({ query }: { query: string }) => repo.searchCode(query), {
-      name: "search_code",
-      description:
-        "Case-insensitive substring search across the worktree. Returns matching 'path:line: text' hits.",
-      schema: z.object({ query: z.string().describe("Substring to search for") }),
-    }),
+    tool(
+      async ({ query, context }: { query: string; context?: number }) =>
+        repo.searchCode(query, { context }),
+      {
+        name: "search_code",
+        description:
+          "Case-insensitive substring search across the worktree. Each hit comes with a few lines of " +
+          "surrounding context: 'path:line: text' is a match, 'path:line- text' is context. Usually " +
+          "enough to judge a hit without reading the file. Pass context:0 when you only need to count " +
+          "call sites, or a larger context when you need to see more around each one.",
+        schema: z.object({
+          query: z.string().describe("Substring to search for"),
+          context: z
+            .number()
+            .int()
+            .min(0)
+            .max(20)
+            .optional()
+            .describe("Lines of context around each match; defaults to a few"),
+        }),
+      },
+    ),
     tool(
       async ({ path, content }: { path: string; content: string }) =>
         repo.writeFile(path, content),
@@ -261,7 +278,7 @@ export function makeImplementerNode(
     let report = "";
     for (const m of messages) {
       if (!isAIMessage(m)) continue;
-      tokens += m.usage_metadata?.total_tokens ?? 0;
+      tokens += billableTokens(m.usage_metadata);
       const calls = m.tool_calls ?? [];
       for (const call of calls) {
         const res = call.id ? (resultById.get(call.id) ?? "") : "";

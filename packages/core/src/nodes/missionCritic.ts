@@ -4,6 +4,7 @@ import { z } from "zod";
 import { augmentRubric, renderRubric, type Rubric } from "../rubric.js";
 import type { GraphStateType, Verdict } from "../state.js";
 import type { WritableRepoTools } from "../tools.js";
+import { billableTokens } from "../tokens.js";
 
 const SYSTEM_PROMPT = `You are the mission Critic — an adversarial code reviewer on an autonomous
 mission team. The Implementer just wrote code in a git worktree to satisfy ONE
@@ -132,7 +133,7 @@ export function makeMissionCriticNode(
         new HumanMessage(prompt),
       ]);
       const review = MissionReviewSchema.parse(parsed);
-      const tokens = (raw as AIMessage).usage_metadata?.total_tokens ?? 0;
+      const tokens = billableTokens((raw as AIMessage).usage_metadata);
 
       const verdict: Verdict = {
         pass: review.pass,
@@ -165,7 +166,7 @@ export function makeMissionCriticNode(
       new HumanMessage(prompt),
     ]);
     const output = RubricReviewSchema.parse(parsed);
-    const tokens = (raw as AIMessage).usage_metadata?.total_tokens ?? 0;
+    const tokens = billableTokens((raw as AIMessage).usage_metadata);
 
     // Deterministic pass rule: all required criteria met AND score >= threshold —
     // the same floor the interactive critic enforces.

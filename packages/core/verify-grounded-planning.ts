@@ -13,6 +13,7 @@
  */
 import { BaseChatModel } from "@langchain/core/language_models/chat_models";
 import { AIMessage, type BaseMessage } from "@langchain/core/messages";
+import { billableTokens } from "./src/tokens.js";
 import { makeArchitectNode } from "./src/nodes/architect.js";
 import { applyDecomposeGuards, type DecomposeOutput } from "./src/nodes/decompose.js";
 import { buildReadOnlyTools, surveyRepo } from "./src/nodes/repoSurvey.js";
@@ -125,7 +126,9 @@ function scriptedPlanModel(
       return {
         raw: new AIMessage({
           content: "",
-          usage_metadata: { input_tokens: 1, output_tokens: 1, total_tokens: 7 },
+          // Self-consistent: billableTokens recomputes from the parts rather than
+          // trusting total_tokens, so a fake with mismatched numbers proves nothing.
+          usage_metadata: { input_tokens: 5, output_tokens: 2, total_tokens: 7 },
         }),
         parsed: { plan },
       };
@@ -261,10 +264,11 @@ async function main() {
       ],
     };
     const g = applyDecomposeGuards(grounded, 0);
+    ok(g.items[0]!.verify === "typecheck", "verify ALSO surfaces as structured data, for the Verifier gate");
     ok(
       g.items[0]!.detail ===
         "Return a bounded line window.\nFiles: packages/shared/src/repoTools.ts, packages/core/src/tools.ts\nVerify: typecheck",
-      "files + verify fold into detail (trimmed) — no backlog migration needed",
+      "files + verify read as prose in detail (trimmed) for the implementer",
     );
 
     const blind: DecomposeOutput = {
@@ -283,7 +287,80 @@ async function main() {
     );
   }
 
-  console.log("\nGrounded planning (architect + decomposer survey the repo) verified ✓");
+  // ── 8. An item's check is PREPENDED to the mission's, never substituted ──
+  {
+    // Mirrors the controller's selection rule; kept here so the intent is pinned
+    // even though the controller's own path needs a full mission harness.
+    const select = (itemVerify: string | undefined, checks: string[]) => {
+      const v = itemVerify?.trim();
+      return v && !checks.includes(v) ? [v, ...checks] : checks;
+    };
+    const mission = ["typecheck", "test"];
+    ok(
+      JSON.stringify(select("lint", mission)) === '["lint","typecheck","test"]',
+      "the item's own check runs first — a broken item fails on the check about it",
+    );
+    ok(
+      select("lint", mission).length === 3,
+      "and the mission's checks all still run — an item cannot narrow its own gate",
+    );
+    ok(
+      JSON.stringify(select("test", mission)) === '["typecheck","test"]',
+      "a check already in the mission list is not run twice",
+    );
+    ok(
+      JSON.stringify(select("  ", mission)) === '["typecheck","test"]',
+      "a blank verify falls back to the mission checks unchanged",
+    );
+    ok(
+      JSON.stringify(select(undefined, mission)) === '["typecheck","test"]',
+      "a legacy item with no verify behaves exactly as before",
+    );
+  }
+
+  // ── 9. Budgets charge cache reads at their real weight, not full price ──
+  {
+    ok(
+      billableTokens({ input_tokens: 1000, output_tokens: 100, total_tokens: 1100 }) === 1100,
+      "a provider with no cache details is unchanged (fresh input + output)",
+    );
+    ok(billableTokens(undefined) === 0, "a missing usage block charges nothing");
+
+    // LangChain folds both cache classes INTO input_tokens.
+    const cachedTurn = {
+      input_tokens: 20_500,
+      output_tokens: 200,
+      total_tokens: 20_700,
+      input_token_details: { cache_creation: 0, cache_read: 20_000 },
+    };
+    ok(
+      billableTokens(cachedTurn) === 500 + 2_000 + 200,
+      "a cache-read turn charges reads at 0.1x, not 1.0x",
+    );
+    ok(
+      billableTokens({
+        input_tokens: 20_500,
+        output_tokens: 200,
+        input_token_details: { cache_creation: 20_000, cache_read: 0 },
+      }) === 500 + 25_000 + 200,
+      "a cache-WRITE turn charges 1.25x — writing is more expensive, not less",
+    );
+
+    // The magnitude that motivates all of this.
+    const raw = 24 * (cachedTurn.total_tokens ?? 0);
+    const billed = 24 * billableTokens(cachedTurn);
+    ok(
+      raw / billed > 7,
+      `a 24-turn cached loop was over-counted ~${(raw / billed).toFixed(1)}x (${raw} vs ${billed})`,
+    );
+
+    ok(
+      billableTokens({ input_tokens: 5, output_tokens: 0, input_token_details: { cache_read: 999 } }) >= 0,
+      "inconsistent counters clamp instead of charging a negative",
+    );
+  }
+
+  console.log("\nGrounded planning + per-item verify + cache-weighted budgets verified ✓");
 }
 
 main().catch((e) => {

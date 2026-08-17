@@ -44,6 +44,15 @@ const MAX_READ_LINES = 2_000;
 const MAX_LINE_CHARS = 2_000;
 const MAX_SEARCH_HITS = 60;
 const MAX_SEARCH_FILE_BYTES = 400_000;
+/**
+ * Lines of context shown around each hit. A bare `path:line: text` hit tells an
+ * agent WHERE something is but not whether it's the right place, so it follows up
+ * with a read of the whole file — the expensive thing this tool exists to avoid.
+ * A few lines of surrounding code usually answers the question outright.
+ */
+const SEARCH_CONTEXT_LINES = 3;
+/** Overall cap on search output, since context multiplies every hit. */
+const MAX_SEARCH_OUTPUT = 24_000;
 const MAX_WRITE_BYTES = 1_000_000;
 
 export interface RepoToolsOptions {
@@ -152,6 +161,30 @@ export function renderFileWindow(
   return `${out.join("\n")}\n…(showing lines ${offset}-${last} of ${total}; read on with offset=${last + 1})`;
 }
 
+/**
+ * Turn hit line-indices into merged, non-overlapping context windows, clamped to
+ * the file. Adjacent windows that touch are merged too, so a run of hits reads as
+ * one continuous excerpt rather than repeating shared lines.
+ * Exported for the same reason as `renderFileWindow` — provable without disk.
+ */
+export function mergeWindows(
+  hits: number[],
+  context: number,
+  lineCount: number,
+): Array<{ start: number; end: number }> {
+  const out: Array<{ start: number; end: number }> = [];
+  for (const h of hits) {
+    const start = Math.max(0, h - context);
+    const end = Math.min(lineCount - 1, h + context);
+    const last = out[out.length - 1];
+    // `<= last.end + 1` merges windows that merely touch, not just overlap —
+    // otherwise two adjacent windows emit consecutive lines as separate blocks.
+    if (last && start <= last.end + 1) last.end = Math.max(last.end, end);
+    else out.push({ start, end });
+  }
+  return out;
+}
+
 /** The read-only tool set (Layer 1 + 2), shared by both factories. */
 function makeReadTools(
   root: string,
@@ -177,13 +210,18 @@ function makeReadTools(
       return renderFileWindow(path, buf, options);
     },
 
-    async searchCode(query) {
+    async searchCode(query, options) {
+      const context = Math.max(0, Math.trunc(options?.context ?? SEARCH_CONTEXT_LINES));
       const needle = query.toLowerCase();
       const files: string[] = [];
       await walk(root, files);
-      const hits: string[] = [];
-      for (const file of files) {
-        if (hits.length >= MAX_SEARCH_HITS) break;
+      const blocks: string[] = [];
+      let hitCount = 0;
+      let bytes = 0;
+      let truncated = false;
+
+      outer: for (const file of files) {
+        if (hitCount >= MAX_SEARCH_HITS) break;
         let buf;
         try {
           buf = await fsReadFile(file);
@@ -193,14 +231,48 @@ function makeReadTools(
         if (buf.length > MAX_SEARCH_FILE_BYTES) continue;
         const rel = relative(root, file);
         const lines = buf.toString("utf8").split("\n");
+
+        // Collect this file's hit lines first, then merge them into windows —
+        // several hits inside one function would otherwise repeat the same
+        // surrounding lines once per hit.
+        const matched: number[] = [];
         for (let i = 0; i < lines.length; i++) {
-          if (lines[i]!.toLowerCase().includes(needle)) {
-            hits.push(`${rel}:${i + 1}: ${lines[i]!.trim().slice(0, 200)}`);
-            if (hits.length >= MAX_SEARCH_HITS) break;
+          if (lines[i]!.toLowerCase().includes(needle)) matched.push(i);
+        }
+        if (matched.length === 0) continue;
+
+        for (const window of mergeWindows(matched, context, lines.length)) {
+          if (hitCount >= MAX_SEARCH_HITS) break outer;
+          const hitsHere = matched.filter((m) => m >= window.start && m <= window.end);
+          const width = String(window.end + 1).length;
+          const body = [];
+          for (let n = window.start; n <= window.end; n++) {
+            // ':' marks the matching line, '-' its context — the same convention
+            // as grep, so a hit stays greppable while the context reads as context.
+            const sep = hitsHere.includes(n) ? ":" : "-";
+            body.push(`${rel}:${String(n + 1).padStart(width)}${sep} ${lines[n]!.trim().slice(0, 200)}`);
           }
+          const block = body.join("\n");
+          const size = Buffer.byteLength(block, "utf8") + 2;
+          if (bytes + size > MAX_SEARCH_OUTPUT && blocks.length > 0) {
+            truncated = true;
+            break outer;
+          }
+          blocks.push(block);
+          bytes += size;
+          hitCount += hitsHere.length;
         }
       }
-      return hits.length ? hits.join("\n") : `No matches for "${query}".`;
+
+      if (blocks.length === 0) return `No matches for "${query}".`;
+      // Blank lines separate excerpts so context reads as blocks — but at
+      // context:0 there is nothing to separate, and a blank line after every hit
+      // would double the cost of exactly the mode chosen to be cheap.
+      const joined = blocks.join(context > 0 ? "\n\n" : "\n");
+      const capped = truncated || hitCount >= MAX_SEARCH_HITS;
+      // Never let a capped result read as an exhaustive one — an agent that
+      // believes it saw every hit will confidently miss the call site that matters.
+      return capped ? `${joined}\n\n…(more matches not shown — narrow the query)` : joined;
     },
 
     async runCheck(name) {

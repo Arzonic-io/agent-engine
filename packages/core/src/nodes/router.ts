@@ -6,6 +6,7 @@ import {
 } from "@langchain/core/messages";
 import { z } from "zod";
 import type { GraphStateType } from "../state.js";
+import { billableTokens } from "../tokens.js";
 
 const SYSTEM_PROMPT = `You are the Router. Decide how the team should tackle a task:
 - "single": one focused deliverable that a single writer + reviewer can nail
@@ -47,7 +48,7 @@ export function makeRouterNode(model: BaseChatModel) {
       new HumanMessage(`Task:\n${state.task}`),
     ]);
     const route = RouteSchema.parse(parsed);
-    const tokens = (raw as AIMessage).usage_metadata?.total_tokens ?? 0;
+    const tokens = billableTokens((raw as AIMessage).usage_metadata);
 
     return {
       topology: route.topology,

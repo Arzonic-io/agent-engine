@@ -5,6 +5,7 @@ import { createReactAgent } from "@langchain/langgraph/prebuilt";
 import { z } from "zod";
 import { DEFAULT_LLM_CALL_TIMEOUT_MS, withLlmTimeout } from "../llmCallTimeout.js";
 import type { RepoTools } from "../tools.js";
+import { billableTokens } from "../tokens.js";
 
 /**
  * The read-only half of the tool belt — list/read/search/check, no writes and no
@@ -44,11 +45,22 @@ export function buildReadOnlyTools(
         }),
       },
     ),
-    tool(async ({ query }: { query: string }) => repo.searchCode(query), {
-      name: "search_code",
-      description: `Case-insensitive substring search across the ${rootNoun}. Returns matching 'path:line: text' hits.`,
-      schema: z.object({ query: z.string().describe("Substring to search for") }),
-    }),
+    tool(
+      async ({ query, context }: { query: string; context?: number }) =>
+        repo.searchCode(query, { context }),
+      {
+        name: "search_code",
+        description:
+          `Case-insensitive substring search across the ${rootNoun}. Each hit comes with a few lines ` +
+          "of surrounding context: 'path:line: text' is a match, 'path:line- text' is context. Usually " +
+          "enough to judge a hit without reading the file. Pass context:0 when you only need to count " +
+          "call sites, or a larger context when you need to see more around each one.",
+        schema: z.object({
+          query: z.string().describe("Substring to search for"),
+          context: z.number().int().min(0).max(20).optional().describe("Lines of context around each match; defaults to a few"),
+        }),
+      },
+    ),
     tool(async ({ name }: { name: string }) => repo.runCheck(name), {
       name: "run_check",
       description:
@@ -146,7 +158,7 @@ export async function surveyRepo(options: SurveyRepoOptions): Promise<RepoSurvey
   let survey = "";
   for (const m of messages) {
     if (!isAIMessage(m)) continue;
-    tokensUsed += m.usage_metadata?.total_tokens ?? 0;
+    tokensUsed += billableTokens(m.usage_metadata);
     // The final tool-free assistant message is the report.
     if ((m.tool_calls ?? []).length === 0) {
       const text = typeof m.content === "string" ? m.content : JSON.stringify(m.content);

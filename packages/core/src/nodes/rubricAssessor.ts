@@ -15,6 +15,7 @@ import type {
   RubricGap,
 } from "../controller.js";
 import { renderRubric } from "../rubric.js";
+import { billableTokens } from "../tokens.js";
 
 /**
  * The project-level rubric assessor (the "is it good enough yet?" gate). At the
@@ -120,7 +121,7 @@ export function makeRubricAssessor(
         new HumanMessage(prompt),
       ]);
       const output = AssessOutputSchema.parse(parsed);
-      const tokens = (raw as AIMessage).usage_metadata?.total_tokens ?? 0;
+      const tokens = billableTokens((raw as AIMessage).usage_metadata);
 
       // Deterministic pass rule — the same floor the critic enforces per item:
       // every required criterion met AND score >= threshold.

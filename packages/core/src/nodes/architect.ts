@@ -10,6 +10,7 @@ import { DEFAULT_LLM_CALL_TIMEOUT_MS, withLlmTimeout } from "../llmCallTimeout.j
 import { formatPlanStep, PlanStepSchema, type GraphStateType } from "../state.js";
 import type { RepoTools } from "../tools.js";
 import { surveyRepo } from "./repoSurvey.js";
+import { billableTokens } from "../tokens.js";
 
 /**
  * Two prompts, because the Architect has two jobs depending on what it was given.
@@ -124,7 +125,7 @@ export function makeArchitectNode(
     );
     const plan = PlanSchema.parse(parsed).plan;
     const tokens =
-      surveyed.tokensUsed + ((raw as AIMessage).usage_metadata?.total_tokens ?? 0);
+      surveyed.tokensUsed + (billableTokens((raw as AIMessage).usage_metadata));
 
     return {
       plan,

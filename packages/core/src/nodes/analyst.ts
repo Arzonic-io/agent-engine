@@ -9,6 +9,7 @@ import { tool, type StructuredToolInterface } from "@langchain/core/tools";
 import { z } from "zod";
 import type { AgentMessage, GraphStateType } from "../state.js";
 import type { RepoTools } from "../tools.js";
+import { billableTokens } from "../tokens.js";
 
 /** Hard cap on tool round-trips per analyst turn — keeps the ReAct loop provably terminating. */
 const MAX_TOOL_STEPS = 24;
@@ -83,12 +84,28 @@ export function makeAnalystNode(model: BaseChatModel, repo: RepoTools) {
         }),
       },
     ),
-    tool(async ({ query }: { query: string }) => repo.searchCode(query), {
-      name: "search_code",
-      description:
-        "Case-insensitive substring search across the repo. Returns matching 'path:line: text' hits.",
-      schema: z.object({ query: z.string().describe("Substring to search for") }),
-    }),
+    tool(
+      async ({ query, context }: { query: string; context?: number }) =>
+        repo.searchCode(query, { context }),
+      {
+        name: "search_code",
+        description:
+          "Case-insensitive substring search across the repo. Each hit comes with a few lines of " +
+          "surrounding context: 'path:line: text' is a match, 'path:line- text' is context. Usually " +
+          "enough to judge a hit without reading the file. Pass context:0 when you only need to count " +
+          "call sites, or a larger context when you need to see more around each one.",
+        schema: z.object({
+          query: z.string().describe("Substring to search for"),
+          context: z
+            .number()
+            .int()
+            .min(0)
+            .max(20)
+            .optional()
+            .describe("Lines of context around each match; defaults to a few"),
+        }),
+      },
+    ),
     tool(async ({ name }: { name: string }) => repo.runCheck(name), {
       name: "run_check",
       description:
@@ -121,7 +138,7 @@ export function makeAnalystNode(model: BaseChatModel, repo: RepoTools) {
 
     for (let step = 0; step < MAX_TOOL_STEPS; step++) {
       const ai = await modelWithTools.invoke(messages);
-      tokens += ai.usage_metadata?.total_tokens ?? 0;
+      tokens += billableTokens(ai.usage_metadata);
       messages.push(ai);
 
       const calls = ai.tool_calls ?? [];

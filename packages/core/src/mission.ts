@@ -155,6 +155,15 @@ export const BacklogItemSchema = z.object({
   missionId: z.string(),
   title: z.string(),
   detail: z.string(),
+  /**
+   * The check the planner said proves THIS item (a named pnpm script, e.g.
+   * "test"). Run FIRST when the item is verified, so a broken item fails on the
+   * check that was actually about it rather than after the whole mission sweep.
+   * It ADDS to the mission's checks, it never replaces them — an item must not be
+   * able to narrow its own gate, or "green" would come to mean whatever each item
+   * chose to measure. Empty = no per-item check (the mission's checks alone).
+   */
+  verify: z.string().default(""),
   status: BacklogItemStatusSchema,
   /** Higher value = worked sooner. */
   priority: z.number().int(),
@@ -212,6 +221,8 @@ export interface CreateBacklogItemInput {
   missionId: string;
   title: string;
   detail?: string;
+  /** The check that proves this item — see BacklogItem.verify. */
+  verify?: string;
   priority?: number;
   dependsOn?: string[];
   risk?: Risk;
@@ -220,7 +231,16 @@ export interface CreateBacklogItemInput {
 export type BacklogItemPatch = Partial<
   Pick<
     BacklogItem,
-    "title" | "detail" | "status" | "priority" | "dependsOn" | "risk" | "runId" | "verification" | "diff"
+    | "title"
+    | "detail"
+    | "verify"
+    | "status"
+    | "priority"
+    | "dependsOn"
+    | "risk"
+    | "runId"
+    | "verification"
+    | "diff"
   >
 >;
 

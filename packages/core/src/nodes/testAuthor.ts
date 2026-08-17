@@ -13,6 +13,7 @@ import type {
 } from "../controller.js";
 import type { WritableRepoTools } from "../tools.js";
 import { buildImplementerTools } from "./implementer.js";
+import { billableTokens } from "../tokens.js";
 
 /**
  * M3 Trin 2 — the Tester. After the Implementer builds a backlog item in its
@@ -127,7 +128,7 @@ function restrictWritesToTests(repo: WritableRepoTools): WritableRepoTools {
   return {
     listFiles: (dir) => repo.listFiles(dir),
     readFile: (path, options) => repo.readFile(path, options),
-    searchCode: (query) => repo.searchCode(query),
+    searchCode: (query, options) => repo.searchCode(query, options),
     runCheck: (name) => repo.runCheck(name),
     runCommand: (command, args) => repo.runCommand(command, args),
     writeFile: (path, content) => {
@@ -208,7 +209,7 @@ export function makeTestAuthor(
       let summary = "";
       for (const m of messages) {
         if (!isAIMessage(m)) continue;
-        tokens += m.usage_metadata?.total_tokens ?? 0;
+        tokens += billableTokens(m.usage_metadata);
         const calls = m.tool_calls ?? [];
         for (const call of calls) {
           if (

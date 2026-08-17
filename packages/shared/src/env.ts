@@ -185,6 +185,13 @@ const EnvSchema = z
     // still-running overnight mission reports before morning instead of only at the
     // end. Unset = off (only the terminal digest fires). Min 1 min.
     MISSION_DIGEST_INTERVAL_MS: z.coerce.number().int().min(60_000).optional(),
+    // How long a mission's repo survey is reused before being recomputed. The
+    // survey is shared by the planner and every item, so this is the knob between
+    // paying for it repeatedly and letting it drift: the mission branch changes as
+    // items merge, and a survey older than this can describe code that has moved.
+    // It is orientation, not instructions (items still verify what they rely on),
+    // so a generous default is safe. 0 disables reuse — survey per decompose only.
+    MISSION_SURVEY_TTL_MS: z.coerce.number().int().min(0).default(1_800_000),
     // (blocker 2) How often the worker's watcher re-reads mission status/deadline/
     // budget to ABORT an in-flight run, so Stop + the deadline actually preempt
     // work mid-item instead of only biting between batches.
