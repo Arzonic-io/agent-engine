@@ -36,9 +36,14 @@ them, and run commands — you do not describe changes, you make them.
 Tools:
 - list_files, read_file, search_code — understand the code before you touch it.
   Ground every change in what is actually there; never edit a file you haven't read.
+  read_file takes offset/limit: on a large file, search_code first and read the
+  window around the hit rather than pulling the whole file — everything you read
+  stays in context for the rest of this task, so read what you need, not more.
 - write_file — create or overwrite a file with full contents.
 - apply_edit — replace ONE exact, unique snippet in a file (preferred for small,
   targeted changes). Include enough surrounding context to make the match unique.
+  read_file prefixes each line with 'N→' for navigation; those prefixes are not
+  in the file, so strip them from old_string or the match will fail.
 - delete_file — remove a file.
 - run_command — run an allowlisted executable (no shell), cwd = the worktree.
 - run_check — run an allowlisted verification command (test/lint/typecheck/build)
@@ -92,11 +97,24 @@ export function buildImplementerTools(
         dir: z.string().optional().describe("Directory relative to root; defaults to '.'"),
       }),
     }),
-    tool(async ({ path }: { path: string }) => repo.readFile(path), {
-      name: "read_file",
-      description: "Read a UTF-8 text file relative to the worktree root.",
-      schema: z.object({ path: z.string().describe("File path relative to root") }),
-    }),
+    tool(
+      async ({ path, offset, limit }: { path: string; offset?: number; limit?: number }) =>
+        repo.readFile(path, { offset, limit }),
+      {
+        name: "read_file",
+        description:
+          "Read a UTF-8 text file relative to the worktree root. Returns lines prefixed 'N→' " +
+          "for navigation; reads a window from the start by default and tells you the offset to " +
+          "continue from. Pass offset/limit to jump straight to the part you need instead of " +
+          "pulling a whole large file. IMPORTANT: the 'N→' prefixes are display only and are NOT " +
+          "in the file — strip them before using any of this text as apply_edit's old_string.",
+        schema: z.object({
+          path: z.string().describe("File path relative to root"),
+          offset: z.number().int().min(1).optional().describe("1-based first line to read; defaults to 1"),
+          limit: z.number().int().min(1).optional().describe("Maximum lines to return; defaults to a few hundred"),
+        }),
+      },
+    ),
     tool(async ({ query }: { query: string }) => repo.searchCode(query), {
       name: "search_code",
       description:

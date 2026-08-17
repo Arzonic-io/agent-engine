@@ -126,7 +126,7 @@ function restrictWritesToTests(repo: WritableRepoTools): WritableRepoTools {
   };
   return {
     listFiles: (dir) => repo.listFiles(dir),
-    readFile: (path) => repo.readFile(path),
+    readFile: (path, options) => repo.readFile(path, options),
     searchCode: (query) => repo.searchCode(query),
     runCheck: (name) => repo.runCheck(name),
     runCommand: (command, args) => repo.runCommand(command, args),

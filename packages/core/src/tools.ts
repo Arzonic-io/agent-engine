@@ -16,11 +16,29 @@
  * writes cannot leak into a non-mission flow. Mission execution is handed a
  * `WritableRepoTools`.
  */
+/**
+ * Optional line window for `readFile`. Reading a whole file costs tokens for the
+ * WHOLE remaining agent loop — a ReAct transcript carries every earlier tool
+ * result forward — so an agent that needs one function should page to it rather
+ * than pull the file. Omitted = read from the start, up to the implementation's
+ * default line budget.
+ */
+export interface ReadFileOptions {
+  /** 1-based line to start at. Defaults to 1. */
+  offset?: number;
+  /** Maximum number of lines to return. Defaults to the implementation's budget. */
+  limit?: number;
+}
+
 export interface RepoTools {
   /** List entries in a directory relative to the repo root (dirs end with "/"). */
   listFiles(dir: string): Promise<string>;
-  /** Read a UTF-8 file relative to the repo root (implementations may truncate). */
-  readFile(path: string): Promise<string>;
+  /**
+   * Read a UTF-8 file relative to the repo root, optionally a line window.
+   * Implementations return line-numbered text and truncate; the returned text is
+   * for reading, NOT for feeding back into an exact-match edit verbatim.
+   */
+  readFile(path: string, options?: ReadFileOptions): Promise<string>;
   /** Case-insensitive substring search across the repo; returns `path:line: text` hits. */
   searchCode(query: string): Promise<string>;
   /**

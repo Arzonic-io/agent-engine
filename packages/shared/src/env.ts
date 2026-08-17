@@ -46,6 +46,15 @@ const EnvSchema = z
       .enum(["true", "false"])
       .default("true")
       .transform((v) => v === "true"),
+    // Cache lifetime for that breakpoint. NOT a free upgrade: a 5m write costs
+    // 1.25x base, a 1h write costs 2x (reads are ~0.1x either way), so "1h" only
+    // pays off when entries would otherwise EXPIRE and be rewritten in full.
+    // In the implementer/tester loop that happens when a single tool call outlasts
+    // the window — a `run_check` that runs a real build or test suite. Default
+    // stays 5m: on a loop whose tool calls all return quickly, 1h just pays the
+    // higher write price on every turn for a cache that was never going to lapse.
+    // Set LLM_PROMPT_CACHE_TTL=1h for missions whose checks are slow.
+    LLM_PROMPT_CACHE_TTL: z.enum(["5m", "1h"]).default("5m"),
     MISTRAL_API_KEY: z.string().min(1).optional(),
     ANTHROPIC_API_KEY: z.string().min(1).optional(),
     GOOGLE_API_KEY: z.string().min(1).optional(),

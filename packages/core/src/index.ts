@@ -31,7 +31,7 @@ export {
   type ModelSpec,
   type RoleModelsConfig,
 } from "./models.js";
-export type { RepoTools, WritableRepoTools } from "./tools.js";
+export type { ReadFileOptions, RepoTools, WritableRepoTools } from "./tools.js";
 export type {
   Worktree,
   WorktreeManager,

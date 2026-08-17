@@ -33,9 +33,18 @@ const DEFAULT_MODELS: Record<LlmProvider, string> = {
  * still override per call (e.g. a 1h TTL); we only fill in the default.
  */
 class CachingChatAnthropic extends ChatAnthropic {
+  /** Cache lifetime for the injected breakpoint (LLM_PROMPT_CACHE_TTL). */
+  cacheTtl: "5m" | "1h" = "5m";
+
   invocationParams(options?: this["ParsedCallOptions"]) {
     const params = super.invocationParams(options);
-    if (!params.cache_control) params.cache_control = { type: "ephemeral" };
+    // Only fill in a default — a caller that set its own breakpoint keeps it.
+    // "5m" is the API's own default, so it's left off the wire rather than
+    // spelled out; "1h" is opt-in because its write costs 2x base vs 1.25x.
+    if (!params.cache_control) {
+      params.cache_control =
+        this.cacheTtl === "1h" ? { type: "ephemeral", ttl: "1h" } : { type: "ephemeral" };
+    }
     return params;
   }
 }
@@ -88,7 +97,11 @@ export function buildModel(env: Env, spec: RoleModelSpec): BaseChatModel {
       // at invocation; drop it for them so a per-role temperature (or our default)
       // never crashes the call. Sonnet/older Claude keep the configured value.
       const temp = anthropicHonoursTemperature(model) ? temperature : undefined;
-      return new Anthropic({ apiKey: env.ANTHROPIC_API_KEY, model, temperature: temp, ...retry });
+      const chat = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY, model, temperature: temp, ...retry });
+      // Set after construction: `cacheTtl` is our own field, not a ChatAnthropic
+      // constructor option, and the union above is typed as plain ChatAnthropic.
+      if (chat instanceof CachingChatAnthropic) chat.cacheTtl = env.LLM_PROMPT_CACHE_TTL;
+      return chat;
     }
     case "mistral":
       // ChatMistralAI ignores this.caller (builds a fresh one per request), so the

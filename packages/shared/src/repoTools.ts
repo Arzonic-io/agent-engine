@@ -7,7 +7,7 @@ import {
   writeFile as fsWriteFile,
 } from "node:fs/promises";
 import { dirname, relative, resolve, sep } from "node:path";
-import type { RepoTools, WritableRepoTools } from "@arzonic/agent-core";
+import type { ReadFileOptions, RepoTools, WritableRepoTools } from "@arzonic/agent-core";
 import {
   DEFAULT_ALLOWED_CHECKS,
   DEFAULT_ALLOWED_COMMANDS,
@@ -30,6 +30,18 @@ const IGNORE_DIRS = new Set([
 ]);
 
 const MAX_FILE_BYTES = 60_000;
+/**
+ * Default line window for `readFile` when the caller doesn't ask for one. A full
+ * 60 KB file is ~15k tokens that then ride along in the ReAct transcript for
+ * every remaining tool turn, so the default reads a window and tells the agent
+ * how to page for the rest instead of paying that on the first `read_file`.
+ * Most source files fit inside this and are still returned whole.
+ */
+const DEFAULT_READ_LINES = 400;
+/** Ceiling on an explicit `limit` — a deliberate big read is allowed, unbounded isn't. */
+const MAX_READ_LINES = 2_000;
+/** Per-line cap, so one minified or generated line can't blow the whole window. */
+const MAX_LINE_CHARS = 2_000;
 const MAX_SEARCH_HITS = 60;
 const MAX_SEARCH_FILE_BYTES = 400_000;
 const MAX_WRITE_BYTES = 1_000_000;
@@ -80,6 +92,66 @@ async function walk(dir: string, out: string[]): Promise<void> {
   }
 }
 
+/**
+ * Render a line window of a file as numbered text, bounded by lines AND bytes.
+ *
+ * The `N→` prefix is display only: it makes hits from `searchCode` (which reports
+ * `path:line:`) directly addressable and lets an agent page a big file, but it is
+ * NOT part of the file. An exact-match edit built from this text verbatim will
+ * fail to find its target — the tool descriptions and system prompts say so, and
+ * `applyEdit`'s not-found error names this as the likely cause.
+ *
+ * Exported so the numbering, paging footer and both caps can be proven without
+ * touching disk.
+ */
+export function renderFileWindow(
+  path: string,
+  buf: Buffer,
+  options: ReadFileOptions = {},
+): string {
+  // Say so plainly — an empty file would otherwise render as a bare "1→", which
+  // reads like a failed read rather than a real (and often meaningful) result.
+  if (buf.length === 0) return "(empty file)";
+  const lines = buf.toString("utf8").split("\n");
+  // A file ending in a newline splits to a trailing "" that is not a real line.
+  if (lines.length > 1 && lines[lines.length - 1] === "") lines.pop();
+  const total = lines.length;
+
+  const offset = Math.max(1, Math.trunc(options.offset ?? 1));
+  const limit = Math.min(
+    MAX_READ_LINES,
+    Math.max(1, Math.trunc(options.limit ?? DEFAULT_READ_LINES)),
+  );
+
+  if (offset > total) {
+    return `(no such lines: ${path} has ${total} line${total === 1 ? "" : "s"})`;
+  }
+
+  const wanted = Math.min(offset + limit - 1, total);
+  // Width from the largest number we'll actually print — a 40-line file pays 2
+  // columns of gutter, not 6.
+  const width = String(wanted).length;
+
+  const out: string[] = [];
+  let bytes = 0;
+  let last = offset - 1;
+  for (let n = offset; n <= wanted; n++) {
+    const raw = lines[n - 1]!;
+    const text = raw.length > MAX_LINE_CHARS ? `${raw.slice(0, MAX_LINE_CHARS)}…` : raw;
+    const rendered = `${String(n).padStart(width)}→${text}`;
+    const size = Buffer.byteLength(rendered, "utf8") + 1;
+    // Stop on the byte cap, but always emit at least one line so a file of very
+    // long lines still returns something to page from.
+    if (bytes + size > MAX_FILE_BYTES && out.length > 0) break;
+    out.push(rendered);
+    bytes += size;
+    last = n;
+  }
+
+  if (last >= total) return out.join("\n");
+  return `${out.join("\n")}\n…(showing lines ${offset}-${last} of ${total}; read on with offset=${last + 1})`;
+}
+
 /** The read-only tool set (Layer 1 + 2), shared by both factories. */
 function makeReadTools(
   root: string,
@@ -97,15 +169,12 @@ function makeReadTools(
       return lines.length ? lines.join("\n") : "(empty)";
     },
 
-    async readFile(path) {
+    async readFile(path, options) {
       const abs = within(path);
       const s = await stat(abs);
       if (s.isDirectory()) throw new Error(`${path} is a directory, not a file`);
       const buf = await fsReadFile(abs);
-      const text = buf.subarray(0, MAX_FILE_BYTES).toString("utf8");
-      return buf.length > MAX_FILE_BYTES
-        ? `${text}\n…(truncated; file is ${buf.length} bytes)`
-        : text;
+      return renderFileWindow(path, buf, options);
     },
 
     async searchCode(query) {
@@ -212,7 +281,13 @@ export function createWritableRepoTools(
       }
       const first = current.indexOf(oldString);
       if (first === -1) {
-        throw new Error(`applyEdit on ${path}: oldString not found.`);
+        // `readFile` returns "  12→code" for navigability. Copying that back as
+        // oldString is the single most likely cause of a miss, so name it here —
+        // the agent then self-corrects on its next turn instead of re-guessing.
+        const numbered = /^\s*\d+→/m.test(oldString)
+          ? " oldString still carries the 'N→' line-number prefixes from read_file — strip them; they are not in the file."
+          : "";
+        throw new Error(`applyEdit on ${path}: oldString not found.${numbered}`);
       }
       if (current.indexOf(oldString, first + 1) !== -1) {
         throw new Error(

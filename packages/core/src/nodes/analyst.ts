@@ -66,11 +66,23 @@ export function makeAnalystNode(model: BaseChatModel, repo: RepoTools) {
         dir: z.string().optional().describe("Directory relative to repo root; defaults to '.'"),
       }),
     }),
-    tool(async ({ path }: { path: string }) => repo.readFile(path), {
-      name: "read_file",
-      description: "Read a UTF-8 text file relative to the repo root.",
-      schema: z.object({ path: z.string().describe("File path relative to repo root") }),
-    }),
+    tool(
+      async ({ path, offset, limit }: { path: string; offset?: number; limit?: number }) =>
+        repo.readFile(path, { offset, limit }),
+      {
+        name: "read_file",
+        description:
+          "Read a UTF-8 text file relative to the repo root. Returns lines prefixed 'N→' (the " +
+          "prefixes are display only, not file content); reads a window from the start by default " +
+          "and tells you the offset to continue from. Pass offset/limit to read the part you need " +
+          "of a large file instead of all of it.",
+        schema: z.object({
+          path: z.string().describe("File path relative to repo root"),
+          offset: z.number().int().min(1).optional().describe("1-based first line to read; defaults to 1"),
+          limit: z.number().int().min(1).optional().describe("Maximum lines to return; defaults to a few hundred"),
+        }),
+      },
+    ),
     tool(async ({ query }: { query: string }) => repo.searchCode(query), {
       name: "search_code",
       description:
