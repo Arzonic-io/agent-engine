@@ -317,7 +317,17 @@ export class MissionsService {
         await backlog.updateItem(it.id, { status: "todo", verification: null });
       }
     }
-    await backlog.updateMission(id, { status: "running", stopReason: null });
+    // Same invariant for the clock: a deadline already in the past re-stops the
+    // mission on the governor's first check, so resuming under it is a silent
+    // no-op — and unlike the budget there is no endpoint to extend it. Resuming
+    // after expiry IS the decision to keep going, so drop the spent deadline and
+    // let the budget govern. A future deadline is left alone.
+    const deadlineExpired = mission.deadline !== null && Date.parse(mission.deadline) <= Date.now();
+    await backlog.updateMission(id, {
+      status: "running",
+      stopReason: null,
+      ...(deadlineExpired ? { deadline: null } : {}),
+    });
     return this.detail(id);
   }
 
