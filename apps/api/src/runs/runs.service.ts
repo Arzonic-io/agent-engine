@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { relative, resolve, sep } from "node:path";
+import { homedir } from "node:os";
+import { join, relative, resolve, sep } from "node:path";
 import {
   BadRequestException,
   ConflictException,
@@ -74,6 +75,9 @@ const TERMINAL_RUN_STATUSES = new Set<ApiRunStatus>(["accepted", "rejected", "fa
 
 /** How often the in-memory registry is swept for long-terminal runs. */
 const RUN_SWEEP_INTERVAL_MS = 10 * 60_000;
+
+/** macOS and Windows resolve paths case-insensitively; Linux does not. */
+const CASE_INSENSITIVE_FS = process.platform === "darwin" || process.platform === "win32";
 
 /** Graph nodes that surface their work through returned messages (vs. builder's draft). */
 const MESSAGE_NODES = new Set(["analyst", "architect", "worker", "lead"]);
@@ -213,19 +217,37 @@ export class RunsService implements OnModuleDestroy {
     return this.resolveRepoPath(repoPath);
   }
 
+  /**
+   * Expand a leading "~". `resolve` treats it as an ordinary path segment, so an
+   * unexpanded "~/x" silently becomes "<cwd>/~/x" — which can even pass the root
+   * check when the cwd is inside a root, then fail later as a missing repo.
+   */
+  private expandHome(repoPath: string): string {
+    if (repoPath === "~") return homedir();
+    if (repoPath.startsWith(`~${sep}`)) return join(homedir(), repoPath.slice(2));
+    return repoPath;
+  }
+
   /** Validate a client-supplied repo path against REPO_ALLOWED_ROOTS (if configured). */
   private resolveRepoPath(repoPath: string): string {
-    const abs = resolve(repoPath);
+    const abs = resolve(this.expandHome(repoPath));
     const roots = this.env.REPO_ALLOWED_ROOTS;
     if (roots.length > 0) {
+      // Compare the way the filesystem does. On macOS/Windows ".../Github/x" and
+      // ".../GitHub/x" are the same directory, so a case-sensitive string compare
+      // rejects a path that is genuinely inside the root.
+      const fold = (p: string) => (CASE_INSENSITIVE_FS ? p.toLowerCase() : p);
+      const target = fold(abs);
       const ok = roots.some((root) => {
-        const r = resolve(root);
-        const rel = relative(r, abs);
-        return abs === r || (!rel.startsWith("..") && !rel.startsWith(`..${sep}`));
+        const r = fold(resolve(root));
+        const rel = relative(r, target);
+        return target === r || (!rel.startsWith("..") && !rel.startsWith(`..${sep}`));
       });
       if (!ok) {
+        // Name the rejected path: without it the caller cannot tell whether they
+        // sent a typo, a relative path, or a genuinely out-of-bounds repo.
         throw new BadRequestException(
-          `repoPath must be within an allowed root: ${roots.join(", ")}`,
+          `repoPath "${abs}" is outside the allowed roots: ${roots.join(", ")}`,
         );
       }
     }
