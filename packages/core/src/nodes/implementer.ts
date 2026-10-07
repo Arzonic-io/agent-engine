@@ -62,12 +62,18 @@ function buildPrompt(state: GraphStateType): string {
   const parts = [`# Task\n${state.task}`];
   if (state.context) parts.push(`# Project context\n${state.context}`);
   if (state.draft) parts.push(`# Prior work / notes\n${state.draft}`);
-  if (state.verdict && state.verdict.issues.length > 0) {
-    parts.push(
-      `# Issues to fix (from verification/critic)\n${state.verdict.issues
-        .map((i) => `- ${i}`)
-        .join("\n")}`,
+  const issues = (state.verdict?.issues ?? []).map((i) => `- ${i}`);
+  // The checks go first: they decide "done", and the notes above may claim a
+  // success they never confirmed.
+  const failed = state.failedVerification;
+  if (failed) {
+    issues.unshift(
+      `- The previous attempt FAILED verification (${failed.check}). Whatever the notes above say, ` +
+        `this item is not done until these checks pass. Their output:\n\`\`\`\n${failed.output}\n\`\`\``,
     );
+  }
+  if (issues.length > 0) {
+    parts.push(`# Issues to fix (from verification/critic)\n${issues.join("\n")}`);
   }
   return parts.join("\n\n");
 }

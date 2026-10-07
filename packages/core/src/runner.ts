@@ -1,4 +1,5 @@
 import { Command } from "@langchain/langgraph";
+import type { Verification } from "./mission.js";
 import type { GraphStateType, RunStatus, Verdict } from "./state.js";
 import type { Worktree, WorktreeManager } from "./worktree.js";
 
@@ -17,6 +18,13 @@ export interface WorkItem {
   detail?: string;
   /** Mission goal + retrieved context, prepended to steer the run. */
   context?: string;
+  /**
+   * Why this item's previous attempt failed verification, if it did: `check`
+   * names the checks that failed, `output` is a bounded tail of what they
+   * printed. Shown to the implementer with the critic's issues, so a retry fixes
+   * what the checks reported rather than trusting its own last summary.
+   */
+  failedVerification?: Verification;
 }
 
 export interface WorkResult {
@@ -88,7 +96,8 @@ function defaultBuildTask(item: WorkItem): string {
  * and `round` (spending the critic's revision budget before the retry's first
  * review). `draft` and `verdict` are deliberately carried over: the worktree is
  * reused as-is, so the last summary and the critic's last issues still describe
- * the code the retry starts from — its only memory of the previous attempt.
+ * the code the retry starts from. What the checks said about that code is not
+ * carried over: each attempt is handed it fresh (`WorkItem.failedVerification`).
  */
 const FRESH_ATTEMPT = { round: 0, tokensUsed: 0 } satisfies Partial<GraphStateType>;
 
@@ -110,8 +119,11 @@ export function createGraphWorkRunner(
     async run(item, signal): Promise<WorkResult> {
       const config = { configurable: { thread_id: item.id }, signal };
       const task = buildTask(item);
+      // Written on every attempt, null included: left unwritten, the thread would
+      // hand an older attempt's failure to a retry whose last attempt passed.
+      const failedVerification = item.failedVerification ?? null;
 
-      await graph.invoke({ ...FRESH_ATTEMPT, task, ...options.baseInput }, config);
+      await graph.invoke({ ...FRESH_ATTEMPT, task, failedVerification, ...options.baseInput }, config);
 
       // Mission mode never blocks at the gate: approve it to surface the draft.
       for (let i = 0; i < maxGateResumes; i++) {

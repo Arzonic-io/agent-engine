@@ -1,5 +1,6 @@
 import { Annotation } from "@langchain/langgraph";
 import { z } from "zod";
+import type { Verification } from "./mission.js";
 import type { RubricCriterion } from "./rubric.js";
 
 export const AgentMessageSchema = z.object({
@@ -136,6 +137,16 @@ export const GraphState = Annotation.Root({
   humanNotes: Annotation<string>({
     reducer: (_a, b) => b,
     default: () => "",
+  }),
+  /**
+   * Mission mode: the Verifier's failed result for this item's previous attempt
+   * (the checks that failed + a bounded tail of their output), shown to the
+   * implementer with the critic's issues. The WorkRunner writes it on every
+   * attempt — null when nothing failed — so it never outlives its attempt.
+   */
+  failedVerification: Annotation<Verification | null>({
+    reducer: (_a, b) => b,
+    default: () => null,
   }),
   // ── team mode (architect → workers → lead) ──
   // Reads tolerate `string[]` from pre-structured checkpoints (see `toPlanStep`);

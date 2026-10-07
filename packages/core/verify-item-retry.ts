@@ -11,6 +11,11 @@
  * in-memory repo (no API key, no git, no DB). Also proves what deliberately
  * survives: the worktree is reused as-is, so the retry's implementer still reads
  * the previous attempt's summary and last critic issues.
+ *
+ * And that a retry is told WHY the Verifier failed its last attempt: the retry's
+ * first implementer prompt names the checks that failed and shows a bounded tail
+ * of their output — also when the critic had passed that code, which leaves the
+ * retry no critic issues at all, only its own last summary.
  * Run: pnpm --filter @arzonic/agent-core exec tsx verify-item-retry.ts
  */
 import { BaseChatModel } from "@langchain/core/language_models/chat_models";
@@ -207,8 +212,39 @@ function makeRunner(model: FakeTeamModel) {
   ok(retry.firstPrompt.includes("issue from review 2"), "the retry still reads attempt 1's last critic issues");
 }
 
-// ── 2. through runMission: spent_tokens is what was billed, so the budget holds ──
-{
+/** Fails the named checks with the given output on the FIRST run (attempt 1), passes everything after. */
+function redThenGreen(failing: Record<string, string>): Verifier {
+  let runs = 0;
+  return {
+    async run(checks) {
+      const red = ++runs === 1;
+      const results = checks.map((check) => {
+        const output = red ? failing[check] : undefined;
+        return { check, passed: output === undefined, output: output ?? "" };
+      });
+      return { passed: results.every((r) => r.passed), results };
+    },
+  };
+}
+
+/** What the production replanner does with a failed check: keep the item open for a retry. */
+const replanner: Replanner = {
+  async replan({ verification }) {
+    return { itemStatus: verification.passed ? "done" : "todo" };
+  },
+};
+
+/**
+ * One item through runMission on an in-memory store — the controller is what
+ * stores each attempt's verification on the item and hands it to the retry.
+ */
+async function runOneItem(opts: {
+  model: FakeTeamModel;
+  verifier: Verifier;
+  replanner?: Replanner;
+  checks?: string[];
+  budget?: number | null;
+}) {
   const mission: Mission = {
     id: "m1",
     projectId: "p1",
@@ -217,8 +253,7 @@ function makeRunner(model: FakeTeamModel) {
     checks: [],
     repoPath: "/repo",
     status: "running",
-    // Room for exactly two honest attempts: a retry that re-bills attempt 1 overruns it.
-    budget: 2 * ATTEMPT_TOKENS + 1,
+    budget: opts.budget ?? null,
     spentTokens: 0,
     deadline: null,
     guidance: null,
@@ -286,32 +321,148 @@ function makeRunner(model: FakeTeamModel) {
     },
   };
 
-  // Red on the first attempt, green on the retry.
-  let verifications = 0;
-  const verifier: Verifier = {
-    async run(checks) {
-      const passed = ++verifications > 1;
-      return { passed, results: checks.map((check) => ({ check, passed, output: passed ? "" : "1 test failed" })) };
+  const out = await runMission(
+    {
+      backlog: store,
+      verifier: opts.verifier,
+      runner: makeRunner(opts.model),
+      replanner: opts.replanner ?? replanner,
+      checks: opts.checks,
     },
-  };
-  // What the production replanner does with a failed check: keep the item open for a retry.
-  const replanner: Replanner = {
-    async replan({ verification }) {
-      return { itemStatus: verification.passed ? "done" : "todo" };
-    },
-  };
+    "m1",
+  );
+  return { out, mission, item: items.get("item-1")! };
+}
 
+// ── 2. through runMission: spent_tokens is what was billed, so the budget holds ──
+{
   const model = new FakeTeamModel(verdicts);
-  const out = await runMission({ backlog: store, verifier, runner: makeRunner(model), replanner }, "m1");
+  const { out, mission, item } = await runOneItem({
+    model,
+    // Red on the first attempt, green on the retry.
+    verifier: redThenGreen({
+      typecheck: "src/answer.ts(1,14): error TS2322: Type 'string' is not assignable to type 'number'.",
+      test: "AssertionError: expected answer to be 42, got 2",
+    }),
+    // Room for exactly two honest attempts: a retry that re-bills attempt 1 overruns it.
+    budget: 2 * ATTEMPT_TOKENS + 1,
+  });
   console.log(`runMission: ${out.status}/${out.reason}, spent_tokens ${mission.spentTokens}, billed ${model.billed}`);
   ok(
     mission.spentTokens === model.billed,
     "spent_tokens equals what the model billed across both attempts (no double counting)",
   );
   ok(
-    out.status === "done" && out.reason === "done" && items.get("item-1")!.status === "done",
+    out.status === "done" && out.reason === "done" && item.status === "done",
     "the item is done on its retry, and the honest spend stays inside the budget",
+  );
+  // Attempt 1 ran two implementer passes, so the retry opens on the third prompt.
+  const retryPrompt = model.prompts[2] ?? "";
+  ok(
+    retryPrompt.includes("error TS2322") && retryPrompt.includes("expected answer to be 42, got 2"),
+    "the retry's first prompt carries the output of the checks that failed attempt 1",
+  );
+  ok(retryPrompt.includes("issue from review 2"), "… next to the critic's last issues");
+}
+
+// ── 3. the critic PASSED attempt 1 but the checks failed it: the retry is still told why ──
+{
+  // The critic approves every pass, so attempt 1 leaves its retry no critic issues at all.
+  const model = new FakeTeamModel([{ pass: true, issues: [] }]);
+  const { out } = await runOneItem({
+    model,
+    checks: ["typecheck", "test:answer"],
+    verifier: redThenGreen({ "test:answer": "AssertionError: expected answer to be 42, got 1" }),
+  });
+  ok(
+    model.prompts.length === 2 && model.reviews === 2,
+    "one implementer pass per attempt: the critic approved attempt 1, the Verifier sent it back",
+  );
+  const retryPrompt = model.prompts[1] ?? "";
+  console.log(`retry's first prompt:\n${retryPrompt}\n`);
+  ok(retryPrompt.includes("test:answer"), "the retry's first prompt names the check that failed attempt 1");
+  ok(
+    retryPrompt.includes("AssertionError: expected answer to be 42, got 1"),
+    "… and shows what that check printed",
+  );
+  ok(!retryPrompt.includes("typecheck"), "a check that passed is not reported as failed");
+  ok(out.status === "done", "the retry goes green and the item is done");
+}
+
+// ── 4. a long failure is cut to its tail, and the cut never hides which checks failed ──
+{
+  // typecheck prints a wall of errors, then test:answer fails briefly. Neither
+  // output contains the word "typecheck": only the failed-checks label can.
+  const wall = ["TS-FIRST", ...Array.from({ length: 1000 }, (_, i) => `  error ${i}: not assignable`), "TS-LAST"].join(
+    "\n",
+  );
+  const brief = "AssertionError: expected answer to be 42, got 3\nTEST-LAST";
+  const model = new FakeTeamModel([{ pass: true, issues: [] }]);
+  await runOneItem({
+    model,
+    checks: ["typecheck", "test:answer"],
+    verifier: redThenGreen({ typecheck: wall, "test:answer": brief }),
+  });
+  const retryPrompt = model.prompts[1] ?? "";
+  console.log(
+    `retry's first prompt: ${retryPrompt.length} chars, for ${wall.length + brief.length} chars of failing output`,
+  );
+  ok(retryPrompt.length < 10_000, "the retry's prompt stays bounded however much the checks printed");
+  ok(
+    retryPrompt.includes("TEST-LAST") && retryPrompt.includes("TS-LAST") && !retryPrompt.includes("TS-FIRST"),
+    "it keeps the tail of the output, where a check prints its summary",
+  );
+  ok(
+    retryPrompt.includes("typecheck") && retryPrompt.includes("test:answer"),
+    "a failed check whose output the cut dropped is still named",
   );
 }
 
-console.log("\nRetried item starts a fresh attempt ✓");
+// ── 5. each attempt gets its OWN failed verification — never an older one left on the thread ──
+{
+  const model = new FakeTeamModel([{ pass: true, issues: [] }]);
+  const runner = makeRunner(model);
+  const item = { id: "item-1", title: "Set answer = 42 in src/answer.ts" };
+  await runner.run({
+    ...item,
+    failedVerification: { passed: false, check: "test", output: "AssertionError: expected answer to be 42, got 7" },
+  });
+  // E.g. the checks passed but the replanner still wanted another go: nothing failed to hand over.
+  await runner.run(item);
+  ok(
+    (model.prompts[0] ?? "").includes("expected answer to be 42, got 7"),
+    "an attempt handed a failed verification is shown it",
+  );
+  ok(
+    !(model.prompts[1] ?? "").includes("expected answer to be 42, got 7"),
+    "the next attempt, handed none, is not shown the last one's",
+  );
+}
+
+// ── 6. a retry whose last attempt PASSED the checks is not handed that as a failure ──
+{
+  const model = new FakeTeamModel([{ pass: true, issues: [] }]);
+  let replans = 0;
+  await runOneItem({
+    model,
+    verifier: {
+      async run(checks) {
+        const results = checks.map((check) => ({ check, passed: true, output: "all 12 tests passed" }));
+        return { passed: true, results };
+      },
+    },
+    // Green, but the lead sends it round once more anyway — the LLM replanner may.
+    replanner: {
+      async replan() {
+        return { itemStatus: ++replans === 1 ? "todo" : "done" };
+      },
+    },
+  });
+  ok(model.prompts.length === 2, "the lead sent the green item round once more");
+  ok(
+    !(model.prompts[1] ?? "").includes("all 12 tests passed"),
+    "a retry whose last attempt passed the checks is not shown that verification as a failure",
+  );
+}
+
+console.log("\nRetried item starts a fresh attempt, told why the last one failed ✓");

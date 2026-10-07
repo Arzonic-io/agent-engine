@@ -7,6 +7,7 @@ import type {
   Mission,
   MissionStatus,
   Risk,
+  Verification,
 } from "./mission.js";
 import { buildDigest, classifyRisk, type MissionDigest } from "./humanPolicy.js";
 import type { Rubric } from "./rubric.js";
@@ -470,6 +471,28 @@ function summarizeVerification(checks: string[], report: VerifierReport) {
   return { passed: report.passed, check: checks.join(","), output };
 }
 
+/** How much of a failed verification's output a retry is shown: the tail, where checks summarize. */
+const MAX_RETRY_OUTPUT = 4_000;
+
+/**
+ * An item's stored verification, if it failed, as its retry gets it. The stored
+ * `check` lists every check that RAN, so the failed ones are read off the
+ * `[check] FAIL` headers summarizeVerification writes — across the whole
+ * output, so cutting it to a tail can't hide one. A failure stored without
+ * those headers (run-error, a merge conflict, …) keeps its own label.
+ */
+function retryVerification(v: Verification | null): Verification | undefined {
+  if (!v || v.passed) return undefined;
+  const failed = [...new Set([...v.output.matchAll(/^\[([^\]\n]+)\] FAIL$/gm)].map((m) => m[1]!))];
+  const output = v.output.trim();
+  const cut = output.length - MAX_RETRY_OUTPUT;
+  return {
+    passed: false,
+    check: failed.length > 0 ? failed.join(",") : v.check,
+    output: cut > 0 ? `…(${cut} chars of head truncated)\n${output.slice(cut)}` : output,
+  };
+}
+
 export async function runMission(
   deps: MissionDeps,
   missionId: string,
@@ -640,6 +663,9 @@ export async function runMission(
         title: item.title,
         detail: item.detail,
         context: missionContext(mission, deps.repoSurvey),
+        // What the checks said about the code a retry starts from. Without it the
+        // retry's only memory is its own last summary — which may claim success.
+        failedVerification: retryVerification(item.verification),
       },
       deps.signal,
     );
