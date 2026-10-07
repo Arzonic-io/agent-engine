@@ -10,6 +10,7 @@ import { DEFAULT_LLM_CALL_TIMEOUT_MS, withLlmTimeout } from "../llmCallTimeout.j
 import { augmentRubric, renderRubric, type Rubric } from "../rubric.js";
 import type { GraphStateType, Verdict } from "../state.js";
 import { billableTokens } from "../tokens.js";
+import { withUsage } from "../usage.js";
 
 const SYSTEM_PROMPT = `You are the Critic in a builder/critic loop. Your job is to find concrete,
 actionable problems in the draft — missing requirements, factual or technical
@@ -75,7 +76,7 @@ export function makeCriticNode(
     const { raw, parsed } = await withLlmTimeout(
       structured.invoke(
         [new SystemMessage(SYSTEM_PROMPT), new HumanMessage(prompt)],
-        { signal: config?.signal },
+        withUsage("critic", { signal: config?.signal }),
       ),
       llmCallTimeoutMs,
       "critic",

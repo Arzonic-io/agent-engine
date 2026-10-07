@@ -11,6 +11,7 @@ import { formatPlanStep, PlanStepSchema, type GraphStateType } from "../state.js
 import type { RepoTools } from "../tools.js";
 import { surveyRepo } from "./repoSurvey.js";
 import { billableTokens } from "../tokens.js";
+import { withUsage } from "../usage.js";
 
 /**
  * Two prompts, because the Architect has two jobs depending on what it was given.
@@ -118,7 +119,7 @@ export function makeArchitectNode(
     const { raw, parsed } = await withLlmTimeout(
       structured.invoke(
         [new SystemMessage(systemPrompt), new HumanMessage(prompt)],
-        { signal: config?.signal },
+        withUsage("architect", { signal: config?.signal }),
       ),
       llmCallTimeoutMs,
       "architect",

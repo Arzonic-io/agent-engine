@@ -4,6 +4,7 @@ import type { RunnableConfig } from "@langchain/core/runnables";
 import { DEFAULT_LLM_CALL_TIMEOUT_MS, withLlmTimeout } from "../llmCallTimeout.js";
 import type { GraphStateType } from "../state.js";
 import { billableTokens } from "../tokens.js";
+import { withUsage } from "../usage.js";
 
 const SYSTEM_PROMPT = `You are the Builder in a builder/critic loop. You produce the best possible
 draft for the given task. When critic feedback is provided, you revise the
@@ -45,7 +46,7 @@ export function makeBuilderNode(
     const response = await withLlmTimeout(
       model.invoke(
         [new SystemMessage(SYSTEM_PROMPT), new HumanMessage(parts.join("\n\n"))],
-        { signal: config?.signal },
+        withUsage("builder", { signal: config?.signal }),
       ),
       llmCallTimeoutMs,
       "builder",

@@ -10,6 +10,7 @@ import { z } from "zod";
 import type { AgentMessage, GraphStateType } from "../state.js";
 import type { RepoTools } from "../tools.js";
 import { billableTokens } from "../tokens.js";
+import { withUsage } from "../usage.js";
 
 /** Hard cap on tool round-trips per analyst turn — keeps the ReAct loop provably terminating. */
 const MAX_TOOL_STEPS = 24;
@@ -137,7 +138,7 @@ export function makeAnalystNode(model: BaseChatModel, repo: RepoTools) {
     let report = "";
 
     for (let step = 0; step < MAX_TOOL_STEPS; step++) {
-      const ai = await modelWithTools.invoke(messages);
+      const ai = await modelWithTools.invoke(messages, withUsage("analyst"));
       tokens += billableTokens(ai.usage_metadata);
       messages.push(ai);
 

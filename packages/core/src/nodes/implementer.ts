@@ -13,6 +13,7 @@ import { DEFAULT_LLM_CALL_TIMEOUT_MS, withLlmTimeout } from "../llmCallTimeout.j
 import type { AgentMessage, GraphStateType } from "../state.js";
 import type { WritableRepoTools } from "../tools.js";
 import { billableTokens } from "../tokens.js";
+import { withUsage } from "../usage.js";
 
 /**
  * Recursion limit for the ReAct loop — each model↔tool round-trip is ~2
@@ -255,7 +256,7 @@ export function makeImplementerNode(
       const result = (await withLlmTimeout(
         agent.invoke(
           { messages: [new HumanMessage(buildPrompt(state))] },
-          { recursionLimit: RECURSION_LIMIT, signal: config?.signal },
+          withUsage("implementer", { recursionLimit: RECURSION_LIMIT, signal: config?.signal }),
         ),
         llmCallTimeoutMs * IMPLEMENTER_TIMEOUT_MULTIPLIER,
         "implementer",

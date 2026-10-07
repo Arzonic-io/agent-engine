@@ -7,6 +7,7 @@ import {
 import { z } from "zod";
 import type { GraphStateType } from "../state.js";
 import { billableTokens } from "../tokens.js";
+import { withUsage } from "../usage.js";
 
 const SYSTEM_PROMPT = `You are the Router. Decide how the team should tackle a task:
 - "single": one focused deliverable that a single writer + reviewer can nail
@@ -43,10 +44,10 @@ export function makeRouterNode(model: BaseChatModel) {
       };
     }
 
-    const { raw, parsed } = await structured.invoke([
-      new SystemMessage(SYSTEM_PROMPT),
-      new HumanMessage(`Task:\n${state.task}`),
-    ]);
+    const { raw, parsed } = await structured.invoke(
+      [new SystemMessage(SYSTEM_PROMPT), new HumanMessage(`Task:\n${state.task}`)],
+      withUsage("router"),
+    );
     const route = RouteSchema.parse(parsed);
     const tokens = billableTokens((raw as AIMessage).usage_metadata);
 

@@ -4,6 +4,7 @@ import type { RunnableConfig } from "@langchain/core/runnables";
 import { DEFAULT_LLM_CALL_TIMEOUT_MS, withLlmTimeout } from "../llmCallTimeout.js";
 import type { GraphStateType } from "../state.js";
 import { billableTokens } from "../tokens.js";
+import { withUsage } from "../usage.js";
 
 const SYSTEM_PROMPT = `You are the Lead of an agent team. The workers each produced one step of the
 plan. Synthesize their outputs into ONE cohesive, polished final deliverable for
@@ -42,7 +43,7 @@ export function makeLeadNode(
     const response = await withLlmTimeout(
       model.invoke(
         [new SystemMessage(SYSTEM_PROMPT), new HumanMessage(parts.join("\n\n"))],
-        { signal: config?.signal },
+        withUsage("lead", { signal: config?.signal }),
       ),
       llmCallTimeoutMs,
       "lead",

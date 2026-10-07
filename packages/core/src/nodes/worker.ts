@@ -4,6 +4,7 @@ import type { RunnableConfig } from "@langchain/core/runnables";
 import { DEFAULT_LLM_CALL_TIMEOUT_MS, withLlmTimeout } from "../llmCallTimeout.js";
 import { formatPlanStep, toPlanStep, type GraphStateType } from "../state.js";
 import { billableTokens } from "../tokens.js";
+import { withUsage } from "../usage.js";
 
 const SYSTEM_PROMPT = `You are a Worker on an agent team, executing exactly ONE step of a plan.
 Produce the concrete deliverable for your step — the actual content, not a
@@ -47,7 +48,7 @@ export function makeWorkerNode(
     const response = await withLlmTimeout(
       model.invoke(
         [new SystemMessage(SYSTEM_PROMPT), new HumanMessage(parts.join("\n\n"))],
-        { signal: config?.signal },
+        withUsage("worker", { signal: config?.signal }),
       ),
       llmCallTimeoutMs,
       "worker",

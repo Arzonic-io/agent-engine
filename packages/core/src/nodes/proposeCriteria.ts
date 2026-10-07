@@ -8,6 +8,7 @@ import { z } from "zod";
 import { defaultRubric, type RubricCriterion } from "../rubric.js";
 import type { GraphStateType } from "../state.js";
 import { billableTokens } from "../tokens.js";
+import { withUsage } from "../usage.js";
 
 const SYSTEM_PROMPT = `You propose EXTRA, task-specific quality criteria a reviewer should check for
 THIS task — on top of the universal ones (correctness, completeness, matches the
@@ -61,10 +62,10 @@ export function makeProposeCriteriaNode(
     if (!enabled) return {};
 
     const contextBlock = state.context ? `\n\n# Project context\n${state.context}` : "";
-    const { raw, parsed } = await structured.invoke([
-      new SystemMessage(SYSTEM_PROMPT),
-      new HumanMessage(`# Task\n${state.task}${contextBlock}`),
-    ]);
+    const { raw, parsed } = await structured.invoke(
+      [new SystemMessage(SYSTEM_PROMPT), new HumanMessage(`# Task\n${state.task}${contextBlock}`)],
+      withUsage("proposeCriteria"),
+    );
     const result = ProposeSchema.parse(parsed);
     const tokens = billableTokens((raw as AIMessage).usage_metadata);
 

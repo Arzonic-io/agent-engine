@@ -5,6 +5,7 @@ import { augmentRubric, renderRubric, type Rubric } from "../rubric.js";
 import type { GraphStateType, Verdict } from "../state.js";
 import type { WritableRepoTools } from "../tools.js";
 import { billableTokens } from "../tokens.js";
+import { withUsage } from "../usage.js";
 
 const SYSTEM_PROMPT = `You are the mission Critic — an adversarial code reviewer on an autonomous
 mission team. The Implementer just wrote code in a git worktree to satisfy ONE
@@ -128,10 +129,10 @@ export function makeMissionCriticNode(
         `# Decide\nDoes this change correctly and completely satisfy the item and its acceptance criteria? Be adversarial. Set pass=true only if you cannot find a substantive problem; otherwise list concrete issues for the implementer to fix.`,
       ].join("\n\n");
 
-      const { raw, parsed } = await structuredBinary.invoke([
-        new SystemMessage(SYSTEM_PROMPT),
-        new HumanMessage(prompt),
-      ]);
+      const { raw, parsed } = await structuredBinary.invoke(
+        [new SystemMessage(SYSTEM_PROMPT), new HumanMessage(prompt)],
+        withUsage("missionCritic"),
+      );
       const review = MissionReviewSchema.parse(parsed);
       const tokens = billableTokens((raw as AIMessage).usage_metadata);
 
@@ -161,10 +162,10 @@ export function makeMissionCriticNode(
       `# Rubric (Definition of Done)\nJudge each criterion by its id against the diff:\n${renderRubric(effective)}`,
     ].join("\n\n");
 
-    const { raw, parsed } = await structuredRubric.invoke([
-      new SystemMessage(RUBRIC_SYSTEM_PROMPT),
-      new HumanMessage(prompt),
-    ]);
+    const { raw, parsed } = await structuredRubric.invoke(
+      [new SystemMessage(RUBRIC_SYSTEM_PROMPT), new HumanMessage(prompt)],
+      withUsage("missionCritic"),
+    );
     const output = RubricReviewSchema.parse(parsed);
     const tokens = billableTokens((raw as AIMessage).usage_metadata);
 
