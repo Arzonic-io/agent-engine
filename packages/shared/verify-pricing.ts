@@ -30,5 +30,10 @@ ok(estimateCostUsd("gemini-2.5-flash", { ...none, inputFresh: M }) === null, "a 
 ok(estimateCostUsd(null, { ...none, inputFresh: M }) === null, "no model, no price");
 ok(priceFor("CLAUDE-HAIKU-4-5")?.input === 1, "matching ignores case");
 ok(/^\d{4}-\d{2}-\d{2}$/.test(PRICE_TABLE_VERSION), "the table carries the date its prices were checked");
+ok(estimateCostUsd("claude-sonnet-4-6", { ...none, cacheWrite: M }, "1h") === 6, "Sonnet 4.6 cache writes at the 1-hour TTL are $6 per 1M (2x input)");
+ok(estimateCostUsd("claude-opus-5-5", { ...none, cacheWrite: M }, "1h") === 8, "Opus 5.5 cache writes at the 1-hour TTL are $8 per 1M");
+ok(estimateCostUsd("claude-sonnet-4-6", { ...none, cacheWrite: M }) === 3.75, "the TTL defaults to 5 minutes");
+ok(estimateCostUsd("mistral-large-latest", { ...none, cacheWrite: M }, "1h") === null, "a cache write with no price at its TTL makes the price unknown, not cheaper");
+ok(estimateCostUsd("mistral-large-latest", { ...none, inputFresh: M }, "1h") === 0.5, "a call without cache writes is still priced at any TTL");
 
 console.log("\nPrice table ✓");

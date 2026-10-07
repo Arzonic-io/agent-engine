@@ -100,6 +100,7 @@ export {
   PRICE_TABLE_VERSION,
   priceFor,
   estimateCostUsd,
+  type CacheTtl,
   type ModelPrice,
   type TokenCounts,
 } from "./pricing.js";
