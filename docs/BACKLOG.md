@@ -1110,6 +1110,10 @@ Rækkefølge:
 
   Det skal være på plads, før en billig model får indflydelse på afslutningen.
 - [ ] **Fase 0, del 2: beslutningsport.** Én port i core, som Clef, Jev eller en lille sprogmodel kan stå bag. Den køres i skygge først. Undersøg især forkerte godkendelser, og aktivér gradvist, startende med routing.
+- [ ] **Kendte huller i målingen.** Embeddings (`mistral-embed` i projekthukommelsen) og eksterne MCP-servere tælles ikke i `llm_usage`.
+- [ ] **Abort-signal til fire noder.** router, analyst, proposeCriteria og missionCritic tager ingen config, så Stop/deadline kan ikke afbryde deres modelkald.
+- [ ] **Fælles pool-hjælper.** Backlog-, memory- og settings-poolen har ingen 'error'-lytter, så en Postgres-genstart kan stadig vælte API eller worker. Én hjælper med lytter og timeouts lukker det for alle.
+- [ ] **Verificerede priser for Gemini, Opus 4.8 og de mindre Mistral-modeller.** Indtil da viser de "?" som pris.
 
 ### Øvrige temaer (M4 — produktisering)
 
