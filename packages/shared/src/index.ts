@@ -104,3 +104,12 @@ export {
   type ModelPrice,
   type TokenCounts,
 } from "./pricing.js";
+export {
+  createUsageRecorder,
+  type UsageRow,
+  type UsageSink,
+  type UsageInsertResult,
+  type UsageRecorder,
+  type UsageRecorderStats,
+  type UsageRecorderOptions,
+} from "./usageRecorder.js";
