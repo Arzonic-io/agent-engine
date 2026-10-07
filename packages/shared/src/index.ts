@@ -113,3 +113,11 @@ export {
   type UsageRecorderStats,
   type UsageRecorderOptions,
 } from "./usageRecorder.js";
+export {
+  UsageLedgerService,
+  type UsageSummary,
+  type UsageTotals,
+  type UsageByRole,
+  type UsageByItem,
+  type UsageOutcome,
+} from "./usageLedger.js";
