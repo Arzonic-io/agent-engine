@@ -28,6 +28,7 @@ import { estCost, ITEM_STATUS, MISSION_DOT } from "../../lib/format";
 import { useEventStream } from "../../lib/useEventStream";
 import { ErrorState, LoadingState } from "../../components/StateViews";
 import { MissionLiveFeed } from "../../components/MissionLiveFeed";
+import { MissionUsagePanel } from "../../components/MissionUsagePanel";
 import {
   TEAM_ROLES,
   TeamModelPicker,
@@ -644,6 +645,9 @@ export default function MissionDashboard({ params }: { params: Promise<{ id: str
           items={mission.items}
           running={mission.status === "running"}
         />
+
+        {/* what the mission's model calls cost, per role and per finished item */}
+        <MissionUsagePanel missionId={id} active={mission.status === "running"} />
 
         {/* backlog board */}
         <div className="mt-6 space-y-5">
