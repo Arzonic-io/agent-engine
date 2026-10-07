@@ -75,6 +75,9 @@ export interface UsageSummary {
   priceTableVersion: string;
 }
 
+/** One arbitrary fixed key, so concurrent boots serialize their schema setup. */
+const USAGE_SCHEMA_LOCK = 4_190_731_582_620_217n;
+
 const ROLE_TOTALS = `
   SELECT role,
     COALESCE(SUM(calls), 0)::float8 AS calls,
@@ -154,33 +157,49 @@ export class UsageLedgerService implements UsageSink {
     );
   }
 
-  /** Idempotent schema. Run after BacklogService.setup() — rows reference missions and backlog_items. */
+  /**
+   * Idempotent schema. Run after BacklogService.setup() — rows reference missions and backlog_items.
+   * On a first deploy the API and the worker boot at once, and the loser of two concurrent CREATEs
+   * fails (23505 or 42P07) and runs unmeasured for its lifetime. So the DDL runs in one transaction
+   * behind an advisory lock: the second process waits, then finds everything in place.
+   */
   async setup(): Promise<void> {
-    await this.pool.query(`
-      CREATE TABLE IF NOT EXISTS llm_usage (
-        call_id      uuid PRIMARY KEY,
-        at           timestamptz NOT NULL DEFAULT now(),
-        mission_id   uuid REFERENCES missions(id) ON DELETE CASCADE,
-        item_id      uuid REFERENCES backlog_items(id) ON DELETE CASCADE,
-        attempt_id   uuid,
-        task_id      uuid,
-        role         text NOT NULL,
-        provider     text,
-        model        text,
-        status       text NOT NULL DEFAULT 'ok',
-        calls        integer NOT NULL DEFAULT 1,
-        usage_known  boolean NOT NULL,
-        input_fresh  bigint,
-        cache_write  bigint,
-        cache_read   bigint,
-        output       bigint,
-        billable     bigint,
-        cost_usd     numeric(14, 6),
-        latency_ms   integer
-      )`);
-    await this.pool.query(`CREATE INDEX IF NOT EXISTS llm_usage_mission_idx ON llm_usage (mission_id)`);
-    await this.pool.query(`CREATE INDEX IF NOT EXISTS llm_usage_item_idx ON llm_usage (item_id)`);
-    await this.pool.query(`CREATE INDEX IF NOT EXISTS llm_usage_task_idx ON llm_usage (task_id)`);
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query("SELECT pg_advisory_xact_lock($1)", [USAGE_SCHEMA_LOCK]);
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS llm_usage (
+          call_id      uuid PRIMARY KEY,
+          at           timestamptz NOT NULL DEFAULT now(),
+          mission_id   uuid REFERENCES missions(id) ON DELETE CASCADE,
+          item_id      uuid REFERENCES backlog_items(id) ON DELETE CASCADE,
+          attempt_id   uuid,
+          task_id      uuid,
+          role         text NOT NULL,
+          provider     text,
+          model        text,
+          status       text NOT NULL DEFAULT 'ok',
+          calls        integer NOT NULL DEFAULT 1,
+          usage_known  boolean NOT NULL,
+          input_fresh  bigint,
+          cache_write  bigint,
+          cache_read   bigint,
+          output       bigint,
+          billable     bigint,
+          cost_usd     numeric(14, 6),
+          latency_ms   integer
+        )`);
+      await client.query(`CREATE INDEX IF NOT EXISTS llm_usage_mission_idx ON llm_usage (mission_id)`);
+      await client.query(`CREATE INDEX IF NOT EXISTS llm_usage_item_idx ON llm_usage (item_id)`);
+      await client.query(`CREATE INDEX IF NOT EXISTS llm_usage_task_idx ON llm_usage (task_id)`);
+      await client.query("COMMIT");
+    } catch (err) {
+      await client.query("ROLLBACK").catch(() => undefined);
+      throw err;
+    } finally {
+      client.release();
+    }
   }
 
   async insert(row: UsageRow): Promise<UsageInsertResult> {
