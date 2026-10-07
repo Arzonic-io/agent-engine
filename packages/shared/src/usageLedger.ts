@@ -54,7 +54,7 @@ export interface UsageOutcome {
   billableOnOther: number;
   /** Mission-level work no item owns: the survey, planning, the done-judgement. */
   billableShared: number;
-  /** Everything spent divided by what got done — waste and shared work included. */
+  /** Everything spent divided by what got done — waste and shared work included. Null while nothing is done or measured. */
   billablePerDoneItem: number | null;
   costPerDoneItemUsd: number | null;
 }
@@ -68,7 +68,7 @@ export interface UsageSummary {
   outcome: UsageOutcome | null;
   /** missions.spent_tokens — what the budget counted. Null for an interactive run. */
   budgetCounted: number | null;
-  /** False while some calls are unknown, dropped or unpriced — the price is then a minimum. */
+  /** False while nothing is measured, or some calls are unknown, dropped or unpriced — the price is then a minimum. */
   costComplete: boolean;
   /** ISO time of the first measured call; null when nothing is measured yet. */
   firstCallAt: string | null;
@@ -98,7 +98,7 @@ const ITEM_TOTALS = `
     COALESCE(SUM(u.billable), 0)::float8 AS billable,
     COALESCE(SUM(u.cost_usd), 0)::float8 AS cost_usd
   FROM backlog_items bi
-  LEFT JOIN llm_usage u ON u.item_id = bi.id
+  LEFT JOIN llm_usage u ON u.item_id = bi.id AND u.mission_id = bi.mission_id
   WHERE bi.mission_id = $1
   GROUP BY bi.id, bi.title, bi.status
   ORDER BY billable DESC, bi.title`;
@@ -148,6 +148,10 @@ export class UsageLedgerService implements UsageSink {
 
   constructor(opts: { connectionString: string }) {
     this.pool = new Pool({ connectionString: opts.connectionString });
+    // An idle client that Postgres drops must never crash the API or worker that only measures.
+    this.pool.on("error", (err) =>
+      console.warn("[usage] ledger connection error (pool keeps going):", err instanceof Error ? err.message : err),
+    );
   }
 
   /** Idempotent schema. Run after BacklogService.setup() — rows reference missions and backlog_items. */
@@ -195,11 +199,13 @@ export class UsageLedgerService implements UsageSink {
       );
       return result.rowCount === 1 ? "inserted" : "duplicate";
     } catch (err) {
-      // A row that can never be stored: its mission or item is gone (23503), or a
-      // value is malformed (22xxx). Anything else is a connection problem — rethrow,
-      // and the recorder keeps the row and retries.
+      // A row the database refuses for good — a data error (22xxx: a malformed or out-of-range
+      // value) or an integrity error (23xxx: its mission or item is gone (23503), a required
+      // column is missing (23502), a check fails (23514)) — can never be stored, and retrying
+      // it would stall the recorder's queue behind it. Anything else is a connection problem:
+      // rethrow, and the recorder keeps the row and retries.
       const code = String((err as { code?: unknown }).code ?? "");
-      if (code === "23503" || code.startsWith("22")) return "rejected";
+      if (code.startsWith("22") || code.startsWith("23")) return "rejected";
       throw err;
     }
   }
@@ -222,6 +228,8 @@ export class UsageLedgerService implements UsageSink {
       billable: num(row.billable),
       costUsd: round6(num(row.cost_usd)),
     }));
+    // Nothing measured is unknown, not zero: a mission that ran before the ledger has no cost per item.
+    const measured = totals.calls > 0;
     const done = byItem.filter((item) => item.status === "done");
     const billableOnDone = sum(done.map((item) => item.billable));
     const billableOnOther = sum(byItem.filter((item) => item.status !== "done").map((item) => item.billable));
@@ -234,11 +242,11 @@ export class UsageLedgerService implements UsageSink {
         billableOnDone,
         billableOnOther,
         billableShared: totals.billable - billableOnDone - billableOnOther,
-        billablePerDoneItem: done.length > 0 ? Math.round(totals.billable / done.length) : null,
-        costPerDoneItemUsd: done.length > 0 ? round6(totals.costUsd / done.length) : null,
+        billablePerDoneItem: done.length > 0 && measured ? Math.round(totals.billable / done.length) : null,
+        costPerDoneItemUsd: done.length > 0 && measured ? round6(totals.costUsd / done.length) : null,
       },
       budgetCounted: mission.rows[0] ? num((mission.rows[0] as Row).spent_tokens) : null,
-      costComplete: totals.unknownCalls + totals.droppedCalls + totals.unpricedCalls === 0,
+      costComplete: measured && totals.unknownCalls + totals.droppedCalls + totals.unpricedCalls === 0,
       firstCallAt: toIso((first.rows[0] as Row | undefined)?.first_at),
       priceTableVersion: PRICE_TABLE_VERSION,
     };
@@ -257,7 +265,7 @@ export class UsageLedgerService implements UsageSink {
       byItem: [],
       outcome: null,
       budgetCounted: null,
-      costComplete: totals.unknownCalls + totals.droppedCalls + totals.unpricedCalls === 0,
+      costComplete: totals.calls > 0 && totals.unknownCalls + totals.droppedCalls + totals.unpricedCalls === 0,
       firstCallAt: toIso((first.rows[0] as Row | undefined)?.first_at),
       priceTableVersion: PRICE_TABLE_VERSION,
     };
