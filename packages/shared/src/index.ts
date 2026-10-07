@@ -96,3 +96,10 @@ export {
   type CheckRun,
   type CommandRun,
 } from "./checks.js";
+export {
+  PRICE_TABLE_VERSION,
+  priceFor,
+  estimateCostUsd,
+  type ModelPrice,
+  type TokenCounts,
+} from "./pricing.js";
