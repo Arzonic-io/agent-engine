@@ -38,6 +38,14 @@ export type {
   WritableRepoTools,
 } from "./tools.js";
 export { billableTokens, type UsageMetadataLike } from "./tokens.js";
+export {
+  USAGE_ROLES,
+  USAGE_METADATA_KEYS,
+  usageMetadata,
+  withUsage,
+  type UsageRole,
+  type UsageContext,
+} from "./usage.js";
 export type {
   Worktree,
   WorktreeManager,
