@@ -11,6 +11,7 @@ import {
 } from "@nestjs/common";
 import { map, type Observable } from "rxjs";
 import type {
+  ApiUsageSummary,
   DecisionResponse,
   RunDetail,
   RunSummary,
@@ -46,6 +47,12 @@ export class RunsController {
   @Get(":id")
   getRun(@Param("id") id: string): Promise<RunDetail> {
     return this.runs.getRun(id);
+  }
+
+  /** What this run's model calls cost, per role — from the usage ledger. */
+  @Get(":id/usage")
+  usage(@Param("id") id: string): Promise<ApiUsageSummary> {
+    return this.runs.usage(id);
   }
 
   @Sse(":id/stream")

@@ -28,6 +28,7 @@ import {
   defaultRubric,
   resolveProjectRubric,
   RubricSchema,
+  usageMetadata,
   type AgentGraph,
   type GraphStateType,
   type RoleModels,
@@ -43,6 +44,7 @@ import {
   type GitHubIssue,
   type MemoryService,
   type RepoInfo,
+  type UsageSummary,
 } from "@arzonic/agent-shared";
 import type {
   ApiRunStatus,
@@ -56,7 +58,8 @@ import type { BaseChatModel } from "@langchain/core/language_models/chat_models"
 import { Command } from "@langchain/langgraph";
 import type { CheckpointerHandle } from "../checkpointer.js";
 import type { ApiEnv } from "../env.js";
-import { CHECKPOINTER, ENV, MEMORY, MODEL, ROLE_MODELS } from "../tokens.js";
+import { CHECKPOINTER, ENV, MEMORY, MODEL, ROLE_MODELS, USAGE } from "../tokens.js";
+import type { UsageHandle } from "../usage.provider.js";
 import type { DecisionDto, StartRunDto } from "./dto/runs.dto.js";
 
 const REJECTION_MARKER = "Rejected final draft.";
@@ -127,6 +130,7 @@ export class RunsService implements OnModuleDestroy {
     @Inject(ROLE_MODELS) private readonly roleModels: RoleModels,
     @Inject(CHECKPOINTER) private readonly checkpointer: CheckpointerHandle,
     @Inject(MEMORY) private readonly memory: MemoryService | null,
+    @Inject(USAGE) private readonly usageHandle: UsageHandle | null,
   ) {
     this.sweepTimer = setInterval(() => this.sweepTerminalRuns(), RUN_SWEEP_INTERVAL_MS);
   }
@@ -134,6 +138,8 @@ export class RunsService implements OnModuleDestroy {
   async onModuleDestroy(): Promise<void> {
     clearInterval(this.sweepTimer);
     for (const meta of this.runs.values()) meta.abort.abort();
+    // Write the last buffered calls before the process goes.
+    await this.usageHandle?.recorder.close();
     await this.checkpointer.close();
   }
 
@@ -310,7 +316,22 @@ export class RunsService implements OnModuleDestroy {
   }
 
   private config(runId: string, signal?: AbortSignal) {
-    return { configurable: { thread_id: runId }, signal };
+    return {
+      configurable: { thread_id: runId },
+      signal,
+      // Every model call in the run lands in the usage ledger, tagged with the run.
+      ...(this.usageHandle
+        ? { callbacks: [this.usageHandle.recorder.handler], metadata: usageMetadata({ taskId: runId }) }
+        : {}),
+    };
+  }
+
+  /** What one run's model calls cost, per role — from the usage ledger. */
+  async usage(runId: string): Promise<UsageSummary> {
+    if (!this.usageHandle) {
+      throw new BadRequestException("Usage needs a database — set SUPABASE_DB_URL.");
+    }
+    return this.usageHandle.ledger.taskSummary(runId);
   }
 
   /**

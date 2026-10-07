@@ -13,6 +13,7 @@ import {
 import { map, type Observable } from "rxjs";
 import type {
   ApiDiff,
+  ApiUsageSummary,
   MissionDetail,
   MissionItemActivity,
   MissionItemDecisionResponse,
@@ -118,6 +119,12 @@ export class MissionsController {
     @Param("itemId") itemId: string,
   ): Promise<ApiDiff | null> {
     return this.missions.itemDiff(id, itemId);
+  }
+
+  /** What this mission's model calls cost — the dashboard's "Forbrug pr. rolle". */
+  @Get(":id/usage")
+  usage(@Param("id") id: string): Promise<ApiUsageSummary> {
+    return this.missions.usage(id);
   }
 
   /** Live agent-transcript tail for an item — polled by the dashboard's live feed. */

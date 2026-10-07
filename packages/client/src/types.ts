@@ -475,3 +475,64 @@ export type RunEvent =
    * trailing signal even during a genuinely quiet stretch.
    */
   | { type: "heartbeat" };
+
+// ── Usage ledger (GET /missions/:id/usage, GET /runs/:id/usage) ──
+
+/** Token and price totals for a set of model calls. Unknown usage is never counted as 0 — see the *Calls counters. */
+export interface ApiUsageTotals {
+  calls: number;
+  /** Answered calls whose provider reported no usage. */
+  unknownCalls: number;
+  errorCalls: number;
+  /** Calls lost before they reached the ledger. */
+  droppedCalls: number;
+  /** Calls with known usage but no price for their model. */
+  unpricedCalls: number;
+  inputFresh: number;
+  cacheWrite: number;
+  cacheRead: number;
+  output: number;
+  /** The mission budget's unit (cache-weighted tokens). */
+  billable: number;
+  /** Estimated USD, from the calls that have a price. */
+  costUsd: number;
+}
+
+export interface ApiUsageByRole extends ApiUsageTotals {
+  role: string;
+  models: string[];
+}
+
+export interface ApiUsageByItem {
+  itemId: string;
+  title: string;
+  status: string;
+  attempts: number;
+  calls: number;
+  billable: number;
+  costUsd: number;
+}
+
+export interface ApiUsageOutcome {
+  itemsDone: number;
+  billableOnDone: number;
+  billableOnOther: number;
+  /** Mission-level work no item owns: survey, planning, the done-judgement. */
+  billableShared: number;
+  /** Everything spent divided by what got done — waste and shared work included. */
+  billablePerDoneItem: number | null;
+  costPerDoneItemUsd: number | null;
+}
+
+export interface ApiUsageSummary {
+  totals: ApiUsageTotals;
+  byRole: ApiUsageByRole[];
+  byItem: ApiUsageByItem[];
+  outcome: ApiUsageOutcome | null;
+  /** What the mission budget counted (missions.spent_tokens). */
+  budgetCounted: number | null;
+  /** False while some calls are unknown, dropped or unpriced — the price is then a minimum. */
+  costComplete: boolean;
+  firstCallAt: string | null;
+  priceTableVersion: string;
+}

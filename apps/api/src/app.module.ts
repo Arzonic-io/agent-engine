@@ -7,6 +7,7 @@ import { createCheckpointer } from "./checkpointer.js";
 import { loadApiEnv, type ApiEnv } from "./env.js";
 import { createMemory } from "./memory.provider.js";
 import { createSettings } from "./settings.provider.js";
+import { createUsage } from "./usage.provider.js";
 import { MissionsController } from "./missions/missions.controller.js";
 import { MissionsService } from "./missions/missions.service.js";
 import { ProjectsController } from "./projects/projects.controller.js";
@@ -20,7 +21,7 @@ import { TasksController } from "./runs/tasks.controller.js";
 import { RunsService } from "./runs/runs.service.js";
 import { SettingsController } from "./settings/settings.controller.js";
 import { SettingsService } from "./settings/settings.service.js";
-import { BACKLOG, CHECKPOINTER, ENV, MEMORY, MODEL, ROLE_MODELS, SETTINGS } from "./tokens.js";
+import { BACKLOG, CHECKPOINTER, ENV, MEMORY, MODEL, ROLE_MODELS, SETTINGS, USAGE } from "./tokens.js";
 
 @Module({
   controllers: [
@@ -65,6 +66,12 @@ import { BACKLOG, CHECKPOINTER, ENV, MEMORY, MODEL, ROLE_MODELS, SETTINGS } from
       provide: SETTINGS,
       useFactory: (env: ApiEnv) => createSettings(env),
       inject: [ENV],
+    },
+    {
+      provide: USAGE,
+      // After BACKLOG: llm_usage references missions and backlog_items.
+      useFactory: (env: ApiEnv) => createUsage(env),
+      inject: [ENV, BACKLOG],
     },
     RunsService,
     ProjectsService,

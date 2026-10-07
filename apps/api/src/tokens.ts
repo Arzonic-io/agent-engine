@@ -8,3 +8,5 @@ export const MEMORY = "MEMORY" as const;
 export const BACKLOG = "BACKLOG" as const;
 /** App-wide settings store (e.g. the global default team config). */
 export const SETTINGS = "SETTINGS" as const;
+/** The usage ledger + its recorder (UsageHandle | null). */
+export const USAGE = "USAGE" as const;

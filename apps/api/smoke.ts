@@ -14,7 +14,7 @@ import { AgentClient, type RunEvent } from "@arzonic/agent-client";
 import { ApiKeyGuard } from "./dist/auth/api-key.guard.js";
 import { RunsController } from "./dist/runs/runs.controller.js";
 import { RunsService } from "./dist/runs/runs.service.js";
-import { CHECKPOINTER, ENV, MEMORY, MODEL, ROLE_MODELS } from "./dist/tokens.js";
+import { CHECKPOINTER, ENV, MEMORY, MODEL, ROLE_MODELS, USAGE } from "./dist/tokens.js";
 
 const API_KEY = "smoke-test-key-0123456789abcdef";
 
@@ -67,6 +67,7 @@ function makeModule(passOnCall: number) {
       // Per-role overrides off in the smoke — every role uses the stub MODEL.
       { provide: ROLE_MODELS, useValue: {} },
       { provide: MEMORY, useValue: null },
+      { provide: USAGE, useValue: null },
       {
         provide: CHECKPOINTER,
         useValue: { saver: sharedSaver, persistent: true, close: async () => {} },

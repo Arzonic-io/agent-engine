@@ -16,7 +16,12 @@ import {
   RoleModelsConfigSchema,
   type RoleModelsConfig,
 } from "@arzonic/agent-core";
-import type { BacklogItem, BacklogService, MemoryService } from "@arzonic/agent-shared";
+import type {
+  BacklogItem,
+  BacklogService,
+  MemoryService,
+  UsageSummary,
+} from "@arzonic/agent-shared";
 import type {
   ApiDiff,
   ApiMessage,
@@ -29,7 +34,8 @@ import type {
 } from "@arzonic/agent-client";
 import type { ApiEnv } from "../env.js";
 import type { CheckpointerHandle } from "../checkpointer.js";
-import { BACKLOG, CHECKPOINTER, ENV, MEMORY } from "../tokens.js";
+import { BACKLOG, CHECKPOINTER, ENV, MEMORY, USAGE } from "../tokens.js";
+import type { UsageHandle } from "../usage.provider.js";
 import { assertProvidersConfigured } from "../role-models.util.js";
 import { RunsService } from "../runs/runs.service.js";
 import type { CreateMissionDto, MissionItemDecisionDto } from "./missions.dto.js";
@@ -65,6 +71,7 @@ export class MissionsService {
     @Inject(MEMORY) private readonly memory: MemoryService | null,
     @Inject(CHECKPOINTER) private readonly checkpointer: CheckpointerHandle,
     @Inject(RunsService) private readonly runs: RunsService,
+    @Inject(USAGE) private readonly usageHandle: UsageHandle | null,
   ) {}
 
   private require(): BacklogService {
@@ -173,6 +180,18 @@ export class MissionsService {
       throw new NotFoundException(`No item ${itemId} on mission ${missionId}`);
     }
     return (item.diff as ApiDiff | null) ?? null;
+  }
+
+  /** What a mission's model calls cost — per role, per item and per finished item. */
+  async usage(missionId: string): Promise<UsageSummary> {
+    const backlog = this.require();
+    if (!(await backlog.getMission(missionId))) {
+      throw new NotFoundException(`No mission ${missionId}`);
+    }
+    if (!this.usageHandle) {
+      throw new BadRequestException("Usage needs a database — set SUPABASE_DB_URL.");
+    }
+    return this.usageHandle.ledger.missionSummary(missionId);
   }
 
   /**

@@ -41,6 +41,7 @@ import { createBacklog } from "./backlog.provider.js";
 import { createCheckpointer } from "./checkpointer.js";
 import { loadApiEnv } from "./env.js";
 import { createMemory } from "./memory.provider.js";
+import { createUsage } from "./usage.provider.js";
 
 /**
  * The PM2 mission-worker (§5.7). A separate process from the API that shares the
@@ -88,6 +89,11 @@ async function main(): Promise<void> {
   const checkpointer = await createCheckpointer(env);
   const backlog = await createBacklog(env);
   const memory = await createMemory(env);
+  // Every model call this worker makes lands in the usage ledger (llm_usage):
+  // one row per call, tagged with mission, item, attempt and role. After the
+  // backlog, whose tables the ledger references. Null ⇒ not measured (logged).
+  const usage = await createUsage(env, "mission-worker");
+  const usageCallbacks = usage ? [usage.recorder.handler] : undefined;
   // (M4) MCP tools the implementer carries as a permanent knowledge base — e.g. a
   // daisyUI blueprint. Connected ONCE here (spawns the stdio server), shared by
   // every mission this process runs. Best-effort: a missing/broken server yields
@@ -265,6 +271,7 @@ async function main(): Promise<void> {
       const replanner = makeReplanner(pickModel(model, "replan", missionModels), {
         backlogTitles: async ({ mission: m }) =>
           (await backlog.listItems(m.id)).map((i) => i.title),
+        callbacks: usageCallbacks,
       });
       // The decomposer grows the initial backlog from the goal (M3 Trin 1), only
       // when the backlog is empty (a resume / hand-seed never re-plans).
@@ -289,6 +296,8 @@ async function main(): Promise<void> {
             .filter(Boolean)
             .join("\n\n"),
           llmCallTimeoutMs: env.LLM_CALL_TIMEOUT_MS,
+          callbacks: usageCallbacks,
+          usageContext: { missionId: mission.id },
         });
         surveys.set(mission.id, { survey: result.survey, at: Date.now() });
       }
@@ -299,6 +308,7 @@ async function main(): Promise<void> {
         allowedChecks: env.REPO_ALLOWED_CHECKS,
         survey: repoSurvey,
         llmCallTimeoutMs: env.LLM_CALL_TIMEOUT_MS,
+        callbacks: usageCallbacks,
       });
       // The project-level rubric assessor (rubric-driven "done"): at the idle
       // boundary it scores the WHOLE project against the rubric, grounded in the
@@ -307,6 +317,7 @@ async function main(): Promise<void> {
       // role (it's a reviewer). Only takes effect when strategic replans are on.
       const rubricAssessor = makeRubricAssessor(pickModel(model, "critic", missionModels), {
         evidence: createMissionEvidence(mission.repoPath, missionBranch),
+        callbacks: usageCallbacks,
       });
       // The tester authors a test that exercises each item before verification
       // (M3 Trin 2) so a green build is real evidence. Built with the same
@@ -318,10 +329,13 @@ async function main(): Promise<void> {
             allowedChecks: env.REPO_ALLOWED_CHECKS,
             allowedCommands: env.REPO_ALLOWED_COMMANDS,
           }),
+        callbacks: usageCallbacks,
       });
       const runner = createWorktreeWorkRunner({
         worktrees,
         baseRef: missionBranch,
+        callbacks: usageCallbacks,
+        usageContext: { missionId: mission.id },
         branch: (item) => `mission/${mission.id}/item/${item.id}`,
         prepare: async (wt) => {
           const install = await installWorktreeDeps(wt.path);
@@ -443,6 +457,11 @@ async function main(): Promise<void> {
   }
 
   if (digestTimer) clearInterval(digestTimer);
+  // Write the last buffered calls before the pool goes away.
+  if (usage) {
+    await usage.recorder.close();
+    await usage.ledger.end();
+  }
   await mcp.close();
   await checkpointer.close();
   await backlog.end();
