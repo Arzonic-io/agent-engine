@@ -16,6 +16,8 @@ import type {
 } from "../controller.js";
 import { renderRubric } from "../rubric.js";
 import { billableTokens } from "../tokens.js";
+import type { Callbacks } from "@langchain/core/callbacks/manager";
+import { withUsage } from "../usage.js";
 
 /**
  * The project-level rubric assessor (the "is it good enough yet?" gate). At the
@@ -79,6 +81,8 @@ export interface MakeRubricAssessorOptions {
    * be best-effort and not throw (the node also guards the call).
    */
   evidence: (mission: Mission) => Promise<string>;
+  /** The runtime's callback handlers (e.g. the usage recorder). The assessor runs outside any graph, so it passes them itself. */
+  callbacks?: Callbacks;
 }
 
 export function makeRubricAssessor(
@@ -116,10 +120,10 @@ export function makeRubricAssessor(
         .filter(Boolean)
         .join("\n\n");
 
-      const { raw, parsed } = await structured.invoke([
-        new SystemMessage(SYSTEM_PROMPT),
-        new HumanMessage(prompt),
-      ]);
+      const { raw, parsed } = await structured.invoke(
+        [new SystemMessage(SYSTEM_PROMPT), new HumanMessage(prompt)],
+        withUsage("rubricAssessor", { callbacks: options.callbacks }, { missionId: mission.id }),
+      );
       const output = AssessOutputSchema.parse(parsed);
       const tokens = billableTokens((raw as AIMessage).usage_metadata);
 

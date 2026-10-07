@@ -14,6 +14,8 @@ import type {
   Decomposer,
 } from "../controller.js";
 import { billableTokens } from "../tokens.js";
+import type { Callbacks } from "@langchain/core/callbacks/manager";
+import { withUsage } from "../usage.js";
 
 /**
  * M3 Trin 1 — the Lead's decomposer. At mission start, when the backlog is empty,
@@ -305,6 +307,8 @@ export interface MakeDecomposerOptions extends DecomposeGuardOptions {
   survey?: string;
   /** Per-call LLM timeout for the survey loop. */
   llmCallTimeoutMs?: number;
+  /** The runtime's callback handlers (e.g. the usage recorder). The decomposer runs outside any graph, so it passes them itself. */
+  callbacks?: Callbacks;
 }
 
 export function makeDecomposer(
@@ -316,7 +320,7 @@ export function makeDecomposer(
     name: "decompose",
     includeRaw: true,
   });
-  const { repo, survey: providedSurvey, llmCallTimeoutMs } = options;
+  const { repo, survey: providedSurvey, llmCallTimeoutMs, callbacks } = options;
 
   return {
     async decompose(input: DecomposeInput): Promise<DecomposeResult> {
@@ -340,6 +344,8 @@ export function makeDecomposer(
               .filter(Boolean)
               .join("\n\n"),
             llmCallTimeoutMs,
+            callbacks,
+            usageContext: { missionId: input.mission.id },
           })
         : { survey: "", tokensUsed: 0 };
 
@@ -347,10 +353,13 @@ export function makeDecomposer(
         ? `${buildPrompt(input)}\n\n# Survey of the codebase (verified — plan against this)\n${surveyed.survey}`
         : buildPrompt(input);
 
-      const { raw, parsed } = await structured.invoke([
-        new SystemMessage(SYSTEM_PROMPT + (surveyed.survey ? GROUNDED_PROMPT : "")),
-        new HumanMessage(prompt),
-      ]);
+      const { raw, parsed } = await structured.invoke(
+        [
+          new SystemMessage(SYSTEM_PROMPT + (surveyed.survey ? GROUNDED_PROMPT : "")),
+          new HumanMessage(prompt),
+        ],
+        withUsage("decompose", { callbacks }, { missionId: input.mission.id }),
+      );
       const output = schema.parse(parsed);
       const tokens =
         surveyed.tokensUsed + (billableTokens((raw as AIMessage).usage_metadata));

@@ -14,6 +14,8 @@ import type {
 import type { WritableRepoTools } from "../tools.js";
 import { buildImplementerTools } from "./implementer.js";
 import { billableTokens } from "../tokens.js";
+import type { Callbacks } from "@langchain/core/callbacks/manager";
+import { withUsage } from "../usage.js";
 
 /**
  * M3 Trin 2 — the Tester. After the Implementer builds a backlog item in its
@@ -153,6 +155,8 @@ export interface MakeTestAuthorOptions {
    * instantiates fs/git — same pattern as the work runner's `buildGraph`.
    */
   repo: (worktree: string) => WritableRepoTools;
+  /** The runtime's callback handlers (e.g. the usage recorder). The test author runs outside any graph, so it passes them itself. */
+  callbacks?: Callbacks;
 }
 
 export function makeTestAuthor(
@@ -185,7 +189,11 @@ export function makeTestAuthor(
       try {
         const out = (await agent.invoke(
           { messages: [new HumanMessage(buildPrompt(input))] },
-          { recursionLimit: RECURSION_LIMIT },
+          withUsage(
+            "tester",
+            { recursionLimit: RECURSION_LIMIT, callbacks: options.callbacks },
+            { missionId: input.mission.id, itemId: input.item.id, attemptId: input.result.attemptId },
+          ),
         )) as { messages: BaseMessage[] };
         messages = out.messages;
       } catch (err) {

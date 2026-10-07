@@ -12,6 +12,8 @@ import type {
 } from "../controller.js";
 import type { VerifierReport } from "../verifier.js";
 import { billableTokens } from "../tokens.js";
+import type { Callbacks } from "@langchain/core/callbacks/manager";
+import { withUsage } from "../usage.js";
 
 /**
  * Trin 5 — the Lead's replan agent. After an item runs and the Verifier reports,
@@ -123,6 +125,8 @@ function buildPrompt(input: ReplanInput, backlogTitles: string[]): string {
 export interface MakeReplannerOptions {
   /** Titles already in the backlog, so the agent avoids proposing duplicates. */
   backlogTitles?: (input: ReplanInput) => Promise<string[]> | string[];
+  /** The runtime's callback handlers (e.g. the usage recorder). The replanner runs outside any graph, so it passes them itself. */
+  callbacks?: Callbacks;
 }
 
 export function makeReplanner(
@@ -137,10 +141,14 @@ export function makeReplanner(
   return {
     async replan(input: ReplanInput): Promise<ReplanDecision> {
       const titles = (await options.backlogTitles?.(input)) ?? [];
-      const { raw, parsed } = await structured.invoke([
-        new SystemMessage(SYSTEM_PROMPT),
-        new HumanMessage(buildPrompt(input, titles)),
-      ]);
+      const { raw, parsed } = await structured.invoke(
+        [new SystemMessage(SYSTEM_PROMPT), new HumanMessage(buildPrompt(input, titles))],
+        withUsage(
+          "replan",
+          { callbacks: options.callbacks },
+          { missionId: input.mission.id, itemId: input.item.id, attemptId: input.result.attemptId },
+        ),
+      );
       const output = ReplanOutputSchema.parse(parsed);
       const tokens = billableTokens((raw as AIMessage).usage_metadata);
       return applyReplanGuards(output, input.verification, tokens);

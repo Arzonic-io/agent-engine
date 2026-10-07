@@ -6,6 +6,8 @@ import { z } from "zod";
 import { DEFAULT_LLM_CALL_TIMEOUT_MS, withLlmTimeout } from "../llmCallTimeout.js";
 import type { RepoTools } from "../tools.js";
 import { billableTokens } from "../tokens.js";
+import type { Callbacks } from "@langchain/core/callbacks/manager";
+import { withUsage, type UsageContext } from "../usage.js";
 
 /**
  * The read-only half of the tool belt — list/read/search/check, no writes and no
@@ -113,6 +115,14 @@ export interface SurveyRepoOptions {
   brief: string;
   llmCallTimeoutMs?: number;
   signal?: AbortSignal;
+  /**
+   * Callback handlers for a survey that runs OUTSIDE a graph (the mission
+   * worker, the decomposer). Inside a graph node leave it unset — the node's
+   * run already carries them.
+   */
+  callbacks?: Callbacks;
+  /** Attribution for a survey outside a graph run, e.g. `{ missionId }`. */
+  usageContext?: UsageContext;
 }
 
 /**
@@ -144,7 +154,11 @@ export async function surveyRepo(options: SurveyRepoOptions): Promise<RepoSurvey
     const result = (await withLlmTimeout(
       agent.invoke(
         { messages: [new HumanMessage(`# What is being planned\n${brief}`)] },
-        { recursionLimit: RECURSION_LIMIT, signal },
+        withUsage(
+          "survey",
+          { recursionLimit: RECURSION_LIMIT, signal, callbacks: options.callbacks },
+          options.usageContext,
+        ),
       ),
       llmCallTimeoutMs * SURVEY_TIMEOUT_MULTIPLIER,
       "survey",
