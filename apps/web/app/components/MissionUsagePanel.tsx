@@ -84,7 +84,7 @@ function Heading({ total }: { total?: ReactNode }) {
   );
 }
 
-function Stat({ label, value, sub }: { label: string; value: ReactNode; sub?: string }) {
+function Stat({ label, value, sub }: { label: string; value: ReactNode; sub?: ReactNode }) {
   return (
     <span className="inline-flex flex-wrap items-baseline gap-1.5 rounded-field border border-line bg-elev px-2.5 py-1">
       <span className="whitespace-nowrap font-mono font-semibold text-fg/90">{value}</span>
@@ -170,7 +170,13 @@ export function MissionUsagePanel({ missionId, active }: { missionId: string; ac
               value={
                 outcome.billablePerDoneItem === null ? "–" : <Tokens n={outcome.billablePerDoneItem} unmeasured={totalUnmeasured} />
               }
-              sub={outcome.costPerDoneItemUsd === null ? undefined : `${approx} ${usd(outcome.costPerDoneItemUsd)}`}
+              sub={
+                outcome.costPerDoneItemUsd === null ? undefined : outcome.costPerDoneItemUsd === 0 && !data.costComplete ? (
+                  <Unknown />
+                ) : (
+                  `${approx} ${usd(outcome.costPerDoneItemUsd)}`
+                )
+              }
             />
             <Stat
               label="på items, der ikke blev færdige"
@@ -242,9 +248,9 @@ export function MissionUsagePanel({ missionId, active }: { missionId: string; ac
 
         {counted !== null && (
           <p className="mt-3 text-[11px] text-dim">
-            Budgettet har talt {fmt(counted)} tokens · målt {fmt(totals.billable)}.
-            {totals.billable > counted && " Forskellen er kald, budgettet ikke tæller med, fx kortlægningen og løkker, der fejlede."}
-            {totals.billable < counted && " Budgettet har talt mere, end vi har målt — typisk fordi missionen startede, før målingen blev slået til."}
+            Budgettet har talt {fmt(counted)} tokens · målt <Figure text={tokensText(totals.billable, totalUnmeasured)} />.
+            {totalUnmeasured === 0 && totals.billable > counted && " Forskellen er kald, budgettet ikke tæller med, fx kortlægningen og løkker, der fejlede."}
+            {totalUnmeasured === 0 && totals.billable < counted && " Budgettet har talt mere, end vi har målt — typisk fordi missionen startede, før målingen blev slået til."}
           </p>
         )}
         {gaps.length > 0 && (
