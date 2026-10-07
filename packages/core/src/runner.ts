@@ -26,6 +26,10 @@ export interface WorkResult {
   /** The produced deliverable (the graph's final draft). */
   draft: string;
   verdict: Verdict | null;
+  /**
+   * Tokens THIS run spent. The controller adds it to the mission's spend after
+   * every attempt, so it never includes an earlier attempt of the same item.
+   */
   tokensUsed: number;
   /**
    * Absolute path to the worktree the item ran in, when it ran write-capably in
@@ -77,10 +81,23 @@ function defaultBuildTask(item: WorkItem): string {
 }
 
 /**
+ * The per-attempt counters every run starts from. A retried item runs again
+ * under the same thread_id, and an input on an existing thread leaves every
+ * channel it doesn't write as the last attempt left it — so without this a
+ * retry would carry over `tokensUsed` (which the controller then bills again)
+ * and `round` (spending the critic's revision budget before the retry's first
+ * review). `draft` and `verdict` are deliberately carried over: the worktree is
+ * reused as-is, so the last summary and the critic's last issues still describe
+ * the code the retry starts from — its only memory of the previous attempt.
+ */
+const FRESH_ATTEMPT = { round: 0, tokensUsed: 0 } satisfies Partial<GraphStateType>;
+
+/**
  * Adapt any compiled graph into a WorkRunner. Pure: the runtime supplies the
  * already-compiled graph (with its model + checkpointer baked in); this only
- * drives it. Runs the item under `thread_id = item.id`, auto-advances the human
- * gate, then reads the final checkpoint for the deliverable.
+ * drives it. Runs the item under `thread_id = item.id` as a fresh attempt
+ * (`FRESH_ATTEMPT`), auto-advances the human gate, then reads the final
+ * checkpoint for the deliverable.
  */
 export function createGraphWorkRunner(
   graph: RunnableMissionGraph,
@@ -94,7 +111,7 @@ export function createGraphWorkRunner(
       const config = { configurable: { thread_id: item.id }, signal };
       const task = buildTask(item);
 
-      await graph.invoke({ task, ...options.baseInput }, config);
+      await graph.invoke({ ...FRESH_ATTEMPT, task, ...options.baseInput }, config);
 
       // Mission mode never blocks at the gate: approve it to surface the draft.
       for (let i = 0; i < maxGateResumes; i++) {
