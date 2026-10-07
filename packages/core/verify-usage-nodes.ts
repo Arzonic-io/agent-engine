@@ -2,7 +2,8 @@
  * Proof that every graph node that calls a model tags the call with its role,
  * next to the run's own context — so the usage ledger can say which agent spent
  * what. Each node runs alone in a one-node graph over the real GraphState, with
- * a fake model that goes through LangChain's real call path. Fakes only.
+ * a fake model that goes through LangChain's real call path. The architect's
+ * survey, which runs inside its node, must inherit the run's callbacks. Fakes only.
  * Run: pnpm --filter @arzonic/agent-core exec tsx verify-usage-nodes.ts
  */
 import { END, START, StateGraph } from "@langchain/langgraph";
@@ -70,5 +71,14 @@ for (const [role, node, input] of cases) {
     `${role}: every call is tagged "${role}" (got ${JSON.stringify(roles)})`,
   );
 }
+
+// With a repo the architect surveys INSIDE its node, passing no `callbacks`, so the survey inherits
+// the run's callbacks and its task id. Any defined `callbacks` there — even [] — would replace them,
+// and the survey's calls would never reach the ledger.
+const grounded = await rolesFor(makeArchitectNode(structuredModel({ plan: [step] }), { repo }) as AnyNode, {});
+ok(
+  JSON.stringify(grounded) === JSON.stringify(["survey", "architect"]),
+  `architect with a repo: its survey's call is recorded as "survey", then the plan as "architect" (got ${JSON.stringify(grounded)})`,
+);
 
 console.log("\nEvery graph node tags its model calls ✓");

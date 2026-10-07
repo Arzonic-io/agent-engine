@@ -315,6 +315,10 @@ export class RunsService implements OnModuleDestroy {
     });
   }
 
+  /**
+   * Carries the usage recorder as the run's callbacks, so it must stay used only for the top-level
+   * graph stream/getState — inside a node, its defined `callbacks` would replace the inherited ones.
+   */
   private config(runId: string, signal?: AbortSignal) {
     return {
       configurable: { thread_id: runId },

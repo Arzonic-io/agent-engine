@@ -68,6 +68,9 @@ export function usageMetadata(context: UsageContext): Record<string, string> {
  * A call config tagged with `role` (and optionally a context), keeping every key
  * the caller already set — `signal`, `recursionLimit`, `callbacks` and its own
  * metadata. Pass the result as the invoke config at a model call site.
+ *
+ * Any defined `callbacks` value — even `[]` — REPLACES the inherited callback
+ * manager; pass callbacks only at a top-level invoke, never inside a graph node.
  */
 export function withUsage(
   role: UsageRole,

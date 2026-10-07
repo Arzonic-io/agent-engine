@@ -118,7 +118,7 @@ export interface SurveyRepoOptions {
   /**
    * Callback handlers for a survey that runs OUTSIDE a graph (the mission
    * worker, the decomposer). Inside a graph node leave it unset — the node's
-   * run already carries them.
+   * run already carries them, and any defined value, even `[]`, replaces them.
    */
   callbacks?: Callbacks;
   /** Attribution for a survey outside a graph run, e.g. `{ missionId }`. */
