@@ -4,7 +4,8 @@
  * token classes, the budget weighting and an estimated price — and that a
  * missing number stays unknown instead of becoming zero. Also proves the writer
  * never loses a call silently: an unreachable ledger keeps rows and retries, a
- * row the ledger rejects is counted, and an overflow leaves a gap row behind.
+ * row the ledger rejects is counted, and an overflow leaves a gap row behind —
+ * also when calls finish while a write to the ledger is still in flight.
  * Fakes only — no key, no DB.
  * Run: pnpm --filter @arzonic/agent-shared exec tsx verify-usage-recorder.ts
  */
@@ -29,6 +30,8 @@ const MISSION = "11111111-1111-4111-8111-111111111111";
 const ITEM = "22222222-2222-4222-8222-222222222222";
 const ATTEMPT = "33333333-3333-4333-8333-333333333333";
 const ctx = { missionId: MISSION, itemId: ITEM, attemptId: ATTEMPT };
+/** A second mission, to tell which call a gap row stands in for. */
+const OTHER_MISSION = "44444444-4444-4444-8444-444444444444";
 
 /** A Claude-shaped reply: cache read + write, and the served model id. */
 class ChatCached extends BaseChatModel {
@@ -84,6 +87,39 @@ class MemorySink implements UsageSink {
   }
 }
 
+/**
+ * A ledger that can hold the next write at the door until the test lets it through, so a call
+ * can finish while a write is in flight. It logs every attempt, so a call written twice shows
+ * even though the real table would dedupe it.
+ */
+class GatedSink extends MemorySink {
+  readonly attempts: string[] = [];
+  /** True while a write waits at the door. */
+  held = false;
+  private door: Promise<void> | null = null;
+  private opener: (() => void) | null = null;
+  /** The next write waits until open(). */
+  hold(): void {
+    this.door = new Promise<void>((resolve) => {
+      this.opener = resolve;
+    });
+  }
+  open(): void {
+    this.opener?.();
+  }
+  override async insert(row: UsageRow): Promise<UsageInsertResult> {
+    this.attempts.push(row.callId);
+    const door = this.door;
+    if (door) {
+      this.door = null;
+      this.held = true;
+      await door;
+      this.held = false;
+    }
+    return super.insert(row);
+  }
+}
+
 const quiet = (): ((message: string) => void) => () => {};
 
 async function call(
@@ -93,6 +129,16 @@ async function call(
   withCtx = true,
 ): Promise<void> {
   await model.invoke([new HumanMessage(role)], withUsage(role, { callbacks: [handler] }, withCtx ? ctx : {}));
+}
+
+/** A call made for `missionId` — so a gap row can be traced back to the call it stands in for. */
+async function callFor(
+  model: BaseChatModel,
+  missionId: string,
+  role: UsageRole,
+  handler: UsageRecorder["handler"],
+): Promise<void> {
+  await model.invoke([new HumanMessage(role)], withUsage(role, { callbacks: [handler] }, { missionId }));
 }
 
 // ── 1. One call, one row: attributed, split and priced ──
@@ -233,6 +279,94 @@ async function call(
   await call(new ChatCached({}), "tester", recorder.handler);
   await recorder.close();
   ok(sink.rows.size === 1, "close() flushes the last calls");
+}
+
+// ── 8. Calls that finish while a write is in flight are neither lost nor miscounted ──
+// Right after an outage the buffer is full, so every call that finishes during the first slow
+// write overflows it. The gated ledger holds a write at the door so that can be staged.
+{
+  const rows = (sink: MemorySink): UsageRow[] => [...sink.rows.values()].filter((r) => r.status !== "dropped");
+  const gaps = (sink: MemorySink): UsageRow[] => [...sink.rows.values()].filter((r) => r.status === "dropped");
+  const lostCalls = (sink: MemorySink): number => gaps(sink).reduce((total, gap) => total + gap.calls, 0);
+  const written = (sink: MemorySink): string => rows(sink).map((r) => r.role).join(", ");
+  const noRepeats = (sink: GatedSink): boolean => new Set(sink.attempts).size === sink.attempts.length;
+
+  // 8a. A gap row is being written when another call is dropped on the same mission.
+  {
+    const sink = new GatedSink();
+    const recorder = createUsageRecorder(sink, { flushIntervalMs: 60_000, maxBuffered: 1, log: quiet() });
+    const model = new ChatCached({});
+    sink.down = true;
+    await callFor(model, MISSION, "survey", recorder.handler);
+    await callFor(model, MISSION, "decompose", recorder.handler); // overflow: "survey" is dropped
+    sink.down = false;
+    sink.hold();
+    const flushing = recorder.flush();
+    ok(sink.held, "the gap row for the dropped call is in flight");
+    await callFor(model, MISSION, "tester", recorder.handler); // overflow: "decompose" is dropped, mid-write
+    sink.open();
+    await flushing;
+    await recorder.flush(); // what was dropped mid-write is owed to the next flush
+    ok(
+      recorder.stats().dropped === 2 && lostCalls(sink) === recorder.stats().dropped,
+      "the gap rows stand in for every dropped call, also one dropped while a gap row was being written",
+    );
+    ok(written(sink) === "tester" && noRepeats(sink), "the call that was not dropped is written exactly once");
+    await recorder.close();
+  }
+
+  // 8b. A buffered row is being written when the buffer overflows behind it.
+  {
+    const sink = new GatedSink();
+    const recorder = createUsageRecorder(sink, { flushIntervalMs: 60_000, maxBuffered: 2, log: quiet() });
+    const model = new ChatCached({});
+    sink.down = true;
+    await callFor(model, MISSION, "survey", recorder.handler); // the row that will be mid-write
+    await callFor(model, OTHER_MISSION, "decompose", recorder.handler); // the oldest one waiting behind it
+    sink.down = false;
+    sink.hold();
+    const flushing = recorder.flush();
+    ok(sink.held, "the oldest buffered row is in flight");
+    ok(recorder.stats().buffered === 2, "a call being written still counts as waiting");
+    await callFor(model, MISSION, "tester", recorder.handler); // still fits
+    await callFor(model, MISSION, "critic", recorder.handler); // overflow: the oldest one waiting is dropped
+    sink.open();
+    await flushing;
+    await recorder.flush();
+    const [gap, ...more] = gaps(sink);
+    ok(
+      recorder.stats().dropped === 1 && more.length === 0 && gap?.calls === 1 && gap.missionId === OTHER_MISSION,
+      "the gap row carries the mission of the call that was actually dropped",
+    );
+    ok(
+      written(sink) === "survey, tester, critic" && noRepeats(sink),
+      "every call that was not dropped is written exactly once, none lost and none doubled",
+    );
+    await recorder.close();
+  }
+
+  // 8c. The write in flight fails: the call goes back to the head of the queue instead of being lost.
+  {
+    const sink = new GatedSink();
+    const recorder = createUsageRecorder(sink, { flushIntervalMs: 60_000, maxBuffered: 2, log: quiet() });
+    const model = new ChatCached({});
+    await callFor(model, MISSION, "survey", recorder.handler);
+    await callFor(model, MISSION, "decompose", recorder.handler);
+    sink.hold();
+    const flushing = recorder.flush();
+    await callFor(model, MISSION, "tester", recorder.handler);
+    sink.down = true; // the connection drops while "survey" is being written
+    sink.open();
+    await flushing;
+    sink.down = false;
+    await recorder.flush();
+    // Three calls with maxBuffered 2: the cap never evicts a row whose write has only just failed.
+    ok(
+      written(sink) === "survey, decompose, tester" && recorder.stats().dropped === 0 && recorder.stats().written === 3,
+      "a write the ledger fails mid-flight is retried first, in order, and not lost",
+    );
+    await recorder.close();
+  }
 }
 
 console.log("\nUsage recorder ✓");

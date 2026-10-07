@@ -257,6 +257,8 @@ export function createUsageRecorder(sink: UsageSink, options: UsageRecorderOptio
   let rejected = 0;
   let dropped = 0;
   let unavailable = false;
+  /** True while a row taken out of the buffer is being inserted — it still counts as waiting. */
+  let writing = false;
   let inFlight: Promise<void> | null = null;
 
   const record = (row: UsageRow): void => {
@@ -293,14 +295,33 @@ export function createUsageRecorder(sink: UsageSink, options: UsageRecorderOptio
     }
   };
 
+  /**
+   * Writes what is owed, then what is buffered. Calls keep finishing while an insert is in
+   * flight — and, right after an outage, each one overflows the buffer — so neither `owed`
+   * nor the buffer may be assumed unchanged across an await.
+   */
   const drain = async (): Promise<void> => {
     for (const [key, gap] of owed) {
-      if (!(await store(gapRow(gap.missionId, gap.taskId, gap.calls, now())))) return;
-      owed.delete(key);
+      // This row stands in for the calls owed now; any dropped while it is written stay owed.
+      const calls = gap.calls;
+      if (!(await store(gapRow(gap.missionId, gap.taskId, calls, now())))) return;
+      gap.calls -= calls;
+      if (gap.calls === 0) owed.delete(key);
     }
     while (buffer.length > 0) {
-      if (!(await store(buffer[0]!))) return;
-      buffer.shift();
+      // Out of the buffer while it is written, so an overflow meanwhile cannot evict it. If the
+      // ledger does not take it, it goes back to the head and is retried first — the buffer may
+      // then hold one row more than maxBuffered until it drains.
+      const row = buffer.shift()!;
+      writing = true;
+      let stored = false;
+      try {
+        stored = await store(row);
+      } finally {
+        writing = false;
+        if (!stored) buffer.unshift(row);
+      }
+      if (!stored) return;
     }
   };
 
@@ -319,7 +340,7 @@ export function createUsageRecorder(sink: UsageSink, options: UsageRecorderOptio
   return {
     handler: new UsageCallbackHandler(record, now, cacheTtl),
     flush,
-    stats: () => ({ buffered: buffer.length, written, rejected, dropped }),
+    stats: () => ({ buffered: buffer.length + (writing ? 1 : 0), written, rejected, dropped }),
     async close() {
       clearInterval(timer);
       await flush();
