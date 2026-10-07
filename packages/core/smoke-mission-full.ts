@@ -174,7 +174,7 @@ try {
   const verifier = createVerifier(repo, { allowedChecks });
   const integrator = createGitIntegrator(repo, { missionBranch, worktrees });
   const differ = createGitDiffer();
-  const decomposer = makeDecomposer(model);
+  const decomposer = makeDecomposer(model, { allowedChecks });
   const testAuthor = makeTestAuthor(model, { repo: repoFor });
   const replanner = makeReplanner(model);
   const notifier = createConsoleNotifier();

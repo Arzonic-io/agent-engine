@@ -294,6 +294,9 @@ async function main(): Promise<void> {
       }
       const repoSurvey = surveys.get(mission.id)?.survey ?? "";
       const decomposer = makeDecomposer(pickModel(model, "decompose", missionModels), {
+        // The same allowlist the Verifier below enforces — an item's own check can
+        // only be one it will actually run.
+        allowedChecks: env.REPO_ALLOWED_CHECKS,
         survey: repoSurvey,
         llmCallTimeoutMs: env.LLM_CALL_TIMEOUT_MS,
       });

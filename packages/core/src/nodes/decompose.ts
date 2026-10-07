@@ -50,57 +50,107 @@ Rules for a good backlog:
 LANGUAGE: Write item text and reasoning in the same language as the goal — Danish
 if the goal is in Danish, otherwise English. Use only Danish or English.`;
 
-const DecomposeItemSchema = z.object({
-  key: z
-    .string()
-    .describe("Short unique slug naming this item, e.g. 'schema' — used to declare dependencies."),
-  title: z.string().describe("Concrete, imperative, self-contained item title."),
-  detail: z
-    .string()
-    .optional()
-    .describe("The specifics: what to actually do, and the approach — not a reworded title."),
-  // `files` folds into `detail` — the implementer reads the item as one task
-  // string, so a column for it would be a migration for text that ends up
-  // concatenated anyway. `verify` also becomes a real column, because unlike
-  // `files` it drives control flow (which check the Verifier runs), and control
-  // flow should not be parsed back out of prose.
-  files: z
-    .array(z.string())
-    .default([])
-    .describe("Exact paths this item creates or changes, taken from the survey — never guessed."),
-  verify: z
-    .string()
-    .optional()
-    .describe("The concrete check that proves this item works — prefer one the survey confirmed exists."),
-  priority: z
-    .number()
-    .int()
-    .optional()
-    .describe("Higher = worked sooner. Foundational/blocking items get higher values."),
-  dependsOn: z
-    .array(z.string())
-    .default([])
-    .describe("Keys of items in this backlog that must be done before this one."),
-  risk: z
-    .enum(["low", "high"])
-    .optional()
-    .describe("high for deploy/delete/payment/secrets/provider-choice/irreversible actions."),
-});
+/**
+ * The planner's answer when no allowed check is specifically about an item.
+ * Offered next to the checks so a model that fills every field still has an
+ * honest choice, rather than naming an unrelated check and adding a gate.
+ */
+const NO_CHECK = "none";
 
-const DecomposeOutputSchema = z.object({
-  items: z
-    .array(DecomposeItemSchema)
-    .describe("The initial backlog, ordered toward the goal."),
-  reasoning: z
-    .string()
-    .optional()
-    .describe("One sentence: the shape of the plan, for the journal."),
-});
-export type DecomposeOutput = z.infer<typeof DecomposeOutputSchema>;
+/**
+ * The schema the planner answers in. An item's `verify` is offered as a choice
+ * among the checks the Verifier will actually run, because it runs a check only
+ * when its NAME is on the allowlist: a free-text "pnpm test" made the item red by
+ * construction, "not allowed" on every attempt however correct the code was.
+ */
+function decomposeOutputSchema(allowedChecks: readonly string[]) {
+  // Blank entries never reach the enum: Gemini rejects "" in one, failing the call.
+  const choices = [...new Set([...allowedChecks.map((c) => c.trim()).filter(Boolean), NO_CHECK])];
+  const DecomposeItemSchema = z.object({
+    key: z
+      .string()
+      .describe("Short unique slug naming this item, e.g. 'schema' — used to declare dependencies."),
+    title: z.string().describe("Concrete, imperative, self-contained item title."),
+    detail: z
+      .string()
+      .optional()
+      .describe("The specifics: what to actually do, and the approach — not a reworded title."),
+    // `files` folds into `detail` — the implementer reads the item as one task
+    // string, so a column for it would be a migration for text that ends up
+    // concatenated anyway. `verify` also becomes a real column, because unlike
+    // `files` it drives control flow (which check the Verifier runs), and control
+    // flow should not be parsed back out of prose.
+    files: z
+      .array(z.string())
+      .default([])
+      .describe("Exact paths this item creates or changes, taken from the survey — never guessed."),
+    // The enum lives in the JSON schema the model answers against — the same one
+    // `z.enum` would emit — while the parser deliberately takes any string.
+    // LangChain validates the reply against this very schema and turns a mismatch
+    // into `parsed: null`, and Mistral's and Anthropic's tool calls don't enforce
+    // enums: a strict enum would let one stray name fail the whole plan.
+    // `applyDecomposeGuards` enforces the choice instead.
+    verify: z
+      .string()
+      .optional()
+      .meta({
+        enum: choices,
+        description: `Which check proves this item works: one of the listed names, or "${NO_CHECK}" if none is specifically about it. The mission's own checks run as well.`,
+      }),
+    priority: z
+      .number()
+      .int()
+      .optional()
+      .describe("Higher = worked sooner. Foundational/blocking items get higher values."),
+    dependsOn: z
+      .array(z.string())
+      .default([])
+      .describe("Keys of items in this backlog that must be done before this one."),
+    risk: z
+      .enum(["low", "high"])
+      .optional()
+      .describe("high for deploy/delete/payment/secrets/provider-choice/irreversible actions."),
+  });
+
+  return z.object({
+    items: z
+      .array(DecomposeItemSchema)
+      .describe("The initial backlog, ordered toward the goal."),
+    reasoning: z
+      .string()
+      .optional()
+      .describe("One sentence: the shape of the plan, for the journal."),
+  });
+}
+export type DecomposeOutput = z.infer<ReturnType<typeof decomposeOutputSchema>>;
 
 export interface DecomposeGuardOptions {
   /** Hard cap on items, so a runaway plan can't flood the backlog. Default 40. */
   maxItems?: number;
+  /**
+   * The checks the Verifier will run (REPO_ALLOWED_CHECKS). An item's `verify`
+   * must name one of them: a command spelling ("pnpm run test") is reduced to the
+   * script name, and anything else is dropped with a warning. Omitted ⇒ the name
+   * is only normalized, since there is nothing to check it against.
+   */
+  allowedChecks?: readonly string[];
+}
+
+/**
+ * Map the planner's `verify` onto a check the Verifier will run, or onto none.
+ * An unknown name is DROPPED rather than kept: the Verifier would refuse it on
+ * every attempt, parking a correct item after MISSION_THRASH_LIMIT loops, while
+ * dropping it costs nothing because the mission's own checks still run.
+ */
+function checkName(
+  raw: string | undefined,
+  allowedChecks: readonly string[] | undefined,
+): { check?: string; dropped?: string } {
+  const text = raw?.trim() ?? "";
+  if (!text || text.toLowerCase() === NO_CHECK) return {};
+  const name = text.replace(/^(?:pnpm|npm)\s+(?:run\s+)?/, "").trim();
+  if (!allowedChecks || allowedChecks.includes(name)) return { check: name };
+  return { dropped: text };
 }
 
 /**
@@ -125,9 +175,9 @@ function composeDetail(raw: {
 
 /**
  * Make the model's plan safe deterministically: cap the count, drop empty titles,
- * force unique keys, and strip dependsOn entries that point at unknown keys (or at
- * the item itself). The controller's `createDecomposedItems` then resolves the
- * surviving keys to real ids.
+ * force unique keys, keep each item's check to one the Verifier will run, and strip
+ * dependsOn entries that point at unknown keys (or at the item itself). The
+ * controller's `createDecomposedItems` then resolves the surviving keys to real ids.
  */
 export function applyDecomposeGuards(
   output: DecomposeOutput,
@@ -147,14 +197,22 @@ export function applyDecomposeGuards(
     while (seen.has(key)) key = `${key}-${i}`; // force uniqueness
     seen.add(key);
 
+    const { check, dropped } = checkName(raw.verify, options.allowedChecks);
+    if (dropped) {
+      console.warn(
+        `[decompose] item "${title}": dropped verify "${dropped}" — the Verifier only runs ` +
+          `${options.allowedChecks!.join(", ")}; the mission's checks still gate it.`,
+      );
+    }
+
     items.push({
       key,
       title,
-      detail: composeDetail(raw),
+      detail: composeDetail({ ...raw, verify: check }),
       // Also kept in `detail` as prose: the column drives the Verifier, the prose
       // tells the implementer which check to run on itself while it works. One
       // source, two readers — not two sources that can drift.
-      verify: raw.verify?.trim() || undefined,
+      verify: check,
       priority: raw.priority,
       dependsOn: raw.dependsOn ?? [],
       risk: raw.risk,
@@ -221,12 +279,18 @@ worktree with no memory of this planning — so put what it needs INTO the item:
 
 - "files": the exact paths, taken from the survey. Never invent a path.
 - "detail": what to actually do there, and the approach.
-- "verify": the check that proves it — prefer one the survey confirmed exists.
+- "verify": which of the offered checks proves it, or "none".
 
 Leave a field out rather than guessing. A missing field costs the implementer one
 look; a wrong one sends it to the wrong file.`;
 
 export interface MakeDecomposerOptions extends DecomposeGuardOptions {
+  /**
+   * The checks the Verifier will run (REPO_ALLOWED_CHECKS) — the only names the
+   * planner is offered for an item's `verify`. Required, because a planner that
+   * can't see the allowlist names checks the Verifier refuses.
+   */
+  allowedChecks: readonly string[];
   /**
    * Read-only repo access. When present the planner SURVEYS the code before
    * decomposing, so items name real files and real checks instead of describing
@@ -245,9 +309,10 @@ export interface MakeDecomposerOptions extends DecomposeGuardOptions {
 
 export function makeDecomposer(
   model: BaseChatModel,
-  options: MakeDecomposerOptions = {},
+  options: MakeDecomposerOptions,
 ): Decomposer {
-  const structured = model.withStructuredOutput(DecomposeOutputSchema, {
+  const schema = decomposeOutputSchema(options.allowedChecks);
+  const structured = model.withStructuredOutput(schema, {
     name: "decompose",
     includeRaw: true,
   });
@@ -286,7 +351,7 @@ export function makeDecomposer(
         new SystemMessage(SYSTEM_PROMPT + (surveyed.survey ? GROUNDED_PROMPT : "")),
         new HumanMessage(prompt),
       ]);
-      const output = DecomposeOutputSchema.parse(parsed);
+      const output = schema.parse(parsed);
       const tokens =
         surveyed.tokensUsed + (billableTokens((raw as AIMessage).usage_metadata));
       return applyDecomposeGuards(output, tokens, options);

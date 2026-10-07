@@ -19,7 +19,7 @@ const ok = (c: boolean, m: string) => {
 
 const env = loadEnv();
 const model = getModel(env);
-const decomposer = makeDecomposer(model);
+const decomposer = makeDecomposer(model, { allowedChecks: env.REPO_ALLOWED_CHECKS });
 
 const mission: Mission = {
   id: "live1",
