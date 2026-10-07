@@ -3246,7 +3246,14 @@ In `docs/BACKLOG.md`, add an entry under the "Autonome missioner" epic, followin
 ```markdown
 - [x] **Fase 0, etape A: token-ledger (2026-10-07).** Hvert modelkald er én række i `llm_usage` med mission, item, forsøg, rolle, model, rå tokenklasser, betalte tokens og estimeret pris. `GET /missions/:id/usage` og panelet "Forbrug pr. rolle" viser forbrug pr. rolle, de dyreste items og forbrug pr. færdigt item. Budgettet er uændret. Spec: `docs/superpowers/specs/2026-10-07-token-ledger-design.md`.
 - [ ] **Fase 0, etape A2: budget fra ledgeren.** Budget og watcher læser fra `llm_usage`, så surveyen og fejlede løkker tæller med (lukker F08).
-- [ ] **Fase 0, del 2: beslutningsport.** Én port i core, som Clef, Jev eller en lille sprogmodel kan stå bag. Den køres i skygge først.
+- [ ] **Etape B: entydigt "færdig".** Et item er færdigt, når:
+  - de relevante checks består
+  - acceptkriterierne er dokumenteret opfyldt
+  - der ikke er uløste, blokerende reviewfund (criticen er kun rådgivende i dag)
+  - den integrerede ændring består checks igen
+
+  Det skal være på plads, før en billig model får indflydelse på afslutningen.
+- [ ] **Fase 0, del 2: beslutningsport.** Én port i core, som Clef, Jev eller en lille sprogmodel kan stå bag. Den køres i skygge først. Undersøg især forkerte godkendelser, og aktivér gradvist, startende med routing.
 ```
 
 Commit:
