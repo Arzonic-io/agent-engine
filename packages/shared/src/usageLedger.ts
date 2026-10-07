@@ -202,10 +202,15 @@ export class UsageLedgerService implements UsageSink {
       // A row the database refuses for good — a data error (22xxx: a malformed or out-of-range
       // value) or an integrity error (23xxx: its mission or item is gone (23503), a required
       // column is missing (23502), a check fails (23514)) — can never be stored, and retrying
-      // it would stall the recorder's queue behind it. Anything else is a connection problem:
-      // rethrow, and the recorder keeps the row and retries.
+      // it would stall the recorder's queue behind it: say why, and refuse it. Any other error
+      // is rethrown, and the recorder keeps the row and retries it — a lost connection, say.
       const code = String((err as { code?: unknown }).code ?? "");
-      if (code.startsWith("22") || code.startsWith("23")) return "rejected";
+      if (code.startsWith("22") || code.startsWith("23")) {
+        console.warn(
+          `[usage] ledger refused a ${row.role} call (${row.callId}) for good: ${code} ${err instanceof Error ? err.message : String(err)}`,
+        );
+        return "rejected";
+      }
       throw err;
     }
   }

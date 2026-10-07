@@ -8,8 +8,8 @@
  * The handler only pushes onto an in-memory buffer, so it can never fail or slow
  * a model call; a timer flushes the buffer to the ledger. Writes are idempotent
  * (one row per LangChain run id), an unreachable ledger keeps rows and retries,
- * and calls lost to an overflow leave a gap row — a missing measurement is
- * visible, never a silent zero.
+ * and calls lost to an overflow, or refused by the ledger for good, leave a gap
+ * row — a missing measurement is visible, never a silent zero.
  */
 import { randomUUID } from "node:crypto";
 import { BaseCallbackHandler } from "@langchain/core/callbacks/base";
@@ -251,7 +251,7 @@ export function createUsageRecorder(sink: UsageSink, options: UsageRecorderOptio
   const now = options.now ?? (() => Date.now());
 
   const buffer: UsageRow[] = [];
-  /** Calls dropped on overflow, per mission/run, still owed to the ledger as gap rows. */
+  /** Calls lost — dropped on overflow, or refused by the ledger for good — per mission/run, still owed to it as gap rows. */
   const owed = new Map<string, { missionId: string | null; taskId: string | null; calls: number }>();
   let written = 0;
   let rejected = 0;
@@ -261,15 +261,19 @@ export function createUsageRecorder(sink: UsageSink, options: UsageRecorderOptio
   let writing = false;
   let inFlight: Promise<void> | null = null;
 
-  const record = (row: UsageRow): void => {
-    buffer.push(row);
-    if (buffer.length <= maxBuffered) return;
-    const lost = buffer.shift()!;
-    dropped += 1;
+  /** Remembers calls that never reached the ledger, so the next flush writes one gap row for them. */
+  const owe = (lost: UsageRow): void => {
     const key = `${lost.missionId ?? ""}|${lost.taskId ?? ""}`;
     const gap = owed.get(key) ?? { missionId: lost.missionId, taskId: lost.taskId, calls: 0 };
     gap.calls += lost.calls;
     owed.set(key, gap);
+  };
+
+  const record = (row: UsageRow): void => {
+    buffer.push(row);
+    if (buffer.length <= maxBuffered) return;
+    dropped += 1;
+    owe(buffer.shift()!);
   };
 
   /** One insert. false = the ledger is unreachable: stop and retry on the next flush. */
@@ -283,7 +287,14 @@ export function createUsageRecorder(sink: UsageSink, options: UsageRecorderOptio
       if (result === "inserted") written += 1;
       if (result === "rejected") {
         rejected += 1;
-        log(`[usage] the ledger refused a ${row.role} call (${row.callId}) — its mission or item no longer exists.`);
+        if (row.status === "dropped") {
+          // A refused gap row is only counted: owing it again would loop.
+          log(`[usage] the ledger refused the gap row for ${row.calls} unrecorded call(s) (${row.callId}) for good.`);
+        } else {
+          // Owed as a gap row, like a call lost to an overflow, so the loss shows in the summary.
+          owe(row);
+          log(`[usage] the ledger refused a ${row.role} call (${row.callId}) for good — counted as unrecorded on its mission or run.`);
+        }
       }
       return true;
     } catch (err) {

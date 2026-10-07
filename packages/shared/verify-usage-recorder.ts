@@ -4,8 +4,9 @@
  * token classes, the budget weighting and an estimated price — and that a
  * missing number stays unknown instead of becoming zero. Also proves the writer
  * never loses a call silently: an unreachable ledger keeps rows and retries, a
- * row the ledger rejects is counted, and an overflow leaves a gap row behind —
- * also when calls finish while a write to the ledger is still in flight.
+ * row the ledger refuses for good is counted and leaves a gap row, and an overflow
+ * leaves a gap row behind — also when calls finish while a write to the ledger
+ * is still in flight.
  * Fakes only — no key, no DB.
  * Run: pnpm --filter @arzonic/agent-shared exec tsx verify-usage-recorder.ts
  */
@@ -235,11 +236,12 @@ async function callFor(
   await recorder.close();
 }
 
-// ── 5. A rejected row is counted and does not block the rows behind it ──
+// ── 5. A rejected row is counted, does not block the rows behind it, and leaves a gap row ──
 {
-  const sink = new MemorySink();
+  const sink = new GatedSink(); // logs every attempt, so a retry or a repeat shows
   sink.rejectRole = "survey";
-  const recorder = createUsageRecorder(sink, { flushIntervalMs: 60_000, log: quiet() });
+  const logs: string[] = [];
+  const recorder = createUsageRecorder(sink, { flushIntervalMs: 60_000, log: (m) => logs.push(m) });
   const model = new ChatCached({});
   await call(model, "survey", recorder.handler);
   await call(model, "decompose", recorder.handler);
@@ -247,6 +249,46 @@ async function callFor(
   ok(
     recorder.stats().rejected === 1 && sink.rows.size === 1 && [...sink.rows.values()][0]!.role === "decompose",
     "the rejected row is counted and the next one is written",
+  );
+  // The refused call is owed as a gap row, like one lost to an overflow: the next flush writes it.
+  await recorder.flush();
+  const gap = [...sink.rows.values()].find((r) => r.status === "dropped");
+  ok(
+    gap?.calls === 1 && gap.missionId === MISSION && gap.usageKnown === false && recorder.stats().rejected === 1,
+    "a gap row stands in for the refused call, on its mission",
+  );
+  const decompose = [...sink.rows.values()].find((r) => r.role === "decompose");
+  ok(
+    decompose !== undefined &&
+      sink.attempts.filter((id) => id === decompose.callId).length === 1 &&
+      sink.attempts.length === 3, // survey (refused), decompose, the gap row
+    "the next call is still written exactly once, and the refused one is not retried",
+  );
+  ok(
+    logs.length === 1 && logs[0]!.includes("survey") && logs[0]!.includes("for good") && !logs[0]!.includes("no longer exists"),
+    "the refusal is logged without guessing why the ledger refused it",
+  );
+  await recorder.close();
+}
+
+// ── 5b. A refused gap row is only counted, never owed again — a mission that is gone cannot loop ──
+{
+  const attempts: UsageRow[] = [];
+  const refusesAll: UsageSink = {
+    async insert(row) {
+      attempts.push(row);
+      return "rejected";
+    },
+  };
+  const recorder = createUsageRecorder(refusesAll, { flushIntervalMs: 60_000, log: quiet() });
+  await call(new ChatCached({}), "survey", recorder.handler);
+  for (let flushes = 0; flushes < 4; flushes += 1) await recorder.flush();
+  ok(
+    attempts.length === 2 &&
+      attempts[0]!.status === "ok" &&
+      attempts[1]!.status === "dropped" &&
+      recorder.stats().rejected === 2,
+    `the call and its gap row are each tried once and counted; the refused gap row is not owed again (got ${attempts.length} attempts, ${recorder.stats().rejected} rejected)`,
   );
   await recorder.close();
 }

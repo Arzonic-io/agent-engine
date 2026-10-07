@@ -19,6 +19,18 @@ const ok = (condition: boolean, message: string): void => {
   console.log(`ok: ${message}`);
 };
 
+/** Runs `action` with console.warn captured, so an expected warning is asserted instead of printed. */
+const withWarnings = async <T>(action: () => Promise<T>): Promise<{ value: T; warnings: string[] }> => {
+  const warnings: string[] = [];
+  const realWarn = console.warn;
+  console.warn = (...args: unknown[]) => void warnings.push(args.join(" "));
+  try {
+    return { value: await action(), warnings };
+  } finally {
+    console.warn = realWarn;
+  }
+};
+
 const env = loadEnv();
 if (!env.SUPABASE_DB_URL) {
   console.error("Need SUPABASE_DB_URL in .env (docker compose up -d).");
@@ -84,9 +96,11 @@ try {
   await ledger.insert(row({ role: "replan", ...unknown }));
   await ledger.insert(row({ role: "unrecorded", status: "dropped", calls: 3, provider: null, model: null, ...unknown }));
   await ledger.insert(row({ role: "decompose", model: "gemini-2.5-flash", billable: 10, costUsd: null }));
+  const gone = await withWarnings(() => ledger.insert(row({ missionId: randomUUID() })));
+  ok(gone.value === "rejected", "a row for a mission that does not exist is refused, not thrown");
   ok(
-    (await ledger.insert(row({ missionId: randomUUID() }))) === "rejected",
-    "a row for a mission that does not exist is refused, not thrown",
+    gone.warnings.length === 1 && gone.warnings[0]!.includes("23503") && gone.warnings[0]!.includes("implementer"),
+    "the refusal is logged with its SQLSTATE and the role, so the real cause is not lost",
   );
 
   const s = await ledger.missionSummary(mission.id);
@@ -169,11 +183,22 @@ try {
     ledger
       .insert(row({ missionId: null, taskId, ...over }))
       .catch((err: unknown) => `threw ${String((err as { code?: unknown }).code ?? err)}`);
-  const noRole = await refusal({ role: null as unknown as string });
-  const fractional = await refusal({ billable: 150.5 });
+  const refused = await withWarnings(async () => ({
+    noRole: await refusal({ role: null as unknown as string }),
+    fractional: await refusal({ billable: 150.5 }),
+  }));
+  const { noRole, fractional } = refused.value;
   ok(
     noRole === "rejected" && fractional === "rejected",
     `a row that breaks NOT NULL or carries a malformed value is refused, not thrown (got ${noRole} and ${fractional})`,
+  );
+  // Each refusal says why, here and not in the recorder, which only ever sees "rejected".
+  ok(
+    refused.warnings.length === 2 &&
+      refused.warnings[0]!.includes("23502") &&
+      refused.warnings[1]!.includes("22P02") &&
+      refused.warnings[1]!.includes("implementer"),
+    "each refusal is logged with its SQLSTATE (and the call's role), so a malformed row is not blamed on a deleted mission",
   );
 } finally {
   // Cascades: project → missions → items → their llm_usage rows.
