@@ -1,7 +1,9 @@
+import type { Callbacks } from "@langchain/core/callbacks/manager";
 import { Command } from "@langchain/langgraph";
 import type { Verification } from "./mission.js";
 import type { GraphStateType, RunStatus, Verdict } from "./state.js";
 import type { Worktree, WorktreeManager } from "./worktree.js";
+import { usageMetadata, type UsageContext } from "./usage.js";
 
 /**
  * The "run one unit of work" capability the mission controller loop (§5.3) needs,
@@ -39,6 +41,12 @@ export interface WorkResult {
    * every attempt, so it never includes an earlier attempt of the same item.
    */
   tokensUsed: number;
+  /**
+   * One id per run of an item. Every model call in the run is tagged with it, so
+   * a usage ledger can tell a retry's spend from the attempt before it. The
+   * thread stays the item id (the dashboard reads it); only attribution is per run.
+   */
+  attemptId?: string;
   /**
    * Absolute path to the worktree the item ran in, when it ran write-capably in
    * isolation (M2 Trin 4). The controller verifies the authored code HERE rather
@@ -79,6 +87,14 @@ export interface GraphWorkRunnerOptions {
    * lets verification + replan judge it. Default 3 (a backstop, not a loop).
    */
   maxGateResumes?: number;
+  /**
+   * Callback handlers attached to every graph run — e.g. the usage recorder.
+   * Inheritable: they see every model call beneath the run, including each turn
+   * inside the implementer's tool loop.
+   */
+  callbacks?: Callbacks;
+  /** Attribution added to every run's metadata (e.g. `{ missionId }`). The runner adds the item and the attempt itself. */
+  usageContext?: UsageContext;
 }
 
 function defaultBuildTask(item: WorkItem): string {
@@ -117,7 +133,13 @@ export function createGraphWorkRunner(
 
   return {
     async run(item, signal): Promise<WorkResult> {
-      const config = { configurable: { thread_id: item.id }, signal };
+      const attemptId = globalThis.crypto.randomUUID();
+      const config = {
+        configurable: { thread_id: item.id },
+        signal,
+        callbacks: options.callbacks,
+        metadata: usageMetadata({ ...options.usageContext, itemId: item.id, attemptId }),
+      };
       const task = buildTask(item);
       // Written on every attempt, null included: left unwritten, the thread would
       // hand an older attempt's failure to a retry whose last attempt passed.
@@ -137,6 +159,7 @@ export function createGraphWorkRunner(
       const state = snap.values as GraphStateType;
       return {
         runId: item.id,
+        attemptId,
         status: state.status,
         draft: state.draft ?? "",
         verdict: state.verdict ?? null,
