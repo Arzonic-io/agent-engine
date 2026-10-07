@@ -181,7 +181,12 @@ export function MissionUsagePanel({ missionId, active }: { missionId: string; ac
             <Stat
               label="på items, der ikke blev færdige"
               value={<Tokens n={outcome.billableOnOther} unmeasured={totalUnmeasured} />}
-              sub={totals.billable > 0 ? `${Math.round((outcome.billableOnOther / totals.billable) * 100)} %` : undefined}
+              sub={
+                // No "0 %" next to a "?": with unmeasured calls, nothing measured here is not nothing spent.
+                totals.billable > 0 && (totalUnmeasured === 0 || outcome.billableOnOther > 0)
+                  ? `${Math.round((outcome.billableOnOther / totals.billable) * 100)} %`
+                  : undefined
+              }
             />
             <Stat
               label="fælles (kortlægning, plan, done-dom)"
