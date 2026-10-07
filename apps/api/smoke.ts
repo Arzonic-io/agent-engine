@@ -5,6 +5,7 @@
  * Run: pnpm --filter @arzonic/agent-api run smoke
  */
 import "reflect-metadata";
+import { randomUUID } from "node:crypto";
 import { Module, type INestApplication } from "@nestjs/common";
 import { APP_GUARD, NestFactory } from "@nestjs/core";
 import { AIMessage } from "@langchain/core/messages";
@@ -178,6 +179,25 @@ assert(rejected.status === "rejected", "POST /decision reject -> rejected (not f
 // list view
 const listed = await client2.listRuns();
 assert(listed.some((r) => r.runId === r2.runId), `GET /runs lists runs (${listed.length})`);
+
+// usage route: a malformed id is a 400 and an unknown run a 404 — never a 500, and never
+// an empty 200 that looks like a real run with nothing measured. This smoke provides
+// USAGE: null, so a run that does exist can only answer "usage needs a database".
+const authed = { Authorization: `Bearer ${API_KEY}` };
+const badUsageId = await fetch(`${second.url}/runs/not-a-uuid/usage`, { headers: authed });
+const badUsageIdBody = await badUsageId.text();
+assert(
+  badUsageId.status === 400 && badUsageIdBody.includes("uuid is expected"),
+  `GET /runs/not-a-uuid/usage -> 400 "uuid is expected" (got ${badUsageId.status}: ${badUsageIdBody.slice(0, 80)})`,
+);
+const unknownUsage = await fetch(`${second.url}/runs/${randomUUID()}/usage`, { headers: authed });
+assert(unknownUsage.status === 404, `GET /runs/<unknown uuid>/usage -> 404 (got ${unknownUsage.status})`);
+const noLedger = await fetch(`${second.url}/runs/${started.runId}/usage`, { headers: authed });
+const noLedgerBody = await noLedger.text();
+assert(
+  noLedger.status === 400 && noLedgerBody.includes("Usage needs a database"),
+  `GET /runs/<known run>/usage without a ledger -> 400 "Usage needs a database" (got ${noLedger.status}: ${noLedgerBody.slice(0, 80)})`,
+);
 
 await second.app.close();
 console.log("\nAll API smoke scenarios passed.");

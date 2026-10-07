@@ -328,6 +328,9 @@ export class RunsService implements OnModuleDestroy {
 
   /** What one run's model calls cost, per role — from the usage ledger. */
   async usage(runId: string): Promise<UsageSummary> {
+    // An id the checkpointer doesn't know is a 404, as for GET /runs/:id — never an
+    // empty summary that looks like a real run with nothing measured.
+    await this.requireRun(runId);
     if (!this.usageHandle) {
       throw new BadRequestException("Usage needs a database — set SUPABASE_DB_URL.");
     }
@@ -696,13 +699,23 @@ export class RunsService implements OnModuleDestroy {
     return state.status;
   }
 
-  async getRun(runId: string): Promise<RunDetail> {
+  /**
+   * A run's checkpointed state, or a 404 when the checkpointer knows no run under
+   * this id. GET /runs/:id and GET /runs/:id/usage share it, so both answer
+   * "unknown run" the same way.
+   */
+  private async requireRun(runId: string) {
     const graph = this.graphFor(runId);
     const snapshot = await graph.getState(this.config(runId));
     const state = snapshot.values as GraphStateType | undefined;
     if (!state || !state.task) {
       throw new NotFoundException(`No run found for id ${runId}`);
     }
+    return { snapshot, state };
+  }
+
+  async getRun(runId: string): Promise<RunDetail> {
+    const { snapshot, state } = await this.requireRun(runId);
     const interrupted = snapshot.tasks.some((t) => (t.interrupts ?? []).length > 0);
     // Surface the router's decision only when a router actually ran (project-graph
     // text tasks). The message format is `Router → <topology>: <reason>`.

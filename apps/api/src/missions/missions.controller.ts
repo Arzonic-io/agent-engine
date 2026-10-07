@@ -5,6 +5,7 @@ import {
   Get,
   Inject,
   Param,
+  ParseUUIDPipe,
   Patch,
   Post,
   Sse,
@@ -123,7 +124,7 @@ export class MissionsController {
 
   /** What this mission's model calls cost — the dashboard's "Forbrug pr. rolle". */
   @Get(":id/usage")
-  usage(@Param("id") id: string): Promise<ApiUsageSummary> {
+  usage(@Param("id", new ParseUUIDPipe()) id: string): Promise<ApiUsageSummary> {
     return this.missions.usage(id);
   }
 

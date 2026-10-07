@@ -5,6 +5,7 @@ import {
   Get,
   Inject,
   Param,
+  ParseUUIDPipe,
   Post,
   Sse,
   type MessageEvent,
@@ -51,7 +52,7 @@ export class RunsController {
 
   /** What this run's model calls cost, per role — from the usage ledger. */
   @Get(":id/usage")
-  usage(@Param("id") id: string): Promise<ApiUsageSummary> {
+  usage(@Param("id", new ParseUUIDPipe()) id: string): Promise<ApiUsageSummary> {
     return this.runs.usage(id);
   }
 
