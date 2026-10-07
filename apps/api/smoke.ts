@@ -182,7 +182,7 @@ assert(listed.some((r) => r.runId === r2.runId), `GET /runs lists runs (${listed
 
 // usage route: a malformed id is a 400 and an unknown run a 404 — never a 500, and never
 // an empty 200 that looks like a real run with nothing measured. This smoke provides
-// USAGE: null, so a run that does exist can only answer "usage needs a database".
+// USAGE: null, so a run that does exist can only answer "not measured".
 const authed = { Authorization: `Bearer ${API_KEY}` };
 const badUsageId = await fetch(`${second.url}/runs/not-a-uuid/usage`, { headers: authed });
 const badUsageIdBody = await badUsageId.text();
@@ -195,8 +195,8 @@ assert(unknownUsage.status === 404, `GET /runs/<unknown uuid>/usage -> 404 (got 
 const noLedger = await fetch(`${second.url}/runs/${started.runId}/usage`, { headers: authed });
 const noLedgerBody = await noLedger.text();
 assert(
-  noLedger.status === 400 && noLedgerBody.includes("Usage needs a database"),
-  `GET /runs/<known run>/usage without a ledger -> 400 "Usage needs a database" (got ${noLedger.status}: ${noLedgerBody.slice(0, 80)})`,
+  noLedger.status === 400 && noLedgerBody.includes("not measured"),
+  `GET /runs/<known run>/usage without a ledger -> 400 "not measured" (got ${noLedger.status}: ${noLedgerBody.slice(0, 80)})`,
 );
 
 await second.app.close();

@@ -189,7 +189,9 @@ export class MissionsService {
       throw new NotFoundException(`No mission ${missionId}`);
     }
     if (!this.usageHandle) {
-      throw new BadRequestException("Usage needs a database — set SUPABASE_DB_URL.");
+      throw new BadRequestException(
+        "Model usage is not measured on this server — no database, or the usage ledger failed to start (see the API log).",
+      );
     }
     return this.usageHandle.ledger.missionSummary(missionId);
   }

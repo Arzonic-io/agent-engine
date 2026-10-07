@@ -146,6 +146,15 @@ function totalsOf(roles: UsageByRole[]): UsageTotals {
   };
 }
 
+/**
+ * Measured = at least one call with KNOWN usage. The counters are disjoint: unknownCalls counts only
+ * answered calls (status 'ok') without usage, while failed calls and gap rows never carry usage. So
+ * errorCalls is subtracted too — a mission or run whose calls all failed has measured nothing.
+ */
+function isMeasured(totals: UsageTotals): boolean {
+  return totals.calls - totals.droppedCalls - totals.unknownCalls - totals.errorCalls > 0;
+}
+
 export class UsageLedgerService implements UsageSink {
   private readonly pool: pg.Pool;
 
@@ -252,8 +261,9 @@ export class UsageLedgerService implements UsageSink {
       billable: num(row.billable),
       costUsd: round6(num(row.cost_usd)),
     }));
-    // Nothing measured is unknown, not zero: a mission that ran before the ledger has no cost per item.
-    const measured = totals.calls > 0;
+    // Nothing measured is unknown, not zero: a mission that ran before the ledger, or whose calls
+    // were all unmeasured, has no cost per item.
+    const measured = isMeasured(totals);
     const done = byItem.filter((item) => item.status === "done");
     const billableOnDone = sum(done.map((item) => item.billable));
     const billableOnOther = sum(byItem.filter((item) => item.status !== "done").map((item) => item.billable));
@@ -289,7 +299,7 @@ export class UsageLedgerService implements UsageSink {
       byItem: [],
       outcome: null,
       budgetCounted: null,
-      costComplete: totals.calls > 0 && totals.unknownCalls + totals.droppedCalls + totals.unpricedCalls === 0,
+      costComplete: isMeasured(totals) && totals.unknownCalls + totals.droppedCalls + totals.unpricedCalls === 0,
       firstCallAt: toIso((first.rows[0] as Row | undefined)?.first_at),
       priceTableVersion: PRICE_TABLE_VERSION,
     };

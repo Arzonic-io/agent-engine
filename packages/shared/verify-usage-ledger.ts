@@ -51,6 +51,8 @@ await ledger.setup(); // idempotent
 const pool = new pg.Pool({ connectionString: url });
 const projectId = randomUUID();
 const taskId = randomUUID();
+/** A run whose only call failed. */
+const failedRunId = randomUUID();
 await pool.query(`INSERT INTO projects (id, name) VALUES ($1, 'usage-ledger-verify')`, [projectId]);
 
 try {
@@ -176,6 +178,36 @@ try {
   );
   ok((await ledger.taskSummary(randomUUID())).costComplete === false, "a run with nothing measured has an incomplete cost too");
 
+  // Measured means at least one call with KNOWN usage. Gap rows and answered calls without usage
+  // measure nothing, so a finished item's cost stays unknown — null, not a measured-looking 0.
+  const onlyGaps = await backlog.createMission({ projectId, goal: "Only unmeasured calls", repoPath: "/tmp/usage-verify" });
+  const onlyGapsItem = await backlog.createItem({ missionId: onlyGaps.id, title: "Finished, its calls unmeasured" });
+  await backlog.updateItem(onlyGapsItem.id, { status: "done" });
+  await ledger.insert(row({ missionId: onlyGaps.id, itemId: onlyGapsItem.id, ...unknown }));
+  await ledger.insert(row({ missionId: onlyGaps.id, role: "unrecorded", status: "dropped", calls: 2, provider: null, model: null, ...unknown }));
+  const gapsOnly = await ledger.missionSummary(onlyGaps.id);
+  ok(
+    gapsOnly.totals.calls === 3 &&
+      gapsOnly.outcome?.itemsDone === 1 &&
+      gapsOnly.outcome.billablePerDoneItem === null &&
+      gapsOnly.outcome.costPerDoneItemUsd === null &&
+      gapsOnly.costComplete === false,
+    `a mission whose only calls are gap rows and unknown usage has no cost per finished item and an incomplete cost (got ${gapsOnly.outcome?.billablePerDoneItem}, ${gapsOnly.outcome?.costPerDoneItemUsd}, complete: ${gapsOnly.costComplete})`,
+  );
+  // A failed call carries no usage either: it measures nothing on a mission, nor on a run.
+  await ledger.insert(row({ missionId: onlyGaps.id, role: "missionCritic", status: "error", ...unknown }));
+  await ledger.insert(row({ missionId: null, taskId: failedRunId, role: "router", status: "error", ...unknown }));
+  const withError = await ledger.missionSummary(onlyGaps.id);
+  const failedRun = await ledger.taskSummary(failedRunId);
+  ok(
+    withError.totals.errorCalls === 1 &&
+      withError.outcome?.billablePerDoneItem === null &&
+      withError.costComplete === false &&
+      failedRun.totals.errorCalls === 1 &&
+      failedRun.costComplete === false,
+    `failed calls measure nothing either (got ${withError.outcome?.billablePerDoneItem}, complete: ${withError.costComplete}; a run whose only call failed, complete: ${failedRun.costComplete})`,
+  );
+
   // A row the database can never store is refused, not thrown: retrying it would stall the
   // recorder's queue behind it. Not only a missing mission (23503): a missing role breaks
   // NOT NULL (23502, an integrity error) and a fractional token count is a data error (22P02).
@@ -203,7 +235,7 @@ try {
 } finally {
   // Cascades: project → missions → items → their llm_usage rows.
   await pool.query(`DELETE FROM projects WHERE id = $1`, [projectId]);
-  await pool.query(`DELETE FROM llm_usage WHERE task_id = $1`, [taskId]); // no FK on task_id, so no cascade
+  await pool.query(`DELETE FROM llm_usage WHERE task_id = ANY($1::uuid[])`, [[taskId, failedRunId]]); // no FK on task_id, so no cascade
   await pool.end();
   await ledger.end();
   await backlog.end();

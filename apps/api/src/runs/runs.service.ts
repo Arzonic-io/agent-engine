@@ -336,7 +336,9 @@ export class RunsService implements OnModuleDestroy {
     // empty summary that looks like a real run with nothing measured.
     await this.requireRun(runId);
     if (!this.usageHandle) {
-      throw new BadRequestException("Usage needs a database — set SUPABASE_DB_URL.");
+      throw new BadRequestException(
+        "Model usage is not measured on this server — no database, or the usage ledger failed to start (see the API log).",
+      );
     }
     return this.usageHandle.ledger.taskSummary(runId);
   }
