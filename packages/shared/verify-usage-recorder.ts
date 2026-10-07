@@ -6,7 +6,8 @@
  * never loses a call silently: an unreachable ledger keeps rows and retries, a
  * row the ledger refuses for good is counted and leaves a gap row, and an overflow
  * leaves a gap row behind — also when calls finish while a write to the ledger
- * is still in flight.
+ * is still in flight. A throwing log never becomes an unhandled rejection, and
+ * close() says how many calls it could not write.
  * Fakes only — no key, no DB.
  * Run: pnpm --filter @arzonic/agent-shared exec tsx verify-usage-recorder.ts
  */
@@ -409,6 +410,53 @@ async function callFor(
     );
     await recorder.close();
   }
+}
+
+// ── 9. A log that throws inside a timed flush never becomes an unhandled rejection ──
+// Nothing awaits the timer's flush, so a rejection there would crash the process that only measures.
+{
+  let unhandled = 0;
+  const onUnhandled = (): void => {
+    unhandled += 1;
+  };
+  process.on("unhandledRejection", onUnhandled);
+  try {
+    const sink = new MemorySink();
+    sink.down = true;
+    const recorder = createUsageRecorder(sink, {
+      flushIntervalMs: 5,
+      log: () => {
+        throw new Error("log exploded");
+      },
+    });
+    await call(new ChatCached({}), "implementer", recorder.handler);
+    await new Promise((resolve) => setTimeout(resolve, 50)); // the timer fires several times
+    ok(unhandled === 0, `a throwing log inside the timer's flush is not an unhandled rejection (got ${unhandled})`);
+    await recorder.close(); // its report of what it could not write throws too, and must not escape
+  } finally {
+    process.off("unhandledRejection", onUnhandled);
+  }
+}
+
+// ── 10. close() says what it could not write ──
+{
+  const sink = new MemorySink();
+  sink.down = true;
+  const logs: string[] = [];
+  const recorder = createUsageRecorder(sink, { flushIntervalMs: 60_000, maxBuffered: 1, log: (m) => logs.push(m) });
+  const model = new ChatCached({});
+  await call(model, "survey", recorder.handler);
+  await call(model, "decompose", recorder.handler); // overflow: "survey" is dropped and owed as a gap row
+  await recorder.close();
+  const report = logs.filter((l) => l.includes("not written"));
+  ok(
+    report.length === 1 && report[0]!.includes("2 call(s)") && report[0]!.includes("1 of them as owed gap rows"),
+    `close() logs the calls it could not write, owed gap rows included (got ${JSON.stringify(report)})`,
+  );
+  ok(
+    recorder.stats().owed === 1 && recorder.stats().buffered === 1,
+    `stats() counts the owed calls next to the buffered ones (got ${JSON.stringify(recorder.stats())})`,
+  );
 }
 
 console.log("\nUsage recorder ✓");

@@ -190,6 +190,9 @@ async function main(): Promise<void> {
   const shutdown = () => {
     stopping = true;
     if (digestTimer) clearInterval(digestTimer);
+    // PM2's default kill_timeout (~1.6 s) usually SIGKILLs the worker before the end-of-loop
+    // close() below, so flush what is buffered now.
+    void usage?.recorder.flush();
     console.log("[mission-worker] shutdown requested — finishing current mission, then exiting.");
   };
   process.on("SIGTERM", shutdown);

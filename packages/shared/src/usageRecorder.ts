@@ -62,6 +62,8 @@ export interface UsageRecorderStats {
   rejected: number;
   /** Calls dropped because the buffer was full (each later written as part of a gap row). */
   dropped: number;
+  /** Calls lost — dropped, or refused by the ledger for good — whose gap rows are not written yet. */
+  owed: number;
 }
 
 export interface UsageRecorder {
@@ -70,7 +72,7 @@ export interface UsageRecorder {
   /** Write everything buffered now. Never throws. */
   flush(): Promise<void>;
   stats(): UsageRecorderStats;
-  /** Stop the timer and write what is left. */
+  /** Stop the timer and write what is left; log what still could not be written. */
   close(): Promise<void>;
 }
 
@@ -261,6 +263,9 @@ export function createUsageRecorder(sink: UsageSink, options: UsageRecorderOptio
   let writing = false;
   let inFlight: Promise<void> | null = null;
 
+  const buffered = (): number => buffer.length + (writing ? 1 : 0);
+  const owedCalls = (): number => [...owed.values()].reduce((total, gap) => total + gap.calls, 0);
+
   /** Remembers calls that never reached the ledger, so the next flush writes one gap row for them. */
   const owe = (lost: UsageRow): void => {
     const key = `${lost.missionId ?? ""}|${lost.taskId ?? ""}`;
@@ -345,18 +350,28 @@ export function createUsageRecorder(sink: UsageSink, options: UsageRecorderOptio
     return inFlight;
   };
 
-  const timer = setInterval(() => void flush(), flushIntervalMs);
+  // Nothing awaits the timer's flush: even a throwing injected `log` must not become an unhandled rejection.
+  const timer = setInterval(() => void flush().catch(() => undefined), flushIntervalMs);
   timer.unref?.();
 
   return {
     handler: new UsageCallbackHandler(record, now, cacheTtl),
     flush,
-    stats: () => ({ buffered: buffer.length + (writing ? 1 : 0), written, rejected, dropped }),
+    stats: () => ({ buffered: buffered(), written, rejected, dropped, owed: owedCalls() }),
     async close() {
       clearInterval(timer);
       await flush();
       // A call recorded while the previous drain was finishing.
       await flush();
+      // What could not be written is lost with the process: say so, never silently.
+      const owedNow = owedCalls();
+      const unwritten = buffered() + owedNow;
+      if (unwritten === 0) return;
+      try {
+        log(`[usage] closing with ${unwritten} call(s) not written to the ledger (${owedNow} of them as owed gap rows)`);
+      } catch {
+        // Reporting the loss must not break the shutdown it is part of.
+      }
     },
   };
 }
